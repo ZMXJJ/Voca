@@ -147,7 +147,8 @@ textarea {
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.field select {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.95);
@@ -157,9 +158,41 @@ textarea {
 }
 
 .field input:focus,
-.field textarea:focus {
+.field textarea:focus,
+.field select:focus {
   outline: 2px solid rgba(96, 165, 250, 0.35);
   border-color: rgba(96, 165, 250, 0.4);
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.inline-hint {
+  margin-top: 14px;
+  color: #8fa0b8;
+  font-size: 13px;
+}
+
+.prepare-panel {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.42);
+  color: #dbe7f5;
+  display: grid;
+  gap: 8px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 .primary-button {
@@ -170,6 +203,16 @@ textarea {
   font-weight: 700;
   color: #0f172a;
   background: linear-gradient(135deg, #7dd3fc, #c084fc);
+  cursor: pointer;
+}
+
+.secondary-button {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-weight: 600;
+  color: #dbeafe;
+  background: rgba(15, 23, 42, 0.92);
   cursor: pointer;
 }
 
@@ -193,6 +236,10 @@ textarea {
 }
 
 @media (max-width: 920px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+
   .status-grid {
     grid-template-columns: 1fr;
   }

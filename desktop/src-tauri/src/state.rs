@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::process::Child;
 use std::sync::Mutex;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppError {
     pub code: String,
@@ -33,7 +33,7 @@ pub struct SidecarStatus {
     pub reason: Option<String>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskResult {
     pub audio_path: Option<String>,
@@ -41,7 +41,7 @@ pub struct TaskResult {
     pub duration_ms: Option<u32>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskRecord {
     pub id: String,
@@ -55,12 +55,13 @@ pub struct TaskRecord {
     pub result: Option<TaskResult>,
 }
 
-#[allow(dead_code)]
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerationPayload {
     pub mode: String,
     pub target_text: String,
+    pub model_key: Option<String>,
+    pub provider_preference: Option<String>,
     pub control_instruction: Option<String>,
     pub reference_audio_path: Option<String>,
     pub prompt_text: Option<String>,
@@ -71,18 +72,22 @@ pub struct GenerationPayload {
     pub streaming: Option<bool>,
 }
 
+pub struct SidecarProcess {
+    pub child: Option<Child>,
+    pub port: u16,
+}
+
 pub struct AppState {
-    pub tasks: Mutex<HashMap<String, TaskRecord>>,
+    pub sidecar: Mutex<SidecarProcess>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            tasks: Mutex::new(HashMap::new()),
+            sidecar: Mutex::new(SidecarProcess {
+                child: None,
+                port: 8765,
+            }),
         }
     }
-}
-
-pub fn now_string() -> String {
-    format!("{:?}", std::time::SystemTime::now())
 }

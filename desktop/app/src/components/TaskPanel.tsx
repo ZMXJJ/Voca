@@ -1,14 +1,34 @@
 import { useState } from "react";
-import type { GenerationParams, TaskRecord } from "@voca/contracts";
+import type {
+  GenerationParams,
+  ModelPrepareResponse,
+  ProviderRecommendation,
+  TaskRecord,
+} from "@voca/contracts";
 
 type TaskPanelProps = {
   onSubmit: (payload: GenerationParams) => Promise<void>;
+  onPrepareModel: (
+    modelKey: string,
+    providerPreference: "auto" | "huggingface" | "modelscope",
+    ensureDownloaded: boolean,
+  ) => Promise<void>;
   currentTask: TaskRecord | null;
+  providerRecommendation: ProviderRecommendation | null;
+  preparedModel: ModelPrepareResponse | null;
 };
 
-export function TaskPanel({ onSubmit, currentTask }: TaskPanelProps) {
+export function TaskPanel({
+  onSubmit,
+  onPrepareModel,
+  currentTask,
+  providerRecommendation,
+  preparedModel,
+}: TaskPanelProps) {
   const [text, setText] = useState("欢迎使用 Voca。");
   const [controlInstruction, setControlInstruction] = useState("温柔、自然、偏年轻女性");
+  const [modelKey, setModelKey] = useState("voxcpm2-default");
+  const [providerPreference, setProviderPreference] = useState<"auto" | "huggingface" | "modelscope">("auto");
 
   return (
     <section className="task-panel">
@@ -36,12 +56,75 @@ export function TaskPanel({ onSubmit, currentTask }: TaskPanelProps) {
         />
       </label>
 
+      <div className="field-grid">
+        <label className="field">
+          <span>模型版本</span>
+          <select value={modelKey} onChange={(event) => setModelKey(event.target.value)}>
+            <option value="voxcpm2-default">VoxCPM2</option>
+            <option value="voxcpm1.5-default">VoxCPM1.5</option>
+            <option value="voxcpm-0.5b-default">VoxCPM-0.5B</option>
+          </select>
+        </label>
+
+        <label className="field">
+          <span>下载源策略</span>
+          <select
+            value={providerPreference}
+            onChange={(event) =>
+              setProviderPreference(event.target.value as "auto" | "huggingface" | "modelscope")
+            }
+          >
+            <option value="auto">自动选择（按 IP 推荐）</option>
+            <option value="huggingface">固定 Hugging Face</option>
+            <option value="modelscope">固定魔搭社区</option>
+          </select>
+        </label>
+      </div>
+
+      <p className="inline-hint">
+        当下载源策略为自动时，sidecar 会优先查询公网 IP，并通过百度 IP 地址查询接口判断地区；若命中中国大陆网络环境，则默认优先选择魔搭社区，否则默认选择 Hugging Face。
+      </p>
+
+      <div className="prepare-panel">
+        <div>
+          <strong>当前推荐：</strong>{" "}
+          {providerRecommendation
+            ? `${providerRecommendation.current}${providerRecommendation.location ? ` (${providerRecommendation.location})` : ""}`
+            : "尚未获取"}
+        </div>
+        <div>
+          <strong>模型状态：</strong>{" "}
+          {preparedModel
+            ? preparedModel.configExists
+              ? `已就绪，路径：${preparedModel.modelPath}`
+              : `未准备，目标目录：${preparedModel.modelPath}`
+            : "尚未检查"}
+        </div>
+      </div>
+
+      <div className="button-row">
+        <button
+          className="secondary-button"
+          onClick={() => onPrepareModel(modelKey, providerPreference, false)}
+        >
+          检查模型状态
+        </button>
+        <button
+          className="secondary-button"
+          onClick={() => onPrepareModel(modelKey, providerPreference, true)}
+        >
+          准备模型（会触发下载）
+        </button>
+      </div>
+
       <button
         className="primary-button"
         onClick={() =>
           onSubmit({
             mode: "voice_design",
             targetText: text,
+            modelKey,
+            providerPreference,
             controlInstruction,
             cfgValue: 2.0,
             inferenceTimesteps: 10,

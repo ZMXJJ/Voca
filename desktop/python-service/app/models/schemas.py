@@ -26,6 +26,51 @@ class ModelValidateRequest(BaseModel):
     modelPath: str
 
 
+class ProviderInfo(BaseModel):
+    repoId: str | None = None
+    modelId: str | None = None
+
+
+class ModelCatalogEntry(BaseModel):
+    modelKey: str
+    displayName: str
+    defaultProvider: Literal["huggingface", "modelscope"]
+    localDir: str
+    providers: dict[str, ProviderInfo]
+
+
+class ProviderRecommendation(BaseModel):
+    publicIp: str | None = None
+    location: str | None = None
+    preferred: Literal["auto", "huggingface", "modelscope"] = "auto"
+    recommended: Literal["huggingface", "modelscope", "local"]
+    current: Literal["huggingface", "modelscope", "local"]
+    reason: Literal[
+        "ip_region_cn",
+        "ip_region_global",
+        "manual_override",
+        "fallback_after_failure",
+        "provider_health",
+        "default_fallback",
+    ]
+    userOverridden: bool = False
+
+
+class ModelPrepareRequest(BaseModel):
+    modelKey: str = "voxcpm2-default"
+    providerPreference: Literal["auto", "huggingface", "modelscope"] = "auto"
+    ensureDownloaded: bool = False
+
+
+class ModelPrepareResponse(BaseModel):
+    modelKey: str
+    modelPath: str
+    provider: Literal["huggingface", "modelscope", "local"]
+    existsLocally: bool
+    configExists: bool
+    recommendation: ProviderRecommendation
+
+
 class ModelValidateResponse(BaseModel):
     valid: bool
     architecture: str | None = None
@@ -37,6 +82,8 @@ class ModelValidateResponse(BaseModel):
 class GenerationRequest(BaseModel):
     mode: Literal["quick_tts", "voice_design", "controllable_clone", "ultimate_clone"]
     targetText: str
+    modelKey: str = "voxcpm2-default"
+    providerPreference: Literal["auto", "huggingface", "modelscope"] = "auto"
     controlInstruction: str | None = None
     referenceAudioPath: str | None = None
     promptText: str | None = None
@@ -51,6 +98,9 @@ class TaskResult(BaseModel):
     audioPath: str | None = None
     sampleRate: int | None = None
     durationMs: int | None = None
+    modelKey: str | None = None
+    modelPath: str | None = None
+    provider: Literal["huggingface", "modelscope", "local"] | None = None
 
 
 class TaskRecord(BaseModel):

@@ -1,24 +1,33 @@
-use crate::state::{BootstrapState, SidecarStatus};
+use tauri::State;
+
+use crate::{
+    sidecar::ensure_sidecar_running,
+    state::{AppState, BootstrapState, SidecarStatus},
+};
 
 #[tauri::command]
-pub async fn get_bootstrap_state() -> BootstrapState {
-    BootstrapState {
+pub async fn get_bootstrap_state(state: State<'_, AppState>) -> Result<BootstrapState, String> {
+    let sidecar = ensure_sidecar_running(state.inner())
+        .await
+        .unwrap_or(SidecarStatus {
+            running: false,
+            healthy: false,
+            reason: Some("python_sidecar_boot_failed".into()),
+        });
+
+    Ok(BootstrapState {
         is_first_launch: true,
-        phase: "welcome".into(),
-        status: "idle".into(),
-        runtime_ready: false,
+        phase: if sidecar.healthy { "ready" } else { "welcome" }.into(),
+        status: if sidecar.healthy { "ready" } else { "idle" }.into(),
+        runtime_ready: sidecar.running,
         model_ready: false,
-        sidecar_ready: false,
+        sidecar_ready: sidecar.healthy,
         current_download_job_id: None,
         last_error: None,
-    }
+    })
 }
 
 #[tauri::command]
-pub async fn get_sidecar_status() -> SidecarStatus {
-    SidecarStatus {
-        running: false,
-        healthy: false,
-        reason: Some("python_sidecar_not_connected".into()),
-    }
+pub async fn get_sidecar_status(state: State<'_, AppState>) -> Result<SidecarStatus, String> {
+    ensure_sidecar_running(state.inner()).await
 }

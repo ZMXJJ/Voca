@@ -4,7 +4,13 @@ import threading
 import uuid
 from datetime import UTC, datetime
 
-from app.models.schemas import AppError, GenerationRequest, TaskRecord, TaskResult
+from app.models.schemas import (
+    AppError,
+    GenerationRequest,
+    ModelPrepareResponse,
+    TaskRecord,
+    TaskResult,
+)
 from app.services.voxcpm_bridge import VoxCPMBridge
 
 
@@ -13,6 +19,28 @@ class TaskManager:
         self._tasks: dict[str, TaskRecord] = {}
         self._lock = threading.Lock()
         self._bridge = VoxCPMBridge()
+
+    def is_model_loaded(self) -> bool:
+        return self._bridge.is_model_loaded()
+
+    def list_models(self):
+        return self._bridge.list_models()
+
+    def get_provider_recommendation(self, preferred: str = "auto"):
+        return self._bridge.get_provider_recommendation(preferred)
+
+    def prepare_model(
+        self,
+        model_key: str,
+        provider_preference: str = "auto",
+        *,
+        ensure_downloaded: bool = False,
+    ) -> ModelPrepareResponse:
+        return self._bridge.prepare_model(
+            model_key=model_key,
+            provider_preference=provider_preference,
+            ensure_downloaded=ensure_downloaded,
+        )
 
     def create_generate_task(self, payload: GenerationRequest) -> TaskRecord:
         task_id = str(uuid.uuid4())
@@ -41,29 +69,33 @@ class TaskManager:
             return self._tasks.get(task_id)
 
     def _run_generate_task(self, task_id: str, payload: GenerationRequest) -> None:
-        self._update_task(task_id, status="running", progress=35, message="Generating placeholder audio")
+        self._update_task(task_id, status="running", progress=10, message="Resolving model source")
         try:
-            audio_path, sample_rate, duration_ms = self._bridge.generate_placeholder_audio(
+            self._update_task(task_id, status="running", progress=35, message="Loading VoxCPM model")
+            audio_path, sample_rate, duration_ms, model_key, provider = self._bridge.generate_audio(
                 task_id=task_id,
-                target_text=payload.targetText,
+                payload=payload,
             )
             self._update_task(
                 task_id,
                 status="succeeded",
                 progress=100,
-                message="Placeholder audio generated",
+                message="Audio generated successfully",
                 result=TaskResult(
                     audioPath=audio_path,
                     sampleRate=sample_rate,
                     durationMs=duration_ms,
+                    modelKey=model_key,
+                    modelPath=self._bridge._loaded_model_path,
+                    provider=provider,
                 ),
             )
-        except Exception as exc:  # pragma: no cover - placeholder error fallback
+        except Exception as exc:  # pragma: no cover - environment-specific runtime fallback
             self._update_task(
                 task_id,
                 status="failed",
                 progress=100,
-                message="Failed to generate placeholder audio",
+                message="Failed to generate audio",
                 error=AppError(
                     code="INFER_RUNTIME_ERROR",
                     message=str(exc),

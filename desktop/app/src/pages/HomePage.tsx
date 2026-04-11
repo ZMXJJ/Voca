@@ -1,19 +1,31 @@
-import type { BootstrapState, SidecarStatus, TaskRecord } from "@voca/contracts";
+import type {
+  BootstrapState,
+  ModelPrepareResponse,
+  ProviderRecommendation,
+  SidecarStatus,
+  TaskRecord,
+} from "@voca/contracts";
 import { StatusCard } from "../components/StatusCard";
 import { TaskPanel } from "../components/TaskPanel";
 
 type HomePageProps = {
   bootstrapState: BootstrapState;
   sidecarStatus: SidecarStatus;
+  providerRecommendation: ProviderRecommendation | null;
+  preparedModel: ModelPrepareResponse | null;
   currentTask: TaskRecord | null;
   onSubmitTask: Parameters<typeof TaskPanel>[0]["onSubmit"];
+  onPrepareModel: Parameters<typeof TaskPanel>[0]["onPrepareModel"];
 };
 
 export function HomePage({
   bootstrapState,
   sidecarStatus,
+  providerRecommendation,
+  preparedModel,
   currentTask,
   onSubmitTask,
+  onPrepareModel,
 }: HomePageProps) {
   return (
     <main className="page-shell">
@@ -45,9 +57,35 @@ export function HomePage({
           value={sidecarStatus.running ? "running" : "offline"}
           hint={sidecarStatus.healthy ? "health check ok" : sidecarStatus.reason ?? "waiting"}
         />
+        <StatusCard
+          title="Provider 推荐"
+          value={providerRecommendation?.current ?? "unknown"}
+          hint={
+            providerRecommendation?.location
+              ? `位置：${providerRecommendation.location}`
+              : "后续会根据公网 IP 与下载策略计算推荐源"
+          }
+        />
+        <StatusCard
+          title="模型准备状态"
+          value={
+            preparedModel
+              ? preparedModel.configExists
+                ? "model ready"
+                : "model missing"
+              : "unchecked"
+          }
+          hint={preparedModel ? preparedModel.modelPath : "尚未检查本地模型目录"}
+        />
       </section>
 
-      <TaskPanel onSubmit={onSubmitTask} currentTask={currentTask} />
+      <TaskPanel
+        onSubmit={onSubmitTask}
+        currentTask={currentTask}
+        providerRecommendation={providerRecommendation}
+        preparedModel={preparedModel}
+        onPrepareModel={onPrepareModel}
+      />
     </main>
   );
 }

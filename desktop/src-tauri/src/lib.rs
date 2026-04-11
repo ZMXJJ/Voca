@@ -1,7 +1,9 @@
 mod commands;
+mod sidecar;
 mod state;
 
 use commands::bootstrap::{get_bootstrap_state, get_sidecar_status};
+use commands::models::{get_model_catalog, get_provider_recommendation, prepare_model};
 use commands::tasks::{create_generate_task, get_task};
 use state::AppState;
 
@@ -12,6 +14,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_bootstrap_state,
             get_sidecar_status,
+            get_model_catalog,
+            get_provider_recommendation,
+            prepare_model,
             create_generate_task,
             get_task
         ])

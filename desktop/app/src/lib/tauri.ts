@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { BootstrapState, GenerationParams, SidecarStatus, TaskRecord } from "@voca/contracts";
+import type {
+  BootstrapState,
+  GenerationParams,
+  ModelCatalogEntry,
+  ModelPrepareResponse,
+  ProviderPreference,
+  ProviderRecommendation,
+  SidecarStatus,
+  TaskRecord,
+} from "@voca/contracts";
 
 const fallbackBootstrapState: BootstrapState = {
   isFirstLaunch: true,
@@ -44,5 +53,47 @@ export async function createGenerateTask(payload: GenerationParams): Promise<Tas
       result: null,
       error: null,
     };
+  }
+}
+
+export async function getTask(taskId: string): Promise<TaskRecord | null> {
+  try {
+    return await invoke<TaskRecord>("get_task", { taskId });
+  } catch {
+    return null;
+  }
+}
+
+export async function getModelCatalog(): Promise<ModelCatalogEntry[]> {
+  try {
+    return await invoke<ModelCatalogEntry[]>("get_model_catalog");
+  } catch {
+    return [];
+  }
+}
+
+export async function getProviderRecommendation(
+  preferred: ProviderPreference = "auto",
+): Promise<ProviderRecommendation | null> {
+  try {
+    return await invoke<ProviderRecommendation>("get_provider_recommendation", { preferred });
+  } catch {
+    return null;
+  }
+}
+
+export async function prepareModel(
+  modelKey: string,
+  providerPreference: ProviderPreference,
+  ensureDownloaded = false,
+): Promise<ModelPrepareResponse | null> {
+  try {
+    return await invoke<ModelPrepareResponse>("prepare_model", {
+      modelKey,
+      providerPreference,
+      ensureDownloaded,
+    });
+  } catch {
+    return null;
   }
 }

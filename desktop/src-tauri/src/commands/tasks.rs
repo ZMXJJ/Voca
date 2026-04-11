@@ -1,7 +1,9 @@
 use tauri::State;
-use uuid::Uuid;
 
-use crate::state::{now_string, AppState, GenerationPayload, TaskRecord, TaskResult};
+use crate::{
+    sidecar::{ensure_sidecar_running, get_json, post_json},
+    state::{AppState, GenerationPayload, TaskRecord},
+};
 
 #[tauri::command]
 pub async fn create_generate_task(
@@ -12,40 +14,17 @@ pub async fn create_generate_task(
         return Err("targetText cannot be empty".into());
     }
 
-    let id = Uuid::new_v4().to_string();
-    let now = now_string();
-    let task = TaskRecord {
-        id: id.clone(),
-        r#type: "generate".into(),
-        status: "queued".into(),
-        created_at: now.clone(),
-        updated_at: now,
-        progress: Some(0),
-        message: Some(format!("P0 skeleton accepted task in mode {}", payload.mode)),
-        error: None,
-        result: Some(TaskResult {
-            audio_path: Some("/tmp/voca-placeholder.wav".into()),
-            sample_rate: Some(24000),
-            duration_ms: Some(1000),
-        }),
-    };
+    let sidecar = ensure_sidecar_running(state.inner()).await?;
+    if !sidecar.healthy {
+        return Err(sidecar
+            .reason
+            .unwrap_or_else(|| "python_sidecar_not_ready".into()));
+    }
 
-    state
-        .tasks
-        .lock()
-        .map_err(|_| "failed to lock task store".to_string())?
-        .insert(id, task.clone());
-
-    Ok(task)
+    post_json(state.inner(), "/api/v1/tasks/generate", &payload).await
 }
 
 #[tauri::command]
 pub async fn get_task(state: State<'_, AppState>, task_id: String) -> Result<TaskRecord, String> {
-    state
-        .tasks
-        .lock()
-        .map_err(|_| "failed to lock task store".to_string())?
-        .get(&task_id)
-        .cloned()
-        .ok_or_else(|| "task not found".to_string())
+    get_json(state.inner(), &format!("/api/v1/tasks/{task_id}")).await
 }
