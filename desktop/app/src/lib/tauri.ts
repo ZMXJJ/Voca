@@ -9,6 +9,7 @@ import type {
   SidecarStatus,
   TaskRecord,
 } from "@voca/contracts";
+import i18n from "../i18n";
 
 const fallbackBootstrapState: BootstrapState = {
   isFirstLaunch: true,
@@ -49,7 +50,7 @@ export async function createGenerateTask(payload: GenerationParams): Promise<Tas
       createdAt: now,
       updatedAt: now,
       progress: 0,
-      message: "Tauri command 尚未连通，当前展示的是前端降级占位数据。",
+      message: i18n.t("system.tauriFallbackTaskMessage"),
       result: null,
       error: null,
     };
