@@ -11,6 +11,9 @@ desktop/app/node_modules/
 desktop/app/dist/
 desktop/src-tauri/target/
 desktop/python-service/.venv/
+desktop/python-service/**/*.egg-info/
+desktop/python-service/**/__pycache__/
+desktop/python-service/**/*.pyc
 
 # Logs and caches
 *.log
