@@ -1,0 +1,17 @@
+{
+  "name": "voca-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:web": "npm --prefix app run dev",
+    "build:web": "npm --prefix app run build",
+    "lint:web": "npm --prefix app run lint",
+    "typecheck:web": "npm --prefix app exec tsc -- -b",
+    "tauri": "tauri",
+    "dev": "export SDKROOT=\"$(xcrun --sdk macosx --show-sdk-path)\" && export CPATH=\"$SDKROOT/usr/include\" && tauri dev",
+    "build": "export SDKROOT=\"$(xcrun --sdk macosx --show-sdk-path)\" && export CPATH=\"$SDKROOT/usr/include\" && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

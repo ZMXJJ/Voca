@@ -1,0 +1,16 @@
+.DS_Store
+
+# Local planning / working files
+findings.md
+progress.md
+task_plan.md
+
+# Desktop app build artifacts
+desktop/node_modules/
+desktop/app/node_modules/
+desktop/app/dist/
+desktop/src-tauri/target/
+desktop/python-service/.venv/
+
+# Logs and caches
+*.log

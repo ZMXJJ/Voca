@@ -1,0 +1,17 @@
+[project]
+name = "voca-python-service"
+version = "0.1.0"
+description = "Local Python sidecar for the Voca desktop app."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "fastapi>=0.116.0",
+    "pydantic>=2.11.0",
+    "uvicorn>=0.35.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

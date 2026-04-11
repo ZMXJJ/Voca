@@ -1,0 +1,88 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppError {
+    pub code: String,
+    pub message: Option<String>,
+    pub user_message_key: String,
+    pub severity: String,
+    pub recoverable: bool,
+    pub actions: Vec<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapState {
+    pub is_first_launch: bool,
+    pub phase: String,
+    pub status: String,
+    pub runtime_ready: bool,
+    pub model_ready: bool,
+    pub sidecar_ready: bool,
+    pub current_download_job_id: Option<String>,
+    pub last_error: Option<AppError>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct SidecarStatus {
+    pub running: bool,
+    pub healthy: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskResult {
+    pub audio_path: Option<String>,
+    pub sample_rate: Option<u32>,
+    pub duration_ms: Option<u32>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRecord {
+    pub id: String,
+    pub r#type: String,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub progress: Option<u8>,
+    pub message: Option<String>,
+    pub error: Option<AppError>,
+    pub result: Option<TaskResult>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationPayload {
+    pub mode: String,
+    pub target_text: String,
+    pub control_instruction: Option<String>,
+    pub reference_audio_path: Option<String>,
+    pub prompt_text: Option<String>,
+    pub cfg_value: Option<f32>,
+    pub inference_timesteps: Option<u32>,
+    pub normalize: Option<bool>,
+    pub denoise: Option<bool>,
+    pub streaming: Option<bool>,
+}
+
+pub struct AppState {
+    pub tasks: Mutex<HashMap<String, TaskRecord>>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            tasks: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+pub fn now_string() -> String {
+    format!("{:?}", std::time::SystemTime::now())
+}

@@ -1,0 +1,3 @@
+[submodule "VoxCPM"]
+	path = VoxCPM
+	url = https://github.com/ZMXJJ/VoxCPM.git
