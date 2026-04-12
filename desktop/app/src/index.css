@@ -736,6 +736,15 @@ p {
   text-align: left;
   background: rgba(255, 255, 255, 0.64);
   box-shadow: 0 8px 20px rgba(45, 51, 56, 0.03);
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.workspace-nav__item:hover {
+  transform: translateY(-1px);
 }
 
 .workspace-nav__item--active {
@@ -823,6 +832,28 @@ p {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.95fr);
   gap: 24px;
+}
+
+.workspace-stack {
+  display: grid;
+  gap: 24px;
+}
+
+.page-grid {
+  display: grid;
+  gap: 24px;
+}
+
+.page-grid--history {
+  grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr);
+}
+
+.page-grid--settings {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.page-grid--settings .summary-card {
+  grid-column: 1 / -1;
 }
 
 .composer-column,
@@ -1030,6 +1061,11 @@ select.input-field:focus {
   font-size: 0.98rem;
 }
 
+.summary-card__copy {
+  margin: 10px 0 20px;
+  color: var(--muted);
+}
+
 .action-card__foot {
   display: flex;
   justify-content: space-between;
@@ -1124,6 +1160,103 @@ select.input-field:focus {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.history-empty-card {
+  min-height: 320px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.history-empty-card__icon {
+  width: 68px;
+  height: 68px;
+  display: grid;
+  place-items: center;
+  border-radius: 24px;
+  background: rgba(242, 244, 246, 0.92);
+  color: var(--primary);
+  font-size: 1.5rem;
+}
+
+.history-empty-card p {
+  max-width: 420px;
+  color: var(--muted);
+}
+
+.history-list {
+  display: grid;
+  gap: 16px;
+}
+
+.history-item,
+.settings-list__item {
+  padding: 18px 20px;
+  border-radius: 22px;
+  background: rgba(242, 244, 246, 0.92);
+}
+
+.history-item__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.history-item__top strong,
+.settings-list__item strong {
+  font-size: 1rem;
+}
+
+.history-item__top p,
+.history-item__body p,
+.settings-list__item p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.history-meta,
+.settings-grid,
+.settings-list {
+  display: grid;
+  gap: 16px;
+}
+
+.history-meta {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.history-meta div {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.history-meta dt {
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.history-meta dd {
+  margin: 6px 0 0;
+  color: var(--text);
+}
+
+.history-item__body {
+  margin-top: 16px;
+}
+
+.settings-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-card {
+  display: grid;
+  gap: 20px;
+}
+
 @keyframes glint {
   from {
     transform: translateX(-100%);
@@ -1154,6 +1287,12 @@ select.input-field:focus {
   .workspace-grid {
     grid-template-columns: 1fr;
   }
+
+  .page-grid--history,
+  .page-grid--settings,
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 820px) {
@@ -1171,6 +1310,7 @@ select.input-field:focus {
   .stats-grid,
   .complete-grid,
   .metrics-grid,
+  .history-meta,
   .welcome-grid,
   .reference-grid,
   .inline-grid,

@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::{
     sidecar::ensure_sidecar_running,
@@ -6,8 +6,11 @@ use crate::{
 };
 
 #[tauri::command]
-pub async fn get_bootstrap_state(state: State<'_, AppState>) -> Result<BootstrapState, String> {
-    let sidecar = ensure_sidecar_running(state.inner())
+pub async fn get_bootstrap_state(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<BootstrapState, String> {
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner())
         .await
         .unwrap_or(SidecarStatus {
             running: false,
@@ -28,6 +31,9 @@ pub async fn get_bootstrap_state(state: State<'_, AppState>) -> Result<Bootstrap
 }
 
 #[tauri::command]
-pub async fn get_sidecar_status(state: State<'_, AppState>) -> Result<SidecarStatus, String> {
-    ensure_sidecar_running(state.inner()).await
+pub async fn get_sidecar_status(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<SidecarStatus, String> {
+    ensure_sidecar_running(&app_handle, state.inner()).await
 }

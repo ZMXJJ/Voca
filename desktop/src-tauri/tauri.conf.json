@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.voca.desktop",
   "build": {
-    "beforeDevCommand": "npm --prefix ../app run dev",
-    "beforeBuildCommand": "npm --prefix ../app run build",
+    "beforeDevCommand": "npm --prefix app run dev",
+    "beforeBuildCommand": "npm --prefix app run build",
     "frontendDist": "../app/dist",
     "devUrl": "http://127.0.0.1:1420"
   },
@@ -26,6 +26,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.png"]
+    "icon": ["icons/icon.png", "icons/icon.icns"],
+    "resources": {
+      "../.bundle-resources/python-service/app/**/*": "python-service/app/",
+      "../.bundle-resources/python-service/.venv/**/*": "python-service/.venv/",
+      "../.bundle-resources/manifest.json": "python-service/manifest.json",
+      "../.bundle-resources/python-runtime/**/*": "python-runtime/",
+      "../.bundle-resources/VoxCPM/src/**/*": "VoxCPM/src/"
+    }
   }
 }

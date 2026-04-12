@@ -1,25 +1,108 @@
 use std::{
+    env,
+    ffi::OsString,
+    fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     time::Duration,
 };
 
 use reqwest::Client;
+use tauri::{AppHandle, Manager};
 
 use crate::state::{AppState, SidecarStatus};
 
 const SIDECAR_HOST: &str = "127.0.0.1";
 const HEALTH_RETRIES: usize = 20;
 
-fn python_service_root() -> PathBuf {
+struct SidecarPaths {
+    service_root: PathBuf,
+    python_executable: PathBuf,
+    python_path_entries: Vec<PathBuf>,
+    bundle_resource_dir: Option<PathBuf>,
+    voxcpm_src: PathBuf,
+}
+
+fn desktop_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("desktop root should exist")
-        .join("python-service")
+        .to_path_buf()
 }
 
-fn python_executable() -> PathBuf {
-    python_service_root().join(".venv/bin/python")
+fn repo_root() -> PathBuf {
+    desktop_root()
+        .parent()
+        .expect("repo root should exist")
+        .to_path_buf()
+}
+
+fn detect_site_packages(venv_root: &Path) -> Option<PathBuf> {
+    let lib_root = venv_root.join("lib");
+    let entries = fs::read_dir(lib_root).ok()?;
+
+    for entry in entries.flatten() {
+        let site_packages = entry.path().join("site-packages");
+        if site_packages.exists() {
+            return Some(site_packages);
+        }
+    }
+
+    None
+}
+
+fn find_python_executable(bin_root: &Path) -> Option<PathBuf> {
+    ["python3.11", "python3", "python"]
+        .into_iter()
+        .map(|name| bin_root.join(name))
+        .find(|path| path.exists())
+}
+
+fn resolve_dev_sidecar_paths() -> SidecarPaths {
+    let service_root = desktop_root().join("python-service");
+    let voxcpm_src = repo_root().join("VoxCPM").join("src");
+
+    SidecarPaths {
+        python_executable: service_root.join(".venv/bin/python"),
+        python_path_entries: Vec::new(),
+        bundle_resource_dir: None,
+        voxcpm_src,
+        service_root,
+    }
+}
+
+fn resolve_bundled_sidecar_paths(app_handle: &AppHandle) -> Option<SidecarPaths> {
+    let resource_dir = app_handle.path().resource_dir().ok()?;
+    let service_root = resource_dir.join("python-service");
+    let runtime_root = resource_dir.join("python-runtime");
+    let python_executable = find_python_executable(&runtime_root.join("bin"))?;
+    let site_packages = detect_site_packages(&service_root.join(".venv"))?;
+    let voxcpm_src = resource_dir.join("VoxCPM").join("src");
+
+    if !service_root.join("app").exists() || !voxcpm_src.exists() {
+        return None;
+    }
+
+    Some(SidecarPaths {
+        python_executable,
+        python_path_entries: vec![service_root.clone(), site_packages, voxcpm_src.clone()],
+        bundle_resource_dir: Some(resource_dir),
+        voxcpm_src,
+        service_root,
+    })
+}
+
+fn resolve_sidecar_paths(app_handle: &AppHandle) -> SidecarPaths {
+    resolve_bundled_sidecar_paths(app_handle).unwrap_or_else(resolve_dev_sidecar_paths)
+}
+
+fn build_python_path(extra_paths: &[PathBuf]) -> Result<OsString, String> {
+    let mut all_paths = extra_paths.to_vec();
+    if let Some(existing) = env::var_os("PYTHONPATH") {
+        all_paths.extend(env::split_paths(&existing));
+    }
+
+    env::join_paths(all_paths).map_err(|error| error.to_string())
 }
 
 fn sidecar_url(port: u16) -> String {
@@ -36,7 +119,10 @@ async fn fetch_health(client: &Client, port: u16) -> Result<bool, String> {
     Ok(response.status().is_success())
 }
 
-pub async fn ensure_sidecar_running(state: &AppState) -> Result<SidecarStatus, String> {
+pub async fn ensure_sidecar_running(
+    app_handle: &AppHandle,
+    state: &AppState,
+) -> Result<SidecarStatus, String> {
     let port = {
         let guard = state
             .sidecar
@@ -54,8 +140,8 @@ pub async fn ensure_sidecar_running(state: &AppState) -> Result<SidecarStatus, S
         });
     }
 
-    let python_path = python_executable();
-    if !python_path.exists() {
+    let sidecar_paths = resolve_sidecar_paths(app_handle);
+    if !sidecar_paths.python_executable.exists() {
         return Ok(SidecarStatus {
             running: false,
             healthy: false,
@@ -75,7 +161,8 @@ pub async fn ensure_sidecar_running(state: &AppState) -> Result<SidecarStatus, S
         };
 
         if should_spawn {
-            let child = Command::new(&python_path)
+            let mut command = Command::new(&sidecar_paths.python_executable);
+            command
                 .args([
                     "-m",
                     "uvicorn",
@@ -87,11 +174,24 @@ pub async fn ensure_sidecar_running(state: &AppState) -> Result<SidecarStatus, S
                     "--log-level",
                     "warning",
                 ])
-                .current_dir(python_service_root())
+                .current_dir(&sidecar_paths.service_root)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
-                .spawn()
-                .map_err(|error| error.to_string())?;
+                .env("VOCA_PYTHON_SERVICE_ROOT", &sidecar_paths.service_root)
+                .env("VOCA_VOXCPM_SRC", &sidecar_paths.voxcpm_src);
+
+            if !sidecar_paths.python_path_entries.is_empty() {
+                command.env(
+                    "PYTHONPATH",
+                    build_python_path(&sidecar_paths.python_path_entries)?,
+                );
+            }
+
+            if let Some(resource_dir) = &sidecar_paths.bundle_resource_dir {
+                command.env("VOCA_BUNDLE_RESOURCE_DIR", resource_dir);
+            }
+
+            let child = command.spawn().map_err(|error| error.to_string())?;
 
             guard.child = Some(child);
         }

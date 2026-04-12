@@ -7,9 +7,11 @@
     "build:web": "npm --prefix app run build",
     "lint:web": "npm --prefix app run lint",
     "typecheck:web": "npm --prefix app exec tsc -- -b",
+    "prepare:dmg": "node ./scripts/prepare-dmg-resources.mjs",
     "tauri": "tauri",
     "dev": "export SDKROOT=\"$(xcrun --sdk macosx --show-sdk-path)\" && export CPATH=\"$SDKROOT/usr/include\" && tauri dev",
-    "build": "export SDKROOT=\"$(xcrun --sdk macosx --show-sdk-path)\" && export CPATH=\"$SDKROOT/usr/include\" && tauri build"
+    "build": "export SDKROOT=\"$(xcrun --sdk macosx --show-sdk-path)\" && export CPATH=\"$SDKROOT/usr/include\" && tauri build",
+    "build:dmg": "npm run prepare:dmg && export SDKROOT=\"$(xcrun --sdk macosx --show-sdk-path)\" && export CPATH=\"$SDKROOT/usr/include\" && tauri build --bundles dmg"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"

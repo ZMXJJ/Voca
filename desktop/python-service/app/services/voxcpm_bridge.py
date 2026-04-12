@@ -12,11 +12,26 @@ from app.services.model_catalog import get_model_entry, list_model_entries
 from app.services.provider_router import recommend_provider
 
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-VOXCPM_ROOT = REPO_ROOT / "VoxCPM"
-VOXCPM_SRC = VOXCPM_ROOT / "src"
+def _resolve_voxcpm_src() -> Path:
+    explicit_src = os.environ.get("VOCA_VOXCPM_SRC", "").strip()
+    if explicit_src:
+        candidate = Path(explicit_src)
+        if candidate.exists():
+            return candidate
 
-if str(VOXCPM_SRC) not in sys.path:
+    bundle_resource_dir = os.environ.get("VOCA_BUNDLE_RESOURCE_DIR", "").strip()
+    if bundle_resource_dir:
+        candidate = Path(bundle_resource_dir) / "VoxCPM" / "src"
+        if candidate.exists():
+            return candidate
+
+    repo_root = Path(__file__).resolve().parents[4]
+    return repo_root / "VoxCPM" / "src"
+
+
+VOXCPM_SRC = _resolve_voxcpm_src()
+
+if VOXCPM_SRC.exists() and str(VOXCPM_SRC) not in sys.path:
     sys.path.insert(0, str(VOXCPM_SRC))
 
 

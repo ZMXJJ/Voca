@@ -10,6 +10,7 @@ import type {
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { PreviewDock } from "./components/PreviewDock";
+import { loadPersistedTaskHistory, normalizeTaskHistory, savePersistedTaskHistory } from "./lib/historyStorage";
 import { BootstrapFlowPage } from "./pages/BootstrapFlowPage";
 import { PreviewGalleryPage } from "./pages/PreviewGalleryPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
@@ -175,6 +176,10 @@ function createPreviewTask(task: TaskRecord | null): TaskRecord {
   };
 }
 
+function upsertTaskHistory(history: TaskRecord[], task: TaskRecord): TaskRecord[] {
+  return normalizeTaskHistory([task, ...history.filter((item) => item.id !== task.id)]);
+}
+
 function App() {
   const { t } = useTranslation();
   const [bootstrapState, setBootstrapState] = useState<BootstrapState | null>(null);
@@ -186,6 +191,7 @@ function App() {
   const [providerRecommendation, setProviderRecommendation] = useState<ProviderRecommendation | null>(null);
   const [preparedModel, setPreparedModel] = useState<ModelPrepareResponse | null>(null);
   const [currentTask, setCurrentTask] = useState<TaskRecord | null>(null);
+  const [taskHistory, setTaskHistory] = useState<TaskRecord[]>(() => loadPersistedTaskHistory());
   const [completionAcknowledged, setCompletionAcknowledged] = useState(false);
   const [previewMode, setPreviewMode] = useState<PreviewMode>(() =>
     typeof window === "undefined" ? "live" : getPreviewModeFromSearch(window.location.search),
@@ -209,6 +215,10 @@ function App() {
   }, []);
 
   useEffect(() => {
+    savePersistedTaskHistory(taskHistory);
+  }, [taskHistory]);
+
+  useEffect(() => {
     if (!currentTask || ["succeeded", "failed", "cancelled"].includes(currentTask.status)) {
       return;
     }
@@ -217,6 +227,7 @@ function App() {
       void getTask(currentTask.id).then((task) => {
         if (task) {
           setCurrentTask(task);
+          setTaskHistory((history) => upsertTaskHistory(history, task));
         }
       });
     }, 600);
@@ -238,6 +249,7 @@ function App() {
   const handleSubmitTask = async (payload: GenerationParams) => {
     const task = await createGenerateTask(payload);
     setCurrentTask(task);
+    setTaskHistory((history) => upsertTaskHistory(history, task));
   };
 
   const setPreviewInUrl = (mode: PreviewMode) => {
@@ -262,6 +274,7 @@ function App() {
 
   const previewRecommendation = providerRecommendation ?? fallbackProviderRecommendation;
   const previewTask = createPreviewTask(currentTask);
+  const previewTaskHistory = taskHistory.length > 0 ? upsertTaskHistory(taskHistory, previewTask) : [previewTask];
   const renderPreviewScene = (scene: SinglePreviewScene) => {
     const previewBootstrapState = createPreviewBootstrapState(bootstrapState ?? fallbackBootstrapState, scene);
     const previewSidecarStatus = createPreviewSidecarStatus(sidecarStatus, scene);
@@ -275,6 +288,7 @@ function App() {
           providerRecommendation={previewRecommendation}
           preparedModel={previewPreparedModel}
           currentTask={previewTask}
+          taskHistory={previewTaskHistory}
           onPrepareModel={handlePrepareModel}
           onSubmitTask={handleSubmitTask}
         />
@@ -425,6 +439,7 @@ function App() {
         providerRecommendation={providerRecommendation}
         preparedModel={preparedModel}
         currentTask={currentTask}
+        taskHistory={taskHistory}
         onPrepareModel={handlePrepareModel}
         onSubmitTask={handleSubmitTask}
       />

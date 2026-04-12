@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::{
     sidecar::{ensure_sidecar_running, get_json, post_json},
@@ -7,6 +7,7 @@ use crate::{
 
 #[tauri::command]
 pub async fn create_generate_task(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     payload: GenerationPayload,
 ) -> Result<TaskRecord, String> {
@@ -14,7 +15,7 @@ pub async fn create_generate_task(
         return Err("targetText cannot be empty".into());
     }
 
-    let sidecar = ensure_sidecar_running(state.inner()).await?;
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
     if !sidecar.healthy {
         return Err(sidecar
             .reason

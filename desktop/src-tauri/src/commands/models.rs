@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::{
     sidecar::{ensure_sidecar_running, get_json, post_json},
@@ -6,8 +6,11 @@ use crate::{
 };
 
 #[tauri::command]
-pub async fn get_model_catalog(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let sidecar = ensure_sidecar_running(state.inner()).await?;
+pub async fn get_model_catalog(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
     if !sidecar.healthy {
         return Err(sidecar
             .reason
@@ -19,10 +22,11 @@ pub async fn get_model_catalog(state: State<'_, AppState>) -> Result<serde_json:
 
 #[tauri::command]
 pub async fn get_provider_recommendation(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     preferred: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let sidecar = ensure_sidecar_running(state.inner()).await?;
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
     if !sidecar.healthy {
         return Err(sidecar
             .reason
@@ -39,12 +43,13 @@ pub async fn get_provider_recommendation(
 
 #[tauri::command]
 pub async fn prepare_model(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     model_key: String,
     provider_preference: Option<String>,
     ensure_downloaded: Option<bool>,
 ) -> Result<serde_json::Value, String> {
-    let sidecar = ensure_sidecar_running(state.inner()).await?;
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
     if !sidecar.healthy {
         return Err(sidecar
             .reason

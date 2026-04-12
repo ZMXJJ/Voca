@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type {
   BootstrapState,
   GenerationParams,
@@ -8,7 +9,11 @@ import type {
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import { GenerationWorkspace } from "../components/GenerationWorkspace";
+import { HistoryWorkspace } from "../components/HistoryWorkspace";
+import { SettingsWorkspace } from "../components/SettingsWorkspace";
 import { StatusBadge } from "../components/StatusBadge";
+
+type WorkspaceSection = "cloning" | "history" | "settings";
 
 type WorkspacePageProps = {
   bootstrapState: BootstrapState;
@@ -16,6 +21,7 @@ type WorkspacePageProps = {
   providerRecommendation: ProviderRecommendation | null;
   preparedModel: ModelPrepareResponse | null;
   currentTask: TaskRecord | null;
+  taskHistory: TaskRecord[];
   onPrepareModel: (
     modelKey: string,
     providerPreference: "auto" | "huggingface" | "modelscope",
@@ -30,10 +36,57 @@ export function WorkspacePage({
   providerRecommendation,
   preparedModel,
   currentTask,
+  taskHistory,
   onPrepareModel,
   onSubmitTask,
 }: WorkspacePageProps) {
   const { t } = useTranslation();
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>("cloning");
+
+  const sectionContent = useMemo(() => {
+    switch (activeSection) {
+      case "history":
+        return (
+          <HistoryWorkspace
+            currentTask={currentTask}
+            taskHistory={taskHistory}
+          />
+        );
+      case "settings":
+        return (
+          <SettingsWorkspace
+            bootstrapState={bootstrapState}
+            sidecarStatus={sidecarStatus}
+            providerRecommendation={providerRecommendation}
+            preparedModel={preparedModel}
+            taskHistory={taskHistory}
+            onPrepareModel={onPrepareModel}
+          />
+        );
+      case "cloning":
+      default:
+        return (
+          <GenerationWorkspace
+            currentTask={currentTask}
+            providerRecommendation={providerRecommendation}
+            preparedModel={preparedModel}
+            sidecarStatus={sidecarStatus}
+            onPrepareModel={onPrepareModel}
+            onSubmit={onSubmitTask}
+          />
+        );
+    }
+  }, [
+    activeSection,
+    bootstrapState,
+    currentTask,
+    onPrepareModel,
+    onSubmitTask,
+    preparedModel,
+    providerRecommendation,
+    sidecarStatus,
+    taskHistory,
+  ]);
 
   return (
     <main className="workspace-shell">
@@ -47,18 +100,19 @@ export function WorkspacePage({
         </div>
 
         <nav className="workspace-nav" aria-label={t("workspace.navLabel")}>
-          <button className="workspace-nav__item workspace-nav__item--active">
-            <span>{t("workspace.nav.cloning")}</span>
-            <StatusBadge tone="accent">{t("workspace.nav.current")}</StatusBadge>
-          </button>
-          <button className="workspace-nav__item" disabled>
-            <span>{t("workspace.nav.history")}</span>
-            <StatusBadge tone="muted">{t("workspace.nav.nextBatch")}</StatusBadge>
-          </button>
-          <button className="workspace-nav__item" disabled>
-            <span>{t("workspace.nav.settings")}</span>
-            <StatusBadge tone="muted">{t("workspace.nav.nextBatch")}</StatusBadge>
-          </button>
+          {(["cloning", "history", "settings"] as WorkspaceSection[]).map((section) => (
+            <button
+              key={section}
+              className={`workspace-nav__item${activeSection === section ? " workspace-nav__item--active" : ""}`}
+              onClick={() => setActiveSection(section)}
+              type="button"
+            >
+              <span>{t(`workspace.nav.${section}`)}</span>
+              <StatusBadge tone={activeSection === section ? "accent" : "muted"}>
+                {activeSection === section ? t("workspace.nav.current") : t("workspace.nav.available")}
+              </StatusBadge>
+            </button>
+          ))}
         </nav>
 
         <div className="workspace-sidebar__foot">
@@ -88,26 +142,22 @@ export function WorkspacePage({
             <span className="topbar-note">
               {t("workspace.topbar.phaseLabel")}: {t(`bootstrap.phase.${bootstrapState.phase}`)}
             </span>
+            <span className="topbar-note">
+              {t("workspace.topbar.sectionLabel")}: {t(`workspace.nav.${activeSection}`)}
+            </span>
           </div>
         </header>
 
         <div className="workspace-content">
           <section className="workspace-hero">
             <div>
-              <p className="hero-kicker">{t("workspace.hero.kicker")}</p>
-              <h1 className="hero-title">{t("workspace.hero.title")}</h1>
-              <p className="hero-copy">{t("workspace.hero.description")}</p>
+              <p className="hero-kicker">{t(`workspace.hero.${activeSection}.kicker`)}</p>
+              <h1 className="hero-title">{t(`workspace.hero.${activeSection}.title`)}</h1>
+              <p className="hero-copy">{t(`workspace.hero.${activeSection}.description`)}</p>
             </div>
           </section>
 
-          <GenerationWorkspace
-            currentTask={currentTask}
-            providerRecommendation={providerRecommendation}
-            preparedModel={preparedModel}
-            sidecarStatus={sidecarStatus}
-            onPrepareModel={onPrepareModel}
-            onSubmit={onSubmitTask}
-          />
+          {sectionContent}
         </div>
       </section>
     </main>
