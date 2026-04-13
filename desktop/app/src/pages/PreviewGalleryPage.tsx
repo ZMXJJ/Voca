@@ -11,8 +11,10 @@ export function PreviewGalleryPage({ scenes }: PreviewGalleryPageProps) {
 
   return (
     <main className="preview-gallery">
-      <section className="preview-gallery__hero panel">
-        <p className="flow-eyebrow">{t("preview.sceneTag")}</p>
+      <section className="preview-gallery__hero">
+        <p style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--primary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          {t("preview.sceneTag")}
+        </p>
         <h1>{t("preview.galleryTitle")}</h1>
         <p>{t("preview.galleryDescription")}</p>
       </section>
@@ -22,7 +24,9 @@ export function PreviewGalleryPage({ scenes }: PreviewGalleryPageProps) {
           <section key={scene} className="preview-scene">
             <header className="preview-scene__header">
               <div>
-                <p className="panel-kicker">{t("preview.sceneTag")}</p>
+                <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--primary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  {t("preview.sceneTag")}
+                </p>
                 <h2>{t(`preview.${scene}`)}</h2>
                 <p>{t(`preview.sceneDescription.${scene}`)}</p>
               </div>

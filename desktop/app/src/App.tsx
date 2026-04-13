@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import type {
   BootstrapState,
   GenerationParams,
+  ModelCatalogEntry,
   ModelPrepareResponse,
   ProviderRecommendation,
+  ServiceInfo,
   SidecarStatus,
   TaskRecord,
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
-import { LanguageSwitcher } from "./components/LanguageSwitcher";
 import { PreviewDock } from "./components/PreviewDock";
 import { loadPersistedTaskHistory, normalizeTaskHistory, savePersistedTaskHistory } from "./lib/historyStorage";
 import { BootstrapFlowPage } from "./pages/BootstrapFlowPage";
@@ -18,7 +19,9 @@ import { getPreviewModeFromSearch, type PreviewMode, type SinglePreviewScene } f
 import {
   createGenerateTask,
   getBootstrapState,
+  getModelCatalog,
   getProviderRecommendation,
+  getServiceInfo,
   getSidecarStatus,
   getTask,
   prepareModel,
@@ -190,6 +193,8 @@ function App() {
   });
   const [providerRecommendation, setProviderRecommendation] = useState<ProviderRecommendation | null>(null);
   const [preparedModel, setPreparedModel] = useState<ModelPrepareResponse | null>(null);
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([]);
+  const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
   const [currentTask, setCurrentTask] = useState<TaskRecord | null>(null);
   const [taskHistory, setTaskHistory] = useState<TaskRecord[]>(() => loadPersistedTaskHistory());
   const [completionAcknowledged, setCompletionAcknowledged] = useState(false);
@@ -212,6 +217,8 @@ function App() {
     void getSidecarStatus().then(setSidecarStatus);
     void getProviderRecommendation("auto").then(setProviderRecommendation);
     void prepareModel("voxcpm2-default", "auto", false).then(setPreparedModel);
+    void getModelCatalog().then(setModelCatalog);
+    void getServiceInfo().then(setServiceInfo);
   }, []);
 
   useEffect(() => {
@@ -267,7 +274,6 @@ function App() {
 
   const previewOverlay = (
     <>
-      <LanguageSwitcher />
       {import.meta.env.DEV && <PreviewDock mode={previewMode} onChange={setPreviewInUrl} />}
     </>
   );
@@ -287,6 +293,8 @@ function App() {
           sidecarStatus={previewSidecarStatus}
           providerRecommendation={previewRecommendation}
           preparedModel={previewPreparedModel}
+          modelCatalog={modelCatalog}
+          serviceInfo={serviceInfo}
           currentTask={previewTask}
           taskHistory={previewTaskHistory}
           onPrepareModel={handlePrepareModel}
@@ -340,7 +348,7 @@ function App() {
         {previewOverlay}
         <main className="loading-screen">
           <section className="loading-card">
-            <p className="flow-eyebrow">{t("loading.eyebrow")}</p>
+            <p style={{ fontSize: "0.82rem", color: "var(--muted)", fontWeight: 650 }}>{t("loading.eyebrow")}</p>
             <h1>{t("loading.title")}</h1>
             <p>{t("loading.description")}</p>
           </section>
@@ -438,6 +446,8 @@ function App() {
         sidecarStatus={sidecarStatus}
         providerRecommendation={providerRecommendation}
         preparedModel={preparedModel}
+        modelCatalog={modelCatalog}
+        serviceInfo={serviceInfo}
         currentTask={currentTask}
         taskHistory={taskHistory}
         onPrepareModel={handlePrepareModel}

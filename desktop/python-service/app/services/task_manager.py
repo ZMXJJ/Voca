@@ -11,6 +11,7 @@ from app.models.schemas import (
     TaskRecord,
     TaskResult,
 )
+from app.services.model_catalog import get_model_entry
 from app.services.voxcpm_bridge import VoxCPMBridge
 
 
@@ -68,6 +69,23 @@ class TaskManager:
         with self._lock:
             return self._tasks.get(task_id)
 
+    def list_tasks(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        status: str | None = None,
+    ) -> list[TaskRecord]:
+        with self._lock:
+            tasks = sorted(
+                self._tasks.values(),
+                key=lambda t: t.createdAt,
+                reverse=True,
+            )
+        if status:
+            tasks = [t for t in tasks if t.status == status]
+        return tasks[offset : offset + limit]
+
     def _run_generate_task(self, task_id: str, payload: GenerationRequest) -> None:
         self._update_task(task_id, status="running", progress=10, message="Resolving model source")
         try:
@@ -103,6 +121,70 @@ class TaskManager:
                     severity="error",
                     recoverable=True,
                     actions=["retry"],
+                ),
+            )
+
+    def create_download_task(self, model_key: str, provider_preference: str = "auto") -> TaskRecord:
+        task_id = str(uuid.uuid4())
+        now = datetime.now(UTC).isoformat()
+        task = TaskRecord(
+            id=task_id,
+            type="generate",
+            status="queued",
+            createdAt=now,
+            updatedAt=now,
+            progress=0,
+            message=f"Preparing to download model {model_key}",
+        )
+        with self._lock:
+            self._tasks[task_id] = task
+
+        threading.Thread(
+            target=self._run_download_task,
+            args=(task_id, model_key, provider_preference),
+            daemon=True,
+        ).start()
+        return task
+
+    def _run_download_task(self, task_id: str, model_key: str, provider_preference: str) -> None:
+        self._update_task(task_id, status="running", progress=5, message="Resolving download source")
+        try:
+            recommendation = self._bridge.get_provider_recommendation(provider_preference)
+            provider = recommendation.current
+            entry = get_model_entry(model_key)
+
+            self._update_task(task_id, status="running", progress=15, message=f"Downloading from {provider}")
+
+            result = self._bridge.prepare_model(
+                model_key=model_key,
+                provider_preference=provider_preference,
+                ensure_downloaded=True,
+            )
+
+            self._update_task(
+                task_id,
+                status="succeeded",
+                progress=100,
+                message="Model downloaded successfully",
+                result=TaskResult(
+                    modelKey=model_key,
+                    modelPath=result.modelPath,
+                    provider=provider,
+                ),
+            )
+        except Exception as exc:
+            self._update_task(
+                task_id,
+                status="failed",
+                progress=100,
+                message="Failed to download model",
+                error=AppError(
+                    code="MODEL_DOWNLOAD_ERROR",
+                    message=str(exc),
+                    userMessageKey="error.model_download_error",
+                    severity="error",
+                    recoverable=True,
+                    actions=["retry", "switch_download_source"],
                 ),
             )
 

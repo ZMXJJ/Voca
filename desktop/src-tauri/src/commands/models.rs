@@ -2,7 +2,7 @@ use tauri::{AppHandle, State};
 
 use crate::{
     sidecar::{ensure_sidecar_running, get_json, post_json},
-    state::AppState,
+    state::{AppState, TaskRecord},
 };
 
 #[tauri::command]
@@ -63,4 +63,26 @@ pub async fn prepare_model(
     });
 
     post_json(state.inner(), "/api/v1/models/prepare", &payload).await
+}
+
+#[tauri::command]
+pub async fn start_model_download(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    model_key: String,
+    provider_preference: Option<String>,
+) -> Result<TaskRecord, String> {
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
+    if !sidecar.healthy {
+        return Err(sidecar
+            .reason
+            .unwrap_or_else(|| "python_sidecar_not_ready".into()));
+    }
+
+    let payload = serde_json::json!({
+        "modelKey": model_key,
+        "providerPreference": provider_preference.unwrap_or_else(|| "auto".into()),
+    });
+
+    post_json(state.inner(), "/api/v1/models/download", &payload).await
 }

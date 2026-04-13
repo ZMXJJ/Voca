@@ -5,7 +5,8 @@ import type {
   SidecarStatus,
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
-import { StatusBadge } from "../components/StatusBadge";
+import { IconArrowRight, IconCheck, IconVocaLogo } from "../components/Icons";
+import { StepIndicator } from "../components/StepIndicator";
 
 type BootstrapFlowView = "welcome" | "download" | "initialize" | "complete";
 
@@ -19,8 +20,6 @@ type BootstrapFlowPageProps = {
   onEnterWorkspace?: () => void;
 };
 
-type EngineStepTone = "done" | "active" | "pending" | "danger";
-
 const phaseProgress: Record<BootstrapState["phase"], number> = {
   welcome: 8,
   env_check: 18,
@@ -32,37 +31,30 @@ const phaseProgress: Record<BootstrapState["phase"], number> = {
   failed: 74,
 };
 
-function getDownloadCopy(
-  bootstrapState: BootstrapState,
-  preparedModel: ModelPrepareResponse | null,
-  t: (key: string) => string,
-) {
-  if (bootstrapState.phase === "runtime_download") {
-    return {
-      eyebrow: t("bootstrap.download.runtimeEyebrow"),
-      title: t("bootstrap.download.runtimeTitle"),
-      description: t("bootstrap.download.runtimeDescription"),
-      activeTask: t("bootstrap.download.runtimeActiveTask"),
-      detail: t("bootstrap.download.runtimeDetail"),
-    };
-  }
+type StepStatus = "done" | "active" | "pending";
 
-  return {
-    eyebrow: t("bootstrap.download.modelEyebrow"),
-    title: t("bootstrap.download.modelTitle"),
-    description: t("bootstrap.download.modelDescription"),
-    activeTask: preparedModel?.modelKey ?? t("bootstrap.download.modelActiveTaskFallback"),
-    detail: preparedModel?.modelPath ?? t("bootstrap.download.modelDetailFallback"),
+function getFlowSteps(view: BootstrapFlowView, t: (key: string) => string) {
+  const map: Record<BootstrapFlowView, [StepStatus, StepStatus, StepStatus]> = {
+    welcome: ["active", "pending", "pending"],
+    initialize: ["active", "pending", "pending"],
+    download: ["done", "active", "pending"],
+    complete: ["done", "done", "active"],
   };
+  const statuses = map[view];
+  return [
+    { label: t("bootstrap.flow.step1"), status: statuses[0] },
+    { label: t("bootstrap.flow.step2"), status: statuses[1] },
+    { label: t("bootstrap.flow.step3"), status: statuses[2] },
+  ];
 }
 
 function getEngineSteps(
   bootstrapState: BootstrapState,
   sidecarStatus: SidecarStatus,
   t: (key: string) => string,
-): Array<{ title: string; detail: string; tone: EngineStepTone }> {
-  let activeIndex = 0;
+) {
   let completedThrough = -1;
+  let activeIndex = 0;
 
   switch (bootstrapState.phase) {
     case "welcome":
@@ -89,48 +81,19 @@ function getEngineSteps(
       activeIndex = 0;
   }
 
-  const steps = [
-    {
-      title: t("bootstrap.initialize.steps.environmentTitle"),
-      detail: t("bootstrap.initialize.steps.environmentDetail"),
-    },
-    {
-      title: t("bootstrap.initialize.steps.verifyTitle"),
-      detail: t("bootstrap.initialize.steps.verifyDetail"),
-    },
-    {
-      title: t("bootstrap.initialize.steps.startTitle"),
-      detail: sidecarStatus.healthy
-        ? t("bootstrap.initialize.steps.startDetailHealthy")
-        : t("bootstrap.initialize.steps.startDetailStarting"),
-    },
-    {
-      title: t("bootstrap.initialize.steps.warmupTitle"),
-      detail:
-        bootstrapState.phase === "ready"
-          ? t("bootstrap.initialize.steps.warmupDetailReady")
-          : t("bootstrap.initialize.steps.warmupDetailPending"),
-    },
+  const items = [
+    { title: t("bootstrap.init.checkEnv"), desc: t("bootstrap.init.checkEnvDesc") },
+    { title: t("bootstrap.init.checkNet"), desc: t("bootstrap.init.checkNetDesc") },
+    { title: t("bootstrap.init.installDeps"), desc: t("bootstrap.init.installDepsDesc") },
+    { title: t("bootstrap.init.startService"), desc: t("bootstrap.init.startServiceDesc") },
   ];
 
-  return steps.map((step, index) => {
-    let tone: EngineStepTone = "pending";
-
-    if (index <= completedThrough) {
-      tone = "done";
-    } else if (index === activeIndex) {
-      tone = bootstrapState.phase === "failed" ? "danger" : "active";
-    }
-
-    return {
-      ...step,
-      tone,
-    };
+  return items.map((item, index) => {
+    let status: "done" | "active" | "pending" = "pending";
+    if (index <= completedThrough) status = "done";
+    else if (index === activeIndex) status = "active";
+    return { ...item, status };
   });
-}
-
-function getPhaseLabel(phase: BootstrapState["phase"], t: (key: string) => string) {
-  return t(`bootstrap.phase.${phase}`);
 }
 
 export function BootstrapFlowPage({
@@ -143,261 +106,154 @@ export function BootstrapFlowPage({
   onEnterWorkspace,
 }: BootstrapFlowPageProps) {
   const { t } = useTranslation();
-  const activeStepIndex =
-    view === "welcome" ? 0 : view === "download" ? 1 : view === "initialize" ? 2 : 3;
   const progress = phaseProgress[bootstrapState.phase];
-  const downloadCopy = getDownloadCopy(bootstrapState, preparedModel, t);
-  const engineSteps = getEngineSteps(bootstrapState, sidecarStatus, t);
+
+  if (view === "welcome") {
+    return (
+      <main className="welcome-page">
+        <div className="welcome-page__logo"><IconVocaLogo height={40} /></div>
+        <h1 className="welcome-page__title">{t("bootstrap.welcome.headline")}</h1>
+        <p className="welcome-page__subtitle">{t("bootstrap.welcome.subtitle")}</p>
+        <div className="welcome-page__action">
+          <button className="btn btn--glass" onClick={onStartSetup} disabled={!onStartSetup}>
+            {t("bootstrap.welcome.startBtn")}
+            <IconArrowRight size={15} />
+          </button>
+        </div>
+        <p className="welcome-page__hint">{t("bootstrap.welcome.hint")}</p>
+      </main>
+    );
+  }
+
+  const steps = getFlowSteps(view, t);
 
   return (
-    <main className="flow-shell">
-      <header className="flow-header">
-        <div className="flow-brand">
-          <div className="flow-brand__mark">V</div>
-          <div>
-            <strong>{t("common.appName")}</strong>
-            <span>{t("common.localFirstVoiceStudio")}</span>
-          </div>
-        </div>
-        <div className="flow-header__meta">
-          <StatusBadge tone={bootstrapState.phase === "failed" ? "danger" : "accent"}>
-            {getPhaseLabel(bootstrapState.phase, t)}
-          </StatusBadge>
+    <main className="bootstrap-page">
+      <header className="bootstrap-page__header">
+        <div className="bootstrap-page__logo"><IconVocaLogo height={24} /></div>
+        <div className="bootstrap-page__steps">
+          <StepIndicator steps={steps} />
         </div>
       </header>
 
-      <section className="flow-steps" aria-label={t("bootstrap.steps.welcome")}>
-        {[
-          t("bootstrap.steps.welcome"),
-          t("bootstrap.steps.download"),
-          t("bootstrap.steps.initialize"),
-          t("bootstrap.steps.enterWorkspace"),
-        ].map((step, index) => (
-          <div
-            key={step}
-            className={`flow-step ${index === activeStepIndex ? "flow-step--active" : ""} ${
-              index < activeStepIndex ? "flow-step--done" : ""
-            }`}
-          >
-            <div className="flow-step__dot">{index + 1}</div>
-            <span>{step}</span>
-          </div>
-        ))}
-      </section>
-
-      {view === "welcome" && (
-        <section className="flow-canvas flow-canvas--welcome">
-          <div className="welcome-hero">
-            <p className="flow-eyebrow">{t("bootstrap.welcome.eyebrow")}</p>
-            <h1>{t("bootstrap.welcome.title")}</h1>
-            <p>{t("bootstrap.welcome.description")}</p>
-          </div>
-
-          <div className="welcome-badges">
-            <StatusBadge tone="accent">{t("bootstrap.welcome.badges.local")}</StatusBadge>
-            <StatusBadge tone="success">{t("bootstrap.welcome.badges.private")}</StatusBadge>
-            <StatusBadge tone="muted">{t("bootstrap.welcome.badges.setupTime")}</StatusBadge>
-          </div>
-
-          <div className="welcome-grid">
-            <article className="panel stat-tile">
-              <span className="panel-kicker">{t("bootstrap.steps.welcome")}</span>
-              <strong>{t("bootstrap.welcome.highlights.runtimeTitle")}</strong>
-              <p>{t("bootstrap.welcome.highlights.runtimeBody")}</p>
-            </article>
-            <article className="panel stat-tile">
-              <span className="panel-kicker">{t("bootstrap.steps.download")}</span>
-              <strong>{t("bootstrap.welcome.highlights.modelTitle")}</strong>
-              <p>{t("bootstrap.welcome.highlights.modelBody")}</p>
-            </article>
-            <article className="panel stat-tile">
-              <span className="panel-kicker">{t("bootstrap.steps.initialize")}</span>
-              <strong>{t("bootstrap.welcome.highlights.recoverTitle")}</strong>
-              <p>{t("bootstrap.welcome.highlights.recoverBody")}</p>
-            </article>
-          </div>
-
-          <div className="welcome-actions">
-            <button
-              className="action-button action-button--primary"
-              onClick={onStartSetup}
-              disabled={!onStartSetup}
-            >
-              {t("bootstrap.welcome.action")}
-            </button>
-            <p>{t("bootstrap.welcome.actionHint")}</p>
-          </div>
-        </section>
-      )}
-
-      {view === "download" && (
-        <section className="flow-canvas">
-          <div className="flow-title-block">
-            <p className="flow-eyebrow">{downloadCopy.eyebrow}</p>
-            <h1>{downloadCopy.title}</h1>
-            <p>{downloadCopy.description}</p>
-          </div>
-
-          <div className="panel progress-card">
-            <div className="progress-card__header">
-              <div>
-                <span className="panel-kicker">{t("bootstrap.download.currentStage")}</span>
-                <h2>{downloadCopy.activeTask}</h2>
-                <p>{downloadCopy.detail}</p>
-              </div>
-              <div className="progress-card__percent">{progress}%</div>
-            </div>
-
-            <div className="progress-bar" aria-hidden="true">
-              <div className="progress-bar__fill" style={{ width: `${progress}%` }}>
-                <div className="progress-bar__glint" />
-              </div>
-            </div>
-
-            <div className="stats-grid">
-              <article className="stat-tile">
-                <span className="panel-kicker">{t("bootstrap.download.recommendedSource")}</span>
-                <strong>{providerRecommendation?.current ?? preparedModel?.provider ?? t("common.auto")}</strong>
-                <p>
-                  {providerRecommendation?.location ??
-                    t("bootstrap.download.recommendedLocationFallback")}
-                </p>
-              </article>
-              <article className="stat-tile">
-                <span className="panel-kicker">{t("bootstrap.download.runtimeStatus")}</span>
-                <strong>
-                  {bootstrapState.runtimeReady
-                    ? t("bootstrap.download.runtimeReady")
-                    : t("bootstrap.download.runtimePreparing")}
-                </strong>
-                <p>{t("bootstrap.download.runtimeStatusBody")}</p>
-              </article>
-              <article className="stat-tile">
-                <span className="panel-kicker">{t("bootstrap.download.modelDirectory")}</span>
-                <strong>
-                  {bootstrapState.modelReady
-                    ? t("bootstrap.download.modelAvailable")
-                    : t("bootstrap.download.modelWaiting")}
-                </strong>
-                <p>{preparedModel?.modelPath ?? t("bootstrap.download.modelDirectoryFallback")}</p>
-              </article>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {view === "initialize" && (
-        <section className="flow-canvas">
-          <div className="flow-title-block">
-            <p className="flow-eyebrow">{t("bootstrap.initialize.eyebrow")}</p>
-            <h1>{t("bootstrap.initialize.title")}</h1>
-            <p>{t("bootstrap.initialize.description")}</p>
-          </div>
-
-          <div className="panel engine-card">
-            <div className="engine-list">
-              {engineSteps.map((step, index) => (
-                <article
-                  key={step.title}
-                  className={`engine-step engine-step--${step.tone}`}
-                >
-                  <div className="engine-step__icon">
-                    {step.tone === "done" ? "✓" : step.tone === "danger" ? "!" : index + 1}
+      <div className="bootstrap-page__body">
+        {view === "initialize" && (
+          <>
+            <h1 className="bootstrap-page__title">{t("bootstrap.init.title")}</h1>
+            <p className="bootstrap-page__desc">{t("bootstrap.init.desc")}</p>
+            <div className="bootstrap-page__content">
+              <div className="steps-card">
+                {getEngineSteps(bootstrapState, sidecarStatus, t).map((step, index) => (
+                  <div key={step.title} className="steps-card__item">
+                    <div className={`steps-card__icon steps-card__icon--${step.status}`}>
+                      {step.status === "done" ? <IconCheck size={14} /> : index + 1}
+                    </div>
+                    <div className="steps-card__info">
+                      <div className="steps-card__info-title">{step.title}</div>
+                      <div className="steps-card__info-desc">{step.desc}</div>
+                    </div>
+                    <span className={`steps-card__status steps-card__status--${step.status}`}>
+                      {step.status === "done"
+                        ? t("bootstrap.init.statusDone")
+                        : step.status === "active"
+                          ? t("bootstrap.init.statusActive")
+                          : t("bootstrap.init.statusPending")}
+                    </span>
                   </div>
-                  <div className="engine-step__body">
-                    <h2>{step.title}</h2>
-                    <p>{step.detail}</p>
-                  </div>
-                  <StatusBadge
-                    tone={
-                      step.tone === "done"
-                        ? "success"
-                        : step.tone === "active"
-                          ? "accent"
-                          : step.tone === "danger"
-                            ? "danger"
-                            : "muted"
-                    }
-                  >
-                    {step.tone === "done"
-                      ? t("bootstrap.initialize.stepStatus.done")
-                      : step.tone === "active"
-                        ? t("bootstrap.initialize.stepStatus.active")
-                        : step.tone === "danger"
-                          ? t("bootstrap.initialize.stepStatus.danger")
-                          : t("bootstrap.initialize.stepStatus.pending")}
-                  </StatusBadge>
-                </article>
-              ))}
+                ))}
+              </div>
             </div>
+          </>
+        )}
 
-            {bootstrapState.lastError ? (
-              <div className="flow-alert flow-alert--danger">
-                <strong>{bootstrapState.lastError.message ?? t("bootstrap.initialize.errorFallback")}</strong>
-                <p>
-                  {t("bootstrap.initialize.errorActionsLabel")}
-                  {bootstrapState.lastError.actions.length > 0
-                    ? ` ${bootstrapState.lastError.actions
-                        .map((action) => t(`common.errorActions.${action}`))
-                        .join(" / ")}`
-                    : ` ${t("bootstrap.initialize.errorActionsFallback")}`}
-                </p>
+        {view === "download" && (
+          <>
+            <h1 className="bootstrap-page__title">{t("bootstrap.download.title")}</h1>
+            <p className="bootstrap-page__desc">{t("bootstrap.download.desc")}</p>
+            <div className="bootstrap-page__content">
+              <div className="progress-card">
+                <div className="progress-card__top">
+                  <span className="progress-card__model-name">
+                    {preparedModel?.modelKey ?? "VoxCPM 2.0"}
+                  </span>
+                  <span className="progress-card__percent">{progress}%</span>
+                </div>
+                <div className="progress-card__bar">
+                  <div className="progress-card__fill" style={{ width: `${progress}%` }} />
+                </div>
+                <div className="progress-card__stats">
+                  <div className="progress-card__stat">
+                    <div className="progress-card__stat-label">{t("bootstrap.download.source")}</div>
+                    <div className="progress-card__stat-value">
+                      {providerRecommendation?.current === "modelscope"
+                        ? "ModelScope"
+                        : providerRecommendation?.current === "huggingface"
+                          ? "HuggingFace"
+                          : t("common.auto")}
+                    </div>
+                  </div>
+                  <div className="progress-card__stat">
+                    <div className="progress-card__stat-label">{t("bootstrap.download.modelSize")}</div>
+                    <div className="progress-card__stat-value">~2.3 GB</div>
+                  </div>
+                  <div className="progress-card__stat">
+                    <div className="progress-card__stat-label">{t("bootstrap.download.storageDir")}</div>
+                    <div className="progress-card__stat-value">
+                      {preparedModel?.modelPath ?? "~/Voca/models"}
+                    </div>
+                  </div>
+                </div>
               </div>
-            ) : (
-              <div className="flow-alert">
-                <strong>
-                  {sidecarStatus.healthy
-                    ? t("bootstrap.initialize.healthyPassed")
-                    : t("bootstrap.initialize.healthyPending")}
-                </strong>
-                <p>{t("bootstrap.initialize.healthyNotice")}</p>
+            </div>
+          </>
+        )}
+
+        {view === "complete" && (
+          <>
+            <h1 className="bootstrap-page__title">{t("bootstrap.complete.title")}</h1>
+            <p className="bootstrap-page__desc">{t("bootstrap.complete.desc")}</p>
+            <div className="bootstrap-page__content">
+              <div className="summary-cards">
+                <div className="summary-card">
+                  <div className="summary-card__label">{t("bootstrap.complete.serviceLabel")}</div>
+                  <div className="summary-card__value summary-card__value--green">
+                    {sidecarStatus.healthy
+                      ? <><IconCheck size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 4 }} />{t("bootstrap.complete.serviceReady")}</>
+                      : t("bootstrap.complete.serviceWaiting")}
+                  </div>
+                </div>
+                <div className="summary-card">
+                  <div className="summary-card__label">{t("bootstrap.complete.modelLabel")}</div>
+                  <div className="summary-card__value">
+                    {preparedModel?.modelKey ?? "VoxCPM 2.0"}
+                  </div>
+                </div>
+                <div className="summary-card">
+                  <div className="summary-card__label">{t("bootstrap.complete.deviceLabel")}</div>
+                  <div className="summary-card__value">MPS (Apple Silicon)</div>
+                </div>
               </div>
-            )}
-          </div>
-        </section>
+            </div>
+          </>
+        )}
+      </div>
+
+      {(view === "initialize" || view === "download") && (
+        <div className="bootstrap-page__footer">
+          <button className="btn btn--glass" disabled>
+            {t("bootstrap.flow.nextBtn")}
+            <IconArrowRight size={12} />
+          </button>
+        </div>
       )}
 
       {view === "complete" && (
-        <section className="flow-canvas flow-canvas--complete">
-          <div className="complete-hero">
-            <div className="complete-hero__orb">◎</div>
-            <p className="flow-eyebrow">{t("bootstrap.complete.eyebrow")}</p>
-            <h1>{t("bootstrap.complete.title")}</h1>
-            <p>{t("bootstrap.complete.description")}</p>
-          </div>
-
-          <div className="complete-grid">
-            <article className="panel stat-tile">
-              <span className="panel-kicker">{t("bootstrap.complete.serviceStatus")}</span>
-              <strong>
-                {sidecarStatus.healthy
-                  ? t("bootstrap.complete.serviceReady")
-                  : t("bootstrap.complete.serviceWaiting")}
-              </strong>
-              <p>{sidecarStatus.reason ?? t("bootstrap.complete.serviceReasonFallback")} </p>
-            </article>
-            <article className="panel stat-tile">
-              <span className="panel-kicker">{t("bootstrap.complete.defaultModel")}</span>
-              <strong>
-                {preparedModel?.configExists
-                  ? t("bootstrap.complete.modelReady")
-                  : t("bootstrap.complete.modelPending")}
-              </strong>
-              <p>{preparedModel?.modelKey ?? "voxcpm2-default"}</p>
-            </article>
-            <article className="panel stat-tile">
-              <span className="panel-kicker">{t("bootstrap.complete.recommendedProvider")}</span>
-              <strong>{providerRecommendation?.current ?? t("common.auto")}</strong>
-              <p>{providerRecommendation?.location ?? t("bootstrap.complete.recommendedProviderFallback")}</p>
-            </article>
-          </div>
-
-          <div className="complete-actions">
-            <button className="action-button action-button--primary" onClick={onEnterWorkspace}>
-              {t("bootstrap.complete.enterWorkspace")}
-            </button>
-          </div>
-        </section>
+        <div className="bootstrap-page__footer">
+          <button className="btn btn--glass" onClick={onEnterWorkspace}>
+            {t("bootstrap.complete.enterBtn")}
+            <IconArrowRight size={13} />
+          </button>
+        </div>
       )}
     </main>
   );

@@ -39,6 +39,9 @@ pub struct TaskResult {
     pub audio_path: Option<String>,
     pub sample_rate: Option<u32>,
     pub duration_ms: Option<u32>,
+    pub model_key: Option<String>,
+    pub model_path: Option<String>,
+    pub provider: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -70,6 +73,7 @@ pub struct GenerationPayload {
     pub normalize: Option<bool>,
     pub denoise: Option<bool>,
     pub streaming: Option<bool>,
+    pub seed: Option<i32>,
 }
 
 pub struct SidecarProcess {

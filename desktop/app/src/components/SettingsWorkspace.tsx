@@ -1,19 +1,26 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type {
   BootstrapState,
+  ModelCatalogEntry,
   ModelPrepareResponse,
   ProviderRecommendation,
+  ServiceInfo,
   SidecarStatus,
   TaskRecord,
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
-import { StatusBadge } from "./StatusBadge";
+import i18n from "../i18n";
+import { clearCache } from "../lib/tauri";
+import { IconCheck, IconDownload } from "./Icons";
+import { CustomSelect } from "./CustomSelect";
 
 type SettingsWorkspaceProps = {
   bootstrapState: BootstrapState;
   sidecarStatus: SidecarStatus;
   providerRecommendation: ProviderRecommendation | null;
   preparedModel: ModelPrepareResponse | null;
+  modelCatalog: ModelCatalogEntry[];
+  serviceInfo: ServiceInfo | null;
   taskHistory: TaskRecord[];
   onPrepareModel: (
     modelKey: string,
@@ -27,157 +34,195 @@ export function SettingsWorkspace({
   sidecarStatus,
   providerRecommendation,
   preparedModel,
+  modelCatalog,
+  serviceInfo,
   taskHistory,
   onPrepareModel,
 }: SettingsWorkspaceProps) {
   const { t } = useTranslation();
-  const [modelKey, setModelKey] = useState(preparedModel?.modelKey ?? "voxcpm2-default");
   const [providerPreference, setProviderPreference] = useState<"auto" | "huggingface" | "modelscope">(
     providerRecommendation?.preferred ?? "auto",
   );
-
-  const latestFailedTask = useMemo(
-    () => taskHistory.find((task) => task.status === "failed") ?? null,
-    [taskHistory],
-  );
+  const completedTasks = taskHistory.filter((t) => t.status === "succeeded").length;
 
   return (
-    <section className="workspace-stack">
-      <div className="page-grid page-grid--settings">
-        <article className="panel summary-card">
-          <div className="section-head section-head--tight">
-            <div>
-              <p className="panel-kicker">{t("settings.overview.kicker")}</p>
-              <h2 className="section-title">{t("settings.overview.title")}</h2>
+    <>
+      <h1 className="settings-title">{t("settings.title")}</h1>
+
+      {/* Service Status & Diagnostics */}
+      <div className="settings-section">
+        <div className="settings-section__title">{t("settings.serviceStatus.title")}</div>
+        <div className="kv-grid">
+          <div>
+            <div className="kv-row">
+              <span className="kv-row__key">{t("settings.serviceStatus.status")}</span>
+              <span className="kv-row__value kv-row__value--green">
+                {sidecarStatus.healthy ? (
+                  <><IconCheck size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 4 }} />{t("settings.serviceStatus.running")}</>
+                ) : t("settings.serviceStatus.stopped")}
+              </span>
             </div>
-            <StatusBadge tone={sidecarStatus.healthy ? "success" : "warning"}>
-              {sidecarStatus.healthy ? t("settings.overview.healthy") : t("settings.overview.degraded")}
-            </StatusBadge>
-          </div>
-
-          <div className="settings-grid">
-            <article className="panel metric-card">
-              <span className="panel-kicker">{t("settings.overview.phase")}</span>
-              <strong>{t(`bootstrap.phase.${bootstrapState.phase}`)}</strong>
-              <p>{t(`settings.overview.phaseStatus.${bootstrapState.status}`)}</p>
-            </article>
-
-            <article className="panel metric-card">
-              <span className="panel-kicker">{t("settings.overview.provider")}</span>
-              <strong>{providerRecommendation?.current ?? preparedModel?.provider ?? t("common.auto")}</strong>
-              <p>{providerRecommendation?.location ?? t("settings.overview.locationFallback")}</p>
-            </article>
-
-            <article className="panel metric-card">
-              <span className="panel-kicker">{t("settings.overview.model")}</span>
-              <strong>
-                {preparedModel?.configExists ? t("settings.overview.modelReady") : t("settings.overview.modelMissing")}
-              </strong>
-              <p>{preparedModel?.modelPath ?? t("settings.overview.modelPathFallback")}</p>
-            </article>
-          </div>
-        </article>
-
-        <article className="panel settings-card">
-          <div className="section-head section-head--tight">
-            <div>
-              <p className="panel-kicker">{t("settings.maintenance.kicker")}</p>
-              <h2 className="section-title">{t("settings.maintenance.title")}</h2>
+            <div className="kv-row">
+              <span className="kv-row__key">{t("settings.serviceStatus.address")}</span>
+              <span className="kv-row__value">127.0.0.1:8765</span>
             </div>
-            <StatusBadge tone="muted">{t("settings.maintenance.localOnly")}</StatusBadge>
-          </div>
-
-          <div className="inline-grid">
-            <label className="inline-field">
-              <span>{t("settings.maintenance.modelVersionLabel")}</span>
-              <select
-                className="input-field"
-                value={modelKey}
-                onChange={(event) => setModelKey(event.target.value)}
-              >
-                <option value="voxcpm2-default">VoxCPM2</option>
-                <option value="voxcpm1.5-default">VoxCPM1.5</option>
-                <option value="voxcpm-0.5b-default">VoxCPM-0.5B</option>
-              </select>
-            </label>
-
-            <label className="inline-field">
-              <span>{t("settings.maintenance.providerLabel")}</span>
-              <select
-                className="input-field"
-                value={providerPreference}
-                onChange={(event) =>
-                  setProviderPreference(event.target.value as "auto" | "huggingface" | "modelscope")
-                }
-              >
-                <option value="auto">{t("settings.maintenance.providerAuto")}</option>
-                <option value="huggingface">{t("settings.maintenance.providerHuggingFace")}</option>
-                <option value="modelscope">{t("settings.maintenance.providerModelScope")}</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="button-row">
-            <button
-              className="action-button action-button--secondary"
-              onClick={() => {
-                void onPrepareModel(modelKey, providerPreference, false);
-              }}
-              type="button"
-            >
-              {t("settings.maintenance.checkModel")}
-            </button>
-            <button
-              className="action-button action-button--secondary"
-              onClick={() => {
-                void onPrepareModel(modelKey, providerPreference, true);
-              }}
-              type="button"
-            >
-              {t("settings.maintenance.prepareModel")}
-            </button>
-          </div>
-
-          <div className="settings-list">
-            <div className="settings-list__item">
-              <strong>{t("settings.maintenance.modelPath")}</strong>
-              <p>{preparedModel?.modelPath ?? t("settings.maintenance.modelPathFallback")}</p>
+            <div className="kv-row">
+              <span className="kv-row__key">{t("settings.serviceStatus.device")}</span>
+              <span className="kv-row__value">{serviceInfo?.deviceType ?? "—"}</span>
             </div>
-            <div className="settings-list__item">
-              <strong>{t("settings.maintenance.sidecarStatus")}</strong>
-              <p>{sidecarStatus.reason ?? t("settings.maintenance.sidecarFallback")}</p>
+            <div className="kv-row">
+              <span className="kv-row__key">{t("settings.serviceStatus.phase")}</span>
+              <span className="kv-row__value kv-row__value--accent">
+                {bootstrapState.phase}
+              </span>
             </div>
           </div>
-        </article>
-
-        <article className="panel settings-card">
-          <div className="section-head section-head--tight">
-            <div>
-              <p className="panel-kicker">{t("settings.diagnostics.kicker")}</p>
-              <h2 className="section-title">{t("settings.diagnostics.title")}</h2>
+          <div>
+            <div className="kv-row">
+              <span className="kv-row__key">{t("settings.serviceStatus.completedTasks")}</span>
+              <span className="kv-row__value">{completedTasks}</span>
+            </div>
+            <div className="kv-row">
+              <span className="kv-row__key">{t("settings.serviceStatus.modelLoaded")}</span>
+              <span className="kv-row__value">
+                {preparedModel?.configExists ? t("settings.serviceStatus.yes") : t("settings.serviceStatus.no")}
+              </span>
+            </div>
+            <div className="kv-row">
+              <span className="kv-row__key">{t("settings.serviceStatus.recentError")}</span>
+              <span className="kv-row__value">
+                {bootstrapState.lastError?.message ?? t("settings.serviceStatus.none")}
+              </span>
             </div>
           </div>
-
-          <div className="settings-list">
-            <div className="settings-list__item">
-              <strong>{t("settings.diagnostics.lastError")}</strong>
-              <p>
-                {bootstrapState.lastError?.message ??
-                  latestFailedTask?.error?.message ??
-                  t("settings.diagnostics.noError")}
-              </p>
-            </div>
-            <div className="settings-list__item">
-              <strong>{t("settings.diagnostics.taskCount")}</strong>
-              <p>{t("settings.diagnostics.taskCountValue", { count: taskHistory.length })}</p>
-            </div>
-            <div className="settings-list__item">
-              <strong>{t("settings.diagnostics.outputPath")}</strong>
-              <p>{taskHistory[0]?.result?.audioPath ?? t("settings.diagnostics.outputPathFallback")}</p>
-            </div>
-          </div>
-        </article>
+        </div>
       </div>
-    </section>
+
+      {/* Model Management */}
+      <div className="settings-section">
+        <div className="settings-section__header">
+          <div className="settings-section__title" style={{ marginBottom: 0 }}>
+            {t("settings.modelManagement.title")}
+          </div>
+          <span className="settings-section__count">
+            {t("settings.modelManagement.count", { count: modelCatalog.length })}
+          </span>
+        </div>
+        <div className="model-list">
+          {modelCatalog.map((model) => {
+            const isActive = preparedModel?.modelKey === model.modelKey;
+            const isDownloaded = isActive && preparedModel?.existsLocally;
+            return (
+              <div key={model.modelKey} className={`model-item${isActive ? " model-item--active" : ""}`}>
+                <div className="model-item__info">
+                  <div className="model-item__name">{model.displayName}</div>
+                  <div className="model-item__desc">{model.localDir}</div>
+                </div>
+                {isDownloaded ? (
+                  <div className="model-item__action model-item__action--downloaded"><IconCheck size={16} /></div>
+                ) : (
+                  <button
+                    className="model-item__action model-item__action--download"
+                    onClick={() => void onPrepareModel(model.modelKey, providerPreference, true)}
+                    type="button"
+                  >
+                    <IconDownload size={16} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="settings-divider" />
+        <div className="download-source-row">
+          <span className="download-source-row__label">{t("settings.modelManagement.source")}</span>
+          <CustomSelect
+            value={providerPreference}
+            onChange={(v) => setProviderPreference(v as "auto" | "huggingface" | "modelscope")}
+            options={[
+              { value: "auto", label: t("common.auto") },
+              { value: "huggingface", label: "HuggingFace" },
+              { value: "modelscope", label: "ModelScope" },
+            ]}
+          />
+        </div>
+      </div>
+
+      {/* Logs & Maintenance + General Settings */}
+      <div className="settings-bottom-grid">
+        <div className="settings-section" style={{ marginTop: 0 }}>
+          <div className="settings-section__title">{t("settings.logs.title")}</div>
+          <div className="kv-row">
+            <span className="kv-row__key">{t("settings.logs.logLevel")}</span>
+            <span className="kv-row__value">warning</span>
+          </div>
+          <div className="kv-row">
+            <span className="kv-row__key">{t("settings.logs.modelDir")}</span>
+            <span className="kv-row__value">
+              {preparedModel?.modelPath ?? "~/Library/.../Voca/models"}
+            </span>
+          </div>
+          <div className="cache-row">
+            <span className="cache-row__left">{t("settings.logs.cache")}</span>
+            <div className="cache-row__right">
+              <span className="cache-row__size">128.5 MB</span>
+              <button
+                className="btn btn--small btn--ghost"
+                type="button"
+                onClick={() => void clearCache()}
+              >
+                {t("settings.logs.clearCache")}
+              </button>
+            </div>
+          </div>
+          <div className="settings-divider" />
+          <div className="settings-actions">
+            <button className="btn btn--small btn--secondary" disabled type="button">
+              {t("settings.logs.exportLogs")}
+            </button>
+            <button className="btn btn--small btn--secondary" disabled type="button">
+              {t("settings.logs.openDir")}
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-section" style={{ marginTop: 0 }}>
+          <div className="settings-section__title">{t("settings.general.title")}</div>
+          <div className="kv-row">
+            <span className="kv-row__key">{t("settings.general.language")}</span>
+            <CustomSelect
+              value={i18n.language}
+              onChange={(lang) => {
+                void i18n.changeLanguage(lang);
+                localStorage.setItem("voca.locale", lang);
+              }}
+              options={[
+                { value: "zh-CN", label: "中文" },
+                { value: "en", label: "English" },
+              ]}
+            />
+          </div>
+          <div className="audio-path-row">
+            <div className="audio-path-row__label">{t("settings.general.audioPath")}</div>
+            <div className="audio-path-row__control">
+              <span className="audio-path-row__path">~/Downloads/Voca</span>
+              <button className="btn btn--small btn--ghost" disabled type="button">
+                {t("settings.general.changePath")}
+              </button>
+            </div>
+          </div>
+          <div className="settings-divider" />
+          <div className="version-row">
+            <span className="version-row__left">{t("settings.general.version")}</span>
+            <div className="version-row__right">
+              <span className="version-row__value">Voca {serviceInfo?.version ?? "0.1.0"}</span>
+              <button className="btn btn--small btn--ghost" disabled type="button">
+                {t("settings.general.checkUpdate")}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }

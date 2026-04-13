@@ -6,8 +6,10 @@ import type {
   ModelPrepareResponse,
   ProviderPreference,
   ProviderRecommendation,
+  ServiceInfo,
   SidecarStatus,
   TaskRecord,
+  VoiceEntry,
 } from "@voca/contracts";
 import i18n from "../i18n";
 
@@ -96,5 +98,56 @@ export async function prepareModel(
     });
   } catch {
     return null;
+  }
+}
+
+export async function startModelDownload(
+  modelKey: string,
+  providerPreference: ProviderPreference = "auto",
+): Promise<TaskRecord | null> {
+  try {
+    return await invoke<TaskRecord>("start_model_download", {
+      modelKey,
+      providerPreference,
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function getServiceInfo(): Promise<ServiceInfo | null> {
+  try {
+    return await invoke<ServiceInfo>("get_service_info");
+  } catch {
+    return null;
+  }
+}
+
+export async function listTasks(
+  limit = 50,
+  offset = 0,
+  status?: string,
+): Promise<TaskRecord[]> {
+  try {
+    return await invoke<TaskRecord[]>("list_tasks", { limit, offset, status });
+  } catch {
+    return [];
+  }
+}
+
+export async function clearCache(): Promise<boolean> {
+  try {
+    await invoke("clear_cache");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function listVoices(): Promise<VoiceEntry[]> {
+  try {
+    return await invoke<VoiceEntry[]>("list_voices");
+  } catch {
+    return [];
   }
 }

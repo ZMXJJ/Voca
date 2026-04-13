@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/manrope": "^5.2.8",
+    "@fontsource/playfair-display": "^5.2.8",
     "@tauri-apps/api": "^2.0.0",
     "@voca/contracts": "file:../packages/contracts",
     "i18next": "^26.0.4",

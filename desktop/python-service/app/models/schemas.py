@@ -20,6 +20,8 @@ class HealthResponse(BaseModel):
     modelLoaded: bool
     asrLoaded: bool
     version: str
+    deviceType: str | None = None
+    audioOutputDir: str | None = None
 
 
 class ModelValidateRequest(BaseModel):
@@ -92,6 +94,27 @@ class GenerationRequest(BaseModel):
     normalize: bool | None = True
     denoise: bool | None = True
     streaming: bool | None = False
+    seed: int | None = None
+
+
+class ModelDownloadRequest(BaseModel):
+    modelKey: str = "voxcpm2-default"
+    providerPreference: Literal["auto", "huggingface", "modelscope"] = "auto"
+
+
+class VoiceEntry(BaseModel):
+    id: str
+    name: str
+    language: str
+    durationSeconds: float | None = None
+    audioPath: str | None = None
+    isBuiltin: bool = False
+
+
+class VoiceCreateRequest(BaseModel):
+    name: str
+    language: str = "zh"
+    audioPath: str
 
 
 class TaskResult(BaseModel):

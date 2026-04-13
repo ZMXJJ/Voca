@@ -1,7 +1,7 @@
 use tauri::{AppHandle, State};
 
 use crate::{
-    sidecar::ensure_sidecar_running,
+    sidecar::{ensure_sidecar_running, get_json, post_json},
     state::{AppState, BootstrapState, SidecarStatus},
 };
 
@@ -36,4 +36,35 @@ pub async fn get_sidecar_status(
     state: State<'_, AppState>,
 ) -> Result<SidecarStatus, String> {
     ensure_sidecar_running(&app_handle, state.inner()).await
+}
+
+#[tauri::command]
+pub async fn get_service_info(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
+    if !sidecar.healthy {
+        return Err(sidecar
+            .reason
+            .unwrap_or_else(|| "python_sidecar_not_ready".into()));
+    }
+
+    get_json(state.inner(), "/api/v1/health").await
+}
+
+#[tauri::command]
+pub async fn clear_cache(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
+    if !sidecar.healthy {
+        return Err(sidecar
+            .reason
+            .unwrap_or_else(|| "python_sidecar_not_ready".into()));
+    }
+
+    let empty = serde_json::json!({});
+    post_json(state.inner(), "/api/v1/cache/clear", &empty).await
 }

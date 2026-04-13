@@ -1,135 +1,115 @@
+import { useEffect, useMemo, useState } from "react";
 import type { TaskRecord } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
-import { StatusBadge } from "./StatusBadge";
+import { listTasks } from "../lib/tauri";
+import { AudioPlayer } from "./AudioPlayer";
+import { IconPlay } from "./Icons";
 
-type HistoryWorkspaceProps = {
-  currentTask: TaskRecord | null;
-  taskHistory: TaskRecord[];
-};
-
-function getTaskTone(task: TaskRecord) {
-  switch (task.status) {
-    case "succeeded":
-      return "success";
-    case "failed":
-      return "danger";
-    case "running":
-      return "accent";
-    case "queued":
-      return "warning";
-    case "cancelled":
-    default:
-      return "muted";
-  }
-}
-
-function formatTime(value: string) {
+function formatHistoryTime(value: string) {
   const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const now = new Date();
+  const isToday =
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday =
+    date.getDate() === yesterday.getDate() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getFullYear() === yesterday.getFullYear();
 
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (isToday) return `今天 ${time}`;
+  if (isYesterday) return `昨天 ${time}`;
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
 }
 
-export function HistoryWorkspace({ currentTask, taskHistory }: HistoryWorkspaceProps) {
-  const { t } = useTranslation();
-  const latestTask = taskHistory[0] ?? currentTask;
+function formatDuration(ms?: number) {
+  if (!ms) return "0:00";
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
-  if (taskHistory.length === 0) {
+function statusLabel(status: string, t: (key: string) => string): string {
+  switch (status) {
+    case "succeeded":
+      return t("history.status.succeeded");
+    case "failed":
+      return t("history.status.failed");
+    case "running":
+      return t("history.status.running");
+    case "queued":
+      return t("history.status.queued");
+    case "cancelled":
+      return t("history.status.cancelled");
+    default:
+      return status;
+  }
+}
+
+export function HistoryWorkspace() {
+  const { t } = useTranslation();
+  const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  useEffect(() => {
+    void listTasks(50, 0).then(setTasks);
+  }, []);
+
+  const selectedAudioPath = useMemo(() => {
+    if (!selectedTaskId) return null;
+    const task = tasks.find((t) => t.id === selectedTaskId);
+    return task?.result?.audioPath ?? null;
+  }, [selectedTaskId, tasks]);
+
+  if (tasks.length === 0) {
     return (
-      <section className="workspace-stack">
-        <article className="panel history-empty-card">
-          <div className="history-empty-card__icon">◌</div>
-          <strong>{t("history.empty.title")}</strong>
-          <p>{t("history.empty.description")}</p>
-        </article>
-      </section>
+      <>
+        <h1 className="settings-title">{t("history.title")}</h1>
+        <div className="coming-soon">
+          <p className="coming-soon__desc">{t("history.empty")}</p>
+        </div>
+      </>
     );
   }
 
   return (
-    <section className="workspace-stack">
-      <div className="page-grid page-grid--history">
-        <article className="panel summary-card">
-          <p className="panel-kicker">{t("history.summary.kicker")}</p>
-          <h2 className="section-title">{t("history.summary.title")}</h2>
-          <p className="summary-card__copy">{t("history.summary.description")}</p>
-
-          <div className="metrics-grid">
-            <article className="panel metric-card">
-              <span className="panel-kicker">{t("history.summary.totalTasks")}</span>
-              <strong>{taskHistory.length}</strong>
-              <p>{t("history.summary.totalTasksBody")}</p>
-            </article>
-
-            <article className="panel metric-card">
-              <span className="panel-kicker">{t("history.summary.latestStatus")}</span>
-              <strong>{latestTask ? t(`common.taskStatus.${latestTask.status}`) : "--"}</strong>
-              <p>{latestTask ? formatTime(latestTask.updatedAt) : t("history.summary.timeFallback")}</p>
-            </article>
-          </div>
-        </article>
-
-        <article className="panel history-list-card">
-          <div className="section-head section-head--tight">
-            <div>
-              <p className="panel-kicker">{t("history.list.kicker")}</p>
-              <h2 className="section-title">{t("history.list.title")}</h2>
-            </div>
-            <StatusBadge tone="muted">{t("history.list.sessionScope")}</StatusBadge>
-          </div>
-
+    <>
+      <h1 className="settings-title">{t("history.title")}</h1>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card__header">
+          <h3 className="card__title">{t("history.allTasks")}</h3>
+          <span className="card__count">{tasks.length}</span>
+        </div>
+        <div className="card__body">
           <div className="history-list">
-            {taskHistory.map((task) => (
-              <article key={task.id} className="history-item">
-                <div className="history-item__top">
-                  <div>
-                    <strong>{t(`common.taskStatus.${task.status}`)}</strong>
-                    <p>{t(`history.type.${task.type}`)}</p>
+            {tasks.map((task) => (
+              <div
+                key={task.id}
+                className={`history-item${selectedTaskId === task.id ? " history-item--selected" : ""}`}
+                onClick={() => setSelectedTaskId(task.id)}
+              >
+                <div className="history-item__play"><IconPlay size={12} /></div>
+                <div className="history-item__info">
+                  <div className="history-item__text">
+                    {task.message || t("history.untitled")}
                   </div>
-                  <StatusBadge tone={getTaskTone(task)}>{t(`common.taskStatus.${task.status}`)}</StatusBadge>
+                  <div className="history-item__meta">
+                    {formatHistoryTime(task.createdAt)}
+                    {" · "}
+                    {task.result?.durationMs ? formatDuration(task.result.durationMs) : statusLabel(task.status, t)}
+                  </div>
                 </div>
-
-                <dl className="history-meta">
-                  <div>
-                    <dt>{t("history.item.createdAt")}</dt>
-                    <dd>{formatTime(task.createdAt)}</dd>
-                  </div>
-                  <div>
-                    <dt>{t("history.item.updatedAt")}</dt>
-                    <dd>{formatTime(task.updatedAt)}</dd>
-                  </div>
-                  <div>
-                    <dt>{t("history.item.progress")}</dt>
-                    <dd>{task.progress !== undefined ? `${task.progress}%` : "--"}</dd>
-                  </div>
-                </dl>
-
-                <div className="history-item__body">
-                  {task.result?.audioPath ? (
-                    <p>
-                      {t("history.item.audioPath")}: {task.result.audioPath}
-                    </p>
-                  ) : task.error?.message ? (
-                    <p>
-                      {t("history.item.error")}: {task.error.message}
-                    </p>
-                  ) : (
-                    <p>{task.message ?? t("history.item.messageFallback")}</p>
-                  )}
-                </div>
-              </article>
+              </div>
             ))}
           </div>
-        </article>
+        </div>
       </div>
-    </section>
+      <AudioPlayer audioPath={selectedAudioPath} />
+    </>
   );
 }

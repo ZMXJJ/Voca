@@ -5,6 +5,7 @@ findings.md
 progress.md
 task_plan.md
 design/
+temp/
 
 # Desktop app build artifacts
 desktop/node_modules/

@@ -58,6 +58,9 @@ export type TaskRecord = {
     audioPath?: string;
     sampleRate?: number;
     durationMs?: number;
+    modelKey?: string;
+    modelPath?: string;
+    provider?: ModelProvider;
   } | null;
 };
 
@@ -126,10 +129,29 @@ export type GenerationParams = {
   normalize?: boolean;
   denoise?: boolean;
   streaming?: boolean;
+  seed?: number;
 };
 
 export type SidecarStatus = {
   running: boolean;
   healthy: boolean;
   reason?: string;
+};
+
+export type ServiceInfo = {
+  service: string;
+  status: string;
+  modelLoaded: boolean;
+  version: string;
+  deviceType?: string;
+  audioOutputDir?: string;
+};
+
+export type VoiceEntry = {
+  id: string;
+  name: string;
+  language: string;
+  durationSeconds?: number;
+  audioPath?: string;
+  isBuiltin: boolean;
 };
