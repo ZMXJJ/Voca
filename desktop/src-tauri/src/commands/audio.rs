@@ -1,6 +1,6 @@
 use base64::Engine;
 use rfd::FileDialog;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[tauri::command]
 pub async fn read_audio_base64(path: String) -> Result<String, String> {
@@ -15,7 +15,16 @@ pub async fn read_audio_base64(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn save_audio_as(path: String, suggested_name: Option<String>) -> Result<bool, String> {
+pub async fn audio_file_exists(path: String) -> Result<bool, String> {
+    Ok(Path::new(&path).exists())
+}
+
+#[tauri::command]
+pub async fn save_audio_as(
+    path: String,
+    suggested_name: Option<String>,
+    default_directory: Option<String>,
+) -> Result<bool, String> {
     let source_path = Path::new(&path);
     if !source_path.exists() {
         return Err(format!("File not found: {path}"));
@@ -31,10 +40,18 @@ pub async fn save_audio_as(path: String, suggested_name: Option<String>) -> Resu
                 .to_string()
         });
 
-    let destination = FileDialog::new()
+    let mut dialog = FileDialog::new()
         .set_file_name(&default_name)
-        .add_filter("WAV Audio", &["wav"])
-        .save_file();
+        .add_filter("WAV Audio", &["wav"]);
+
+    if let Some(dir) = default_directory {
+        let dir_path = PathBuf::from(shellexpand::tilde(&dir).into_owned());
+        if dir_path.is_dir() {
+            dialog = dialog.set_directory(&dir_path);
+        }
+    }
+
+    let destination = dialog.save_file();
 
     let Some(destination_path) = destination else {
         return Ok(false);

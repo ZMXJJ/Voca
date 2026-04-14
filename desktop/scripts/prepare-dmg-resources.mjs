@@ -1,5 +1,6 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +44,58 @@ function runCommand(command, args, extraEnv = {}) {
   if (result.status !== 0) {
     throw new Error(`Command failed: ${command} ${args.join(" ")}`);
   }
+}
+
+function runCommandAsync(command, args, extraEnv = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        ...extraEnv,
+      },
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Command failed (${code}): ${command} ${args.join(" ")}`));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function resolveCodesignConcurrency() {
+  const raw = process.env.VOCA_CODESIGN_CONCURRENCY?.trim();
+  if (raw) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      return Math.min(parsed, 32);
+    }
+  }
+  const cpus =
+    typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
+  return Math.min(8, Math.max(1, cpus));
+}
+
+async function runWithConcurrency(limit, tasks) {
+  if (tasks.length === 0) {
+    return;
+  }
+  let next = 0;
+  const workerCount = Math.min(limit, tasks.length);
+  async function worker() {
+    while (true) {
+      const index = next;
+      next += 1;
+      if (index >= tasks.length) {
+        return;
+      }
+      await tasks[index]();
+    }
+  }
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
 }
 
 function resolveUvBinary() {
@@ -159,7 +212,7 @@ function collectSignTargets(rootPath) {
     .sort((left, right) => right.depth - left.depth || left.filePath.localeCompare(right.filePath));
 }
 
-function signEmbeddedMachOBinaries() {
+async function signEmbeddedMachOBinaries() {
   const identity = process.env.APPLE_SIGNING_IDENTITY?.trim();
   if (!identity) {
     console.log("Skipping embedded Python binary signing because APPLE_SIGNING_IDENTITY is not set.");
@@ -176,15 +229,19 @@ function signEmbeddedMachOBinaries() {
     return;
   }
 
-  console.log(`Signing ${signTargets.length} embedded Python binaries with ${identity}...`);
-  for (const target of signTargets) {
+  const concurrency = resolveCodesignConcurrency();
+  console.log(
+    `Signing ${signTargets.length} embedded Python binaries (${concurrency} parallel) with ${identity}...`,
+  );
+  const tasks = signTargets.map((target) => () => {
     const args = ["--force", "--sign", identity, "--timestamp"];
     if (target.requiresRuntime) {
       args.push("--options", "runtime");
     }
     args.push(target.filePath);
-    runCommand("codesign", args);
-  }
+    return runCommandAsync("codesign", args);
+  });
+  await runWithConcurrency(concurrency, tasks);
 }
 
 ensureExists(path.join(pythonServiceRoot, "app"), "Python service app directory");
@@ -202,7 +259,7 @@ copyDirectory(voxcpmSrcRoot, path.join(stageRoot, "VoxCPM", "src"));
 copyDirectory(runtimeRoot, path.join(stageRoot, "python-runtime"), { dereference: true });
 materializeSymlinks(path.join(stageRoot, "python-runtime"));
 materializeSymlinks(stageVenvRoot);
-signEmbeddedMachOBinaries();
+await signEmbeddedMachOBinaries();
 
 writeFileSync(
   path.join(stageServiceRoot, "manifest.json"),

@@ -24,6 +24,7 @@ type CacheClearResult = {
   remainingBytes: number;
   removedTasks: number;
   removedTaskIds: string[];
+  clearedAudioDirs?: string[];
   serviceInfo?: ServiceInfo | null;
 };
 
@@ -240,6 +241,14 @@ export async function exportLogs(logDir: string): Promise<boolean> {
 export async function openStorageDirectory(path: string): Promise<boolean> {
   try {
     return await invoke<boolean>("open_storage_directory", { path });
+  } catch {
+    return false;
+  }
+}
+
+export async function audioFileExists(path: string): Promise<boolean> {
+  try {
+    return await invoke<boolean>("audio_file_exists", { path });
   } catch {
     return false;
   }

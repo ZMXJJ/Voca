@@ -2,7 +2,7 @@ mod commands;
 mod sidecar;
 mod state;
 
-use commands::audio::{pick_audio_file, read_audio_base64, save_audio_as};
+use commands::audio::{audio_file_exists, pick_audio_file, read_audio_base64, save_audio_as};
 use commands::bootstrap::{
     clear_cache, complete_onboarding, export_logs, get_bootstrap_state, get_quick_bootstrap_state,
     get_service_info, get_setup_diagnostics, get_sidecar_status, open_storage_directory,
@@ -29,6 +29,7 @@ pub fn run() {
             clear_cache,
             export_logs,
             open_storage_directory,
+            audio_file_exists,
             read_audio_base64,
             save_audio_as,
             pick_audio_file,

@@ -397,7 +397,7 @@ pub async fn ensure_sidecar_running(
             let mut command = Command::new(&sidecar_paths.python_executable);
             let log_path = sidecar_log_path()?;
             let app_support_dir = voca_app_support_dir()?;
-            let model_dir = resolve_env_dir(&["VOCA_MODEL_DIR", "VOXCPM_MODEL_DIR"], app_support_dir.join("models"));
+            let model_dir = resolve_env_dir(&["VOCA_MODEL_DIR"], app_support_dir.join("models"));
             let hf_home = resolve_env_dir(&["HF_HOME"], app_support_dir.join("huggingface"));
             let hf_hub_cache = resolve_env_dir(&["HF_HUB_CACHE"], hf_home.join("hub"));
             let modelscope_cache =
@@ -435,7 +435,6 @@ pub async fn ensure_sidecar_running(
                 .env("VOCA_VOXCPM_SRC", &sidecar_paths.voxcpm_src)
                 .env("VOCA_APP_SUPPORT_DIR", &app_support_dir)
                 .env("VOCA_MODEL_DIR", &model_dir)
-                .env("VOXCPM_MODEL_DIR", &model_dir)
                 .env("HF_HOME", &hf_home)
                 .env("HF_HUB_CACHE", &hf_hub_cache)
                 .env("MODELSCOPE_CACHE", &modelscope_cache)

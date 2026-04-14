@@ -25,7 +25,7 @@ def app_support_dir() -> Path:
 
 
 def models_dir() -> Path:
-    override = _expand_env_path("VOCA_MODEL_DIR") or _expand_env_path("VOXCPM_MODEL_DIR")
+    override = _expand_env_path("VOCA_MODEL_DIR")
     return override or (app_support_dir() / "models")
 
 
@@ -62,4 +62,12 @@ def torch_cache_dir() -> Path:
 
 
 def audio_output_dir() -> Path:
-    return Path(tempfile.gettempdir()) / "voca" / "outputs"
+    return app_support_dir() / "outputs"
+
+
+def legacy_audio_output_dirs() -> list[Path]:
+    legacy_dir = Path(tempfile.gettempdir()) / "voca" / "outputs"
+    current_dir = audio_output_dir()
+    if legacy_dir == current_dir:
+        return [current_dir]
+    return [current_dir, legacy_dir]

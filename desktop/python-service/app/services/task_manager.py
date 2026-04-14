@@ -259,8 +259,9 @@ class TaskManager:
             tasks = [t for t in tasks if t.status == status]
         return tasks[offset : offset + limit]
 
-    def clear_cached_audio_tasks(self, output_dir: Path) -> list[str]:
+    def clear_cached_audio_tasks(self, output_dirs: list[Path]) -> list[str]:
         removed_task_ids: list[str] = []
+        normalized_output_dirs = [directory.resolve() for directory in output_dirs]
 
         with self._lock:
             for task_id, task in list(self._tasks.items()):
@@ -277,19 +278,17 @@ class TaskManager:
                     continue
 
                 if any(
-                    (
-                        candidate
-                        and (
-                            output_dir == Path(candidate)
-                            or output_dir in Path(candidate).parents
-                        )
-                    )
+                    candidate and self._is_in_output_dirs(Path(candidate), normalized_output_dirs)
                     for candidate in audio_candidates
                 ):
                     removed_task_ids.append(task_id)
                     self._tasks.pop(task_id, None)
 
         return removed_task_ids
+
+    def _is_in_output_dirs(self, path: Path, output_dirs: list[Path]) -> bool:
+        resolved_path = path.resolve()
+        return any(directory == resolved_path or directory in resolved_path.parents for directory in output_dirs)
 
     def _run_generate_task(self, task_id: str, payload: GenerationRequest) -> None:
         self._update_task(task_id, status="running", progress=10, message="Resolving model source")

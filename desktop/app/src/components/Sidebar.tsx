@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { SidecarStatus } from "@voca/contracts";
+import type { ServiceInfo, SidecarStatus } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import { HealthIndicator } from "./HealthIndicator";
 import { IconHome, IconArchive, IconSettings, IconVocaLogo } from "./Icons";
@@ -10,6 +10,7 @@ type SidebarProps = {
   activeSection: SidebarSection;
   onSectionChange: (section: SidebarSection) => void;
   sidecarStatus: SidecarStatus;
+  serviceInfo: ServiceInfo | null;
 };
 
 const NAV_ITEMS: Array<{ key: SidebarSection; icon: ReactNode }> = [
@@ -18,7 +19,7 @@ const NAV_ITEMS: Array<{ key: SidebarSection; icon: ReactNode }> = [
   { key: "settings", icon: <IconSettings size={20} /> },
 ];
 
-export function Sidebar({ activeSection, onSectionChange, sidecarStatus }: SidebarProps) {
+export function Sidebar({ activeSection, onSectionChange, sidecarStatus, serviceInfo }: SidebarProps) {
   const { t } = useTranslation();
 
   return (
@@ -43,7 +44,7 @@ export function Sidebar({ activeSection, onSectionChange, sidecarStatus }: Sideb
       </nav>
 
       <div className="sidebar__footer">
-        <HealthIndicator sidecarStatus={sidecarStatus} />
+        <HealthIndicator sidecarStatus={sidecarStatus} serviceInfo={serviceInfo} />
       </div>
     </aside>
   );

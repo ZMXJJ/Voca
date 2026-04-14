@@ -7,6 +7,8 @@ type AudioPlayerProps = {
   autoPlay?: boolean;
   playNonce?: number;
   downloadName?: string;
+  defaultDirectory?: string;
+  onDownloadComplete?: () => void;
 };
 
 export function AudioPlayer({
@@ -14,6 +16,8 @@ export function AudioPlayer({
   autoPlay = false,
   playNonce = 0,
   downloadName,
+  defaultDirectory,
+  onDownloadComplete,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -21,6 +25,7 @@ export function AudioPlayer({
   const [duration, setDuration] = useState(0);
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!audioPath) {
@@ -28,15 +33,27 @@ export function AudioPlayer({
       setPlaying(false);
       setCurrentTime(0);
       setDuration(0);
+      setLoadError(null);
       return;
     }
     let cancelled = false;
+    setAudioSrc(null);
+    setPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setLoadError(null);
     invoke<string>("read_audio_base64", { path: audioPath })
       .then((dataUrl) => {
-        if (!cancelled) setAudioSrc(dataUrl);
+        if (!cancelled) {
+          setAudioSrc(dataUrl);
+          setLoadError(null);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setAudioSrc(null);
+      .catch((error) => {
+        if (!cancelled) {
+          setAudioSrc(null);
+          setLoadError(error instanceof Error ? error.message : "Failed to load audio");
+        }
       });
     return () => { cancelled = true; };
   }, [audioPath]);
@@ -132,21 +149,26 @@ export function AudioPlayer({
     invoke<boolean>("save_audio_as", {
       path: audioPath,
       suggestedName: downloadName || fallbackName,
+      defaultDirectory: defaultDirectory || null,
     })
-      .catch(() => false)
+      .then((saved) => {
+        if (saved && onDownloadComplete) onDownloadComplete();
+      })
+      .catch(() => {})
       .finally(() => {
         setSaving(false);
       });
-  }, [audioPath, downloadName, saving]);
+  }, [audioPath, downloadName, defaultDirectory, onDownloadComplete, saving]);
 
   return (
-    <div className="audio-player">
+    <div className="audio-player" title={loadError ?? undefined}>
       {audioSrc && <audio ref={audioRef} src={audioSrc} preload="metadata" />}
       <button
         className="audio-player__play-btn"
         disabled={!audioSrc}
         onClick={togglePlay}
         type="button"
+        title={loadError ?? "Play audio"}
       >
         {playing ? <IconPause size={16} /> : <IconPlay size={16} />}
       </button>
@@ -163,7 +185,7 @@ export function AudioPlayer({
         disabled={!audioPath || saving}
         onClick={handleDownload}
         type="button"
-        title={saving ? "Saving..." : "Download audio"}
+        title={loadError ?? (saving ? "Saving..." : "Download audio")}
       >
         <IconDownload size={18} />
       </button>

@@ -1,11 +1,19 @@
-import type { SidecarStatus } from "@voca/contracts";
+import type { ServiceInfo, SidecarStatus } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 
 type HealthIndicatorProps = {
   sidecarStatus: SidecarStatus;
+  serviceInfo: ServiceInfo | null;
 };
 
-export function HealthIndicator({ sidecarStatus }: HealthIndicatorProps) {
+function formatDevice(serviceInfo: ServiceInfo | null): string {
+  const name = serviceInfo?.deviceName?.trim();
+  const type = serviceInfo?.deviceType?.trim();
+  if (name && type) return `${name} [${type}]`;
+  return name || type || "—";
+}
+
+export function HealthIndicator({ sidecarStatus, serviceInfo }: HealthIndicatorProps) {
   const { t } = useTranslation();
   const healthy = sidecarStatus.healthy;
 
@@ -21,7 +29,7 @@ export function HealthIndicator({ sidecarStatus }: HealthIndicatorProps) {
         <div className="health-indicator__tooltip-title">{t("sidebar.inferenceService")}</div>
         <div className="health-indicator__tooltip-row">
           <span className="health-indicator__tooltip-key">{t("sidebar.device")}:</span>
-          <span className="health-indicator__tooltip-val">MPS (Apple Silicon)</span>
+          <span className="health-indicator__tooltip-val">{formatDevice(serviceInfo)}</span>
         </div>
         <div className="health-indicator__tooltip-row">
           <span className="health-indicator__tooltip-key">{t("sidebar.queue")}:</span>

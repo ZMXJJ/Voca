@@ -23,6 +23,8 @@ type WorkspacePageProps = {
   preparedModel: ModelPrepareResponse | null;
   modelCatalog: ModelCatalogEntry[];
   downloadedModelCatalog: ModelCatalogEntry[];
+  auxiliaryModelCatalog: ModelCatalogEntry[];
+  downloadedAuxiliaryModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
   currentTask: TaskRecord | null;
   taskHistory: TaskRecord[];
@@ -36,6 +38,7 @@ type WorkspacePageProps = {
     serviceInfo: ServiceInfo | null,
     removedTaskIds: string[],
     remainingBytes: number,
+    clearedAudioDirs: string[],
   ) => void;
 };
 
@@ -46,6 +49,8 @@ export function WorkspacePage({
   preparedModel,
   modelCatalog,
   downloadedModelCatalog,
+  auxiliaryModelCatalog,
+  downloadedAuxiliaryModelCatalog,
   serviceInfo,
   currentTask,
   taskHistory,
@@ -68,6 +73,8 @@ export function WorkspacePage({
             preparedModel={preparedModel}
             modelCatalog={modelCatalog}
             downloadedModelCatalog={downloadedModelCatalog}
+            auxiliaryModelCatalog={auxiliaryModelCatalog}
+            downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
             serviceInfo={serviceInfo}
             taskHistory={taskHistory}
             onPrepareModel={onPrepareModel}
@@ -91,8 +98,10 @@ export function WorkspacePage({
     }
   }, [
     activeSection,
+    auxiliaryModelCatalog,
     bootstrapState,
     currentTask,
+    downloadedAuxiliaryModelCatalog,
     downloadedModelCatalog,
     modelCatalog,
     serviceInfo,
@@ -111,6 +120,7 @@ export function WorkspacePage({
         activeSection={activeSection}
         onSectionChange={setActiveSection}
         sidecarStatus={sidecarStatus}
+        serviceInfo={serviceInfo}
       />
       <div className="main-content">
         <div className="main-scroll">

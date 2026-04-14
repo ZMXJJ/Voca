@@ -358,28 +358,32 @@ export function VoiceLibrary({
                     {t("studio.voiceLibrary.chooseReferenceAudio")}
                   </button>
                   {createForm.referenceAudioPath ? (
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--small"
-                      onClick={() =>
-                        setCreateForm((current) => ({
-                          ...current,
-                          referenceAudioPath: undefined,
-                          referenceTranscript: "",
-                          transcriptLanguage: undefined,
-                        }))
-                      }
-                    >
-                      {t("studio.voiceLibrary.clearReferenceAudio")}
-                    </button>
-                  ) : null}
+                    <>
+                      <span className="voice-form__upload-filename">
+                        {displayAudioName(createForm.referenceAudioPath)}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--small"
+                        onClick={() =>
+                          setCreateForm((current) => ({
+                            ...current,
+                            referenceAudioPath: undefined,
+                            referenceTranscript: "",
+                            transcriptLanguage: undefined,
+                          }))
+                        }
+                      >
+                        {t("studio.voiceLibrary.clearReferenceAudio")}
+                      </button>
+                    </>
+                  ) : (
+                    <span className="voice-form__upload-placeholder">
+                      {t("studio.voiceLibrary.noReferenceAudio")}
+                    </span>
+                  )}
                 </div>
                 <div className="voice-form__help">{t("studio.voiceLibrary.uploadHint")}</div>
-                <div className="voice-form__value">
-                  {createForm.referenceAudioPath
-                    ? displayAudioName(createForm.referenceAudioPath)
-                    : t("studio.voiceLibrary.noReferenceAudio")}
-                </div>
                 <div className="voice-form__help">
                   {transcribingCreateAudio
                     ? t("studio.voiceLibrary.transcribing")

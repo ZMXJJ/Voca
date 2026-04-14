@@ -9,6 +9,7 @@ import type {
   VoiceEntry,
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
+import { getTaskPlayableAudioPath } from "../lib/historyStorage";
 import { listVoices } from "../lib/tauri";
 import { AudioPlayer } from "./AudioPlayer";
 import { CustomSelect } from "./CustomSelect";
@@ -118,6 +119,10 @@ export function GenerationWorkspace({
     : false;
   const hasDownloadedModels = modelCatalog.length > 0;
   const modelReady = preparedModel?.configExists ?? false;
+  const playableHistory = useMemo(
+    () => taskHistory.filter((task) => Boolean(getTaskPlayableAudioPath(task))),
+    [taskHistory],
+  );
 
   useEffect(() => {
     if (modelCatalog.length === 0) return;
@@ -133,32 +138,67 @@ export function GenerationWorkspace({
     }
   }, [modelCatalog, modelKey, preparedModel?.modelKey]);
 
+  useEffect(() => {
+    if (!selectedHistoryTaskId) {
+      return;
+    }
+    if (!playableHistory.some((task) => task.id === selectedHistoryTaskId)) {
+      setSelectedHistoryTaskId(null);
+    }
+  }, [playableHistory, selectedHistoryTaskId]);
+
   const latestAudioPath = useMemo(() => {
     if (selectedHistoryTaskId) {
-      const selectedTask = taskHistory.find((task) => task.id === selectedHistoryTaskId);
-      if (selectedTask?.result?.audioPath) {
-        return selectedTask.result.audioPath;
+      const selectedTask = playableHistory.find((task) => task.id === selectedHistoryTaskId);
+      const selectedAudioPath = selectedTask ? getTaskPlayableAudioPath(selectedTask) : null;
+      if (selectedAudioPath) {
+        return selectedAudioPath;
       }
     }
-    if (currentTask?.result?.audioPath) return currentTask.result.audioPath;
-    const found = taskHistory.find((t) => t.result?.audioPath);
-    return found?.result?.audioPath ?? null;
-  }, [currentTask, selectedHistoryTaskId, taskHistory]);
+    const currentAudioPath = currentTask ? getTaskPlayableAudioPath(currentTask) : null;
+    if (currentAudioPath) return currentAudioPath;
+    const found = playableHistory.find((task) => getTaskPlayableAudioPath(task));
+    return found ? getTaskPlayableAudioPath(found) : null;
+  }, [currentTask, playableHistory, selectedHistoryTaskId]);
 
   const selectedHistoryTask = useMemo(() => {
     if (selectedHistoryTaskId) {
-      return taskHistory.find((task) => task.id === selectedHistoryTaskId) ?? null;
+      return playableHistory.find((task) => task.id === selectedHistoryTaskId) ?? null;
     }
-    if (currentTask?.result?.audioPath) {
+    if (currentTask && getTaskPlayableAudioPath(currentTask)) {
       return currentTask;
     }
-    return taskHistory.find((task) => task.result?.audioPath) ?? null;
-  }, [currentTask, selectedHistoryTaskId, taskHistory]);
+    return playableHistory[0] ?? null;
+  }, [currentTask, playableHistory, selectedHistoryTaskId]);
 
   const selectedVoice = useMemo(
     () => voices.find((voice) => voice.id === selectedVoiceId) ?? null,
     [selectedVoiceId, voices],
   );
+
+  const [showDownloadToast, setShowDownloadToast] = useState(false);
+  const downloadToastTimer = useRef<number | null>(null);
+
+  const handleDownloadComplete = useCallback(() => {
+    setShowDownloadToast(true);
+    if (downloadToastTimer.current) window.clearTimeout(downloadToastTimer.current);
+    downloadToastTimer.current = window.setTimeout(() => setShowDownloadToast(false), 2500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (downloadToastTimer.current) window.clearTimeout(downloadToastTimer.current);
+    };
+  }, []);
+
+  const downloadFileName = useMemo(() => {
+    const task = selectedHistoryTask;
+    if (!task) return undefined;
+    const voiceName = selectedVoice?.name ?? "";
+    const textSnippet = (task.title ?? "").slice(0, 10).trim();
+    const parts = [voiceName, textSnippet].filter(Boolean);
+    return parts.length > 0 ? `${parts.join("_")}.wav` : undefined;
+  }, [selectedHistoryTask, selectedVoice]);
 
   const handleGenerate = () => {
     if (!targetText.trim()) return;
@@ -337,17 +377,17 @@ export function GenerationWorkspace({
           <div className="card__header">
             <h3 className="card__title">{t("studio.generationHistory.title")}</h3>
             <span className="card__count">
-              {t("studio.generationHistory.count", { count: taskHistory.length })}
+              {t("studio.generationHistory.count", { count: playableHistory.length })}
             </span>
           </div>
           <div className="card__body">
-            {taskHistory.length === 0 ? (
+            {playableHistory.length === 0 ? (
               <p style={{ color: "var(--text-dim)", fontSize: "13px", textAlign: "center", padding: "32px 0" }}>
                 {t("studio.generationHistory.empty")}
               </p>
             ) : (
               <div className="history-list history-list--compact">
-                {taskHistory.slice(0, 5).map((task) => (
+                {playableHistory.slice(0, 5).map((task) => (
                   <div
                     key={task.id}
                     className={`history-item${selectedHistoryTaskId === task.id ? " history-item--selected" : ""}`}
@@ -388,12 +428,14 @@ export function GenerationWorkspace({
         audioPath={latestAudioPath}
         autoPlay={Boolean(selectedHistoryTaskId)}
         playNonce={historyPlayNonce}
-        downloadName={
-          selectedHistoryTask?.title
-            ? `${selectedHistoryTask.title.slice(0, 48)}.wav`
-            : undefined
-        }
+        downloadName={downloadFileName}
+        defaultDirectory="~/Downloads/Voca"
+        onDownloadComplete={handleDownloadComplete}
       />
+
+      {showDownloadToast && (
+        <div className="download-toast">{t("generation.downloadComplete")}</div>
+      )}
     </>
   );
 }

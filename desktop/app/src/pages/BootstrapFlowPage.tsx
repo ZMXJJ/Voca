@@ -65,7 +65,6 @@ type InitializeCheckItem = {
   key: string;
   title: string;
   summary: string;
-  detail: string;
   status: InitializeCheckVisualStatus;
 };
 
@@ -162,21 +161,6 @@ function formatDownloadSummary(downloadTask?: TaskRecord | null) {
   return null;
 }
 
-function formatSetupEnvironmentReason(reason: string | null | undefined, t: Translate) {
-  switch (reason) {
-    case "python_service_venv_missing":
-      return t("bootstrap.init.environmentMissing");
-    case "python_sidecar_not_ready":
-      return t("bootstrap.init.environmentStarting");
-    case "python_sidecar_boot_failed":
-      return t("bootstrap.init.environmentFailed");
-    case "tauri_not_available":
-      return t("bootstrap.init.environmentUnavailable");
-    default:
-      return t("bootstrap.init.environmentUnknown");
-  }
-}
-
 function getInitializeChecks(
   setupDiagnostics: SetupDiagnostics | null | undefined,
   t: Translate,
@@ -212,31 +196,12 @@ function getInitializeChecks(
       key: "device",
       title: t("bootstrap.init.deviceTitle"),
       summary: cpuSummary,
-      detail: memoryLow
-        ? t("bootstrap.init.memoryWarning", {
-            memory: totalMemoryBytes !== null ? formatBytes(totalMemoryBytes) : t("bootstrap.init.detecting"),
-            recommended: formatBytes(recommendedMemoryBytes),
-          })
-        : totalMemoryBytes !== null
-          ? t("bootstrap.init.memoryHealthy", { memory: formatBytes(totalMemoryBytes) })
-          : t("bootstrap.init.detecting"),
       status: setupDiagnostics ? (memoryLow ? "warning" : "done") : "pending",
     },
     {
       key: "storage",
       title: t("bootstrap.init.storageTitle"),
       summary: storageSummary,
-      detail: storageInsufficient
-        ? t("bootstrap.init.storageWarning", {
-            available: availableStorageBytes !== null ? formatStorageBytes(availableStorageBytes) : t("bootstrap.init.detecting"),
-            minimum: formatStorageBytes(minimumFreeStorageBytes),
-          })
-        : availableStorageBytes !== null
-          ? t("bootstrap.init.storageHealthy", {
-              available: formatStorageBytes(availableStorageBytes),
-              minimum: formatStorageBytes(minimumFreeStorageBytes),
-            })
-          : t("bootstrap.init.detecting"),
       status: setupDiagnostics ? (storageInsufficient ? "blocked" : "done") : "pending",
     },
     {
@@ -249,9 +214,6 @@ function getInitializeChecks(
             ? t("bootstrap.init.environmentChecking")
             : t("bootstrap.init.environmentNotReady")
         : t("bootstrap.init.detecting"),
-      detail: setupDiagnostics
-        ? formatSetupEnvironmentReason(setupDiagnostics.environmentReason, t)
-        : t("bootstrap.init.detecting"),
       status: setupDiagnostics ? environmentStatus : "pending",
     },
   ];
@@ -260,13 +222,29 @@ function getInitializeChecks(
 function getBootstrapAssetCards(
   bootstrapAssets: BootstrapAssetStatus[],
   assetProgress: BootstrapAssetDownloadProgress[],
+  taskStatus?: TaskRecord["status"] | null,
 ): BootstrapAssetCard[] {
   const progressByModelKey = new Map(assetProgress.map((item) => [item.modelKey, item]));
+  const shouldPreferTaskProgress = assetProgress.length > 0 && taskStatus !== null && taskStatus !== undefined;
 
   if (bootstrapAssets.length > 0) {
     return bootstrapAssets.map((asset) => {
       const progress = progressByModelKey.get(asset.modelKey);
-      const status: BootstrapAssetCardStatus = asset.ready ? "succeeded" : (progress?.status ?? "pending");
+      if (shouldPreferTaskProgress) {
+        const status: BootstrapAssetCardStatus =
+          progress?.status ?? (taskStatus === "succeeded" ? "succeeded" : "pending");
+        return {
+          modelKey: asset.modelKey,
+          displayName: asset.displayName,
+          localDir: asset.localDir,
+          approxSizeLabel: asset.approxSizeLabel ?? null,
+          ready: status === "succeeded",
+          progress: status === "succeeded" ? 100 : clampProgress(progress?.progress ?? 0),
+          status,
+        };
+      }
+
+      const status: BootstrapAssetCardStatus = asset.ready ? "succeeded" : "pending";
       return {
         modelKey: asset.modelKey,
         displayName: asset.displayName,
@@ -314,7 +292,11 @@ export function BootstrapFlowPage({
   const { t } = useTranslation();
   const bootstrapAssets = serviceInfo?.bootstrapAssets ?? [];
   const initializeChecks = getInitializeChecks(setupDiagnostics, t);
-  const bootstrapAssetCards = getBootstrapAssetCards(bootstrapAssets, downloadTask?.bootstrapAssetProgress ?? []);
+  const bootstrapAssetCards = getBootstrapAssetCards(
+    bootstrapAssets,
+    downloadTask?.bootstrapAssetProgress ?? [],
+    downloadTask?.status,
+  );
   const activeBootstrapAsset =
     bootstrapAssetCards.find((asset) => asset.status === "running") ??
     bootstrapAssetCards.find((asset) => !asset.ready) ??
@@ -379,7 +361,6 @@ export function BootstrapFlowPage({
                     <div className="steps-card__info">
                       <div className="steps-card__info-title">{step.title}</div>
                       <div className="steps-card__info-desc">{step.summary}</div>
-                      <div className="steps-card__info-meta">{step.detail}</div>
                     </div>
                     <span className={`steps-card__status steps-card__status--${step.status}`}>
                       {step.status === "done"

@@ -1,6 +1,6 @@
 [package]
 name = "voca-desktop"
-version = "0.1.0"
+version = "0.1.0-dev"
 edition = "2024"
 build = "build.rs"
 
@@ -10,6 +10,7 @@ objc2-foundation = "0.3.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
+shellexpand = "3"
 serde_json = "1"
 tauri = { version = "2", features = [] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }

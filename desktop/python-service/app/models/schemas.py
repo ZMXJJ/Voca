@@ -70,6 +70,7 @@ class ProviderInfo(BaseModel):
 class ModelCatalogEntry(BaseModel):
     modelKey: str
     displayName: str
+    description: str | None = None
     defaultProvider: Literal["huggingface", "modelscope"]
     localDir: str
     assetRole: Literal["tts", "asr", "enhancer"] = "tts"

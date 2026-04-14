@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BootstrapState,
   ModelCatalogEntry,
@@ -10,9 +10,15 @@ import type {
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
-import { clearCache, exportLogs, openStorageDirectory } from "../lib/tauri";
-import { IconCheck, IconDownload } from "./Icons";
+import { exportLogs, getTask, openStorageDirectory, startModelDownload } from "../lib/tauri";
+import { IconCheck, IconChevronDown, IconDownload } from "./Icons";
 import { CustomSelect } from "./CustomSelect";
+import { StorageModal } from "./StorageModal";
+
+const ASSET_ROLE_I18N_KEY: Record<string, string> = {
+  asr: "settings.modelManagement.roleAsr",
+  enhancer: "settings.modelManagement.roleEnhancer",
+};
 
 function formatInferenceDevice(serviceInfo: ServiceInfo | null) {
   const deviceName = serviceInfo?.deviceName?.trim();
@@ -23,21 +29,6 @@ function formatInferenceDevice(serviceInfo: ServiceInfo | null) {
   }
 
   return deviceName || deviceType || "—";
-}
-
-function getModelStorageDir(modelPath?: string | null) {
-  const fallback = "~/Library/Application Support/Voca/models";
-  if (!modelPath) return fallback;
-
-  const normalizedPath = modelPath.replace(/\\/g, "/");
-  const marker = "/models/";
-  const markerIndex = normalizedPath.lastIndexOf(marker);
-
-  if (markerIndex >= 0) {
-    return normalizedPath.slice(0, markerIndex + marker.length - 1);
-  }
-
-  return normalizedPath;
 }
 
 function formatBytes(bytes?: number | null) {
@@ -62,6 +53,8 @@ type SettingsWorkspaceProps = {
   preparedModel: ModelPrepareResponse | null;
   modelCatalog: ModelCatalogEntry[];
   downloadedModelCatalog: ModelCatalogEntry[];
+  auxiliaryModelCatalog: ModelCatalogEntry[];
+  downloadedAuxiliaryModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
   taskHistory: TaskRecord[];
   onPrepareModel: (
@@ -73,6 +66,7 @@ type SettingsWorkspaceProps = {
     serviceInfo: ServiceInfo | null,
     removedTaskIds: string[],
     remainingBytes: number,
+    clearedAudioDirs: string[],
   ) => void;
 };
 
@@ -83,6 +77,8 @@ export function SettingsWorkspace({
   preparedModel,
   modelCatalog,
   downloadedModelCatalog,
+  auxiliaryModelCatalog,
+  downloadedAuxiliaryModelCatalog,
   serviceInfo,
   taskHistory,
   onPrepareModel,
@@ -93,30 +89,60 @@ export function SettingsWorkspace({
     providerRecommendation?.preferred ?? "auto",
   );
   const [cacheBytes, setCacheBytes] = useState(serviceInfo?.cacheBytes ?? 0);
-  const [clearingCache, setClearingCache] = useState(false);
+  const [storageModalOpen, setStorageModalOpen] = useState(false);
   const [exportingLogs, setExportingLogs] = useState(false);
   const [openingStorageDir, setOpeningStorageDir] = useState(false);
+  const [auxExpanded, setAuxExpanded] = useState(false);
+  const [downloadingTasks, setDownloadingTasks] = useState<Record<string, TaskRecord>>({});
   const completedTasks = taskHistory.filter((t) => t.status === "succeeded").length;
-  const modelStorageDir = serviceInfo?.modelDir ?? getModelStorageDir(preparedModel?.modelPath);
+  const pollTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     setCacheBytes(serviceInfo?.cacheBytes ?? 0);
   }, [serviceInfo?.cacheBytes]);
 
-  const handleClearCache = async () => {
-    if (clearingCache) return;
-    setClearingCache(true);
-    try {
-      const result = await clearCache();
-      if (result?.success) {
-        const remainingBytes = result.serviceInfo?.cacheBytes ?? result.remainingBytes ?? 0;
-        setCacheBytes(remainingBytes);
-        onCacheCleared(result.serviceInfo ?? null, result.removedTaskIds ?? [], remainingBytes);
-      }
-    } finally {
-      setClearingCache(false);
+  const handleModelDownload = useCallback(async (modelKey: string) => {
+    const task = await startModelDownload(modelKey, providerPreference);
+    if (task) {
+      setDownloadingTasks((prev) => ({ ...prev, [modelKey]: task }));
     }
-  };
+  }, [providerPreference]);
+
+  useEffect(() => {
+    const activeEntries = Object.entries(downloadingTasks).filter(
+      ([, task]) => !["succeeded", "failed", "cancelled"].includes(task.status),
+    );
+
+    if (activeEntries.length === 0) {
+      if (pollTimerRef.current) {
+        window.clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (pollTimerRef.current) return;
+
+    pollTimerRef.current = window.setInterval(() => {
+      for (const [modelKey, task] of Object.entries(downloadingTasks)) {
+        if (["succeeded", "failed", "cancelled"].includes(task.status)) continue;
+        void getTask(task.id).then((updated) => {
+          if (!updated) return;
+          setDownloadingTasks((prev) => ({ ...prev, [modelKey]: updated }));
+          if (updated.status === "succeeded") {
+            void onPrepareModel(modelKey, providerPreference, false);
+          }
+        });
+      }
+    }, 800);
+
+    return () => {
+      if (pollTimerRef.current) {
+        window.clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [downloadingTasks, onPrepareModel, providerPreference]);
 
   const handleExportLogs = async () => {
     if (!serviceInfo?.logDir || exportingLogs) return;
@@ -136,6 +162,16 @@ export function SettingsWorkspace({
     } finally {
       setOpeningStorageDir(false);
     }
+  };
+
+  const handleStorageCacheCleared = (
+    updatedServiceInfo: ServiceInfo | null,
+    removedTaskIds: string[],
+    remainingBytes: number,
+    clearedAudioDirs: string[],
+  ) => {
+    setCacheBytes(remainingBytes);
+    onCacheCleared(updatedServiceInfo, removedTaskIds, remainingBytes, clearedAudioDirs);
   };
 
   return (
@@ -198,7 +234,7 @@ export function SettingsWorkspace({
             {t("settings.modelManagement.title")}
           </div>
           <span className="settings-section__count">
-            {t("settings.modelManagement.count", { count: modelCatalog.length })}
+            {t("settings.modelManagement.count", { count: modelCatalog.length + auxiliaryModelCatalog.length })}
           </span>
         </div>
         <div className="model-list">
@@ -206,18 +242,24 @@ export function SettingsWorkspace({
             const isDownloaded = downloadedModelCatalog.some(
               (entry) => entry.modelKey === model.modelKey,
             );
+            const dlTask = downloadingTasks[model.modelKey];
+            const isDownloading = dlTask && !["succeeded", "failed", "cancelled"].includes(dlTask.status);
             return (
               <div key={model.modelKey} className="model-item">
                 <div className="model-item__info">
                   <div className="model-item__name">{model.displayName}</div>
-                  <div className="model-item__desc">{model.localDir}</div>
+                  <div className="model-item__desc">{model.description ?? model.localDir}</div>
                 </div>
                 {isDownloaded ? (
                   <div className="model-item__action model-item__action--downloaded"><IconCheck size={16} /></div>
+                ) : isDownloading ? (
+                  <div className="model-item__action model-item__action--downloading">
+                    {dlTask.progress ?? 0}%
+                  </div>
                 ) : (
                   <button
                     className="model-item__action model-item__action--download"
-                    onClick={() => void onPrepareModel(model.modelKey, providerPreference, true)}
+                    onClick={() => void handleModelDownload(model.modelKey)}
                     type="button"
                   >
                     <IconDownload size={16} />
@@ -227,6 +269,65 @@ export function SettingsWorkspace({
             );
           })}
         </div>
+        {auxiliaryModelCatalog.length > 0 && (
+          <>
+            <button
+              className="model-group-toggle"
+              type="button"
+              onClick={() => setAuxExpanded((v) => !v)}
+            >
+              <IconChevronDown
+                size={14}
+                className={`model-group-toggle__icon${auxExpanded ? " model-group-toggle__icon--open" : ""}`}
+              />
+              <span className="model-group-toggle__label">
+                {t("settings.modelManagement.auxiliaryModels")}
+                <span className="model-group-toggle__count">({auxiliaryModelCatalog.length})</span>
+              </span>
+            </button>
+            <div className={`model-group-collapsible${auxExpanded ? " model-group-collapsible--open" : ""}`}>
+              <div className="model-list">
+                {auxiliaryModelCatalog.map((model) => {
+                  const isDownloaded = downloadedAuxiliaryModelCatalog.some(
+                    (entry) => entry.modelKey === model.modelKey,
+                  );
+                  const roleKey = ASSET_ROLE_I18N_KEY[model.assetRole];
+                  const dlTask = downloadingTasks[model.modelKey];
+                  const isDownloading = dlTask && !["succeeded", "failed", "cancelled"].includes(dlTask.status);
+                  return (
+                    <div key={model.modelKey} className="model-item">
+                      <div className="model-item__info">
+                        <div className="model-item__name">
+                          {model.displayName}
+                          {roleKey && <span className="model-item__tag">{t(roleKey)}</span>}
+                        </div>
+                        <div className="model-item__desc">
+                          {model.description ?? model.localDir}
+                          {model.approxSizeLabel && <span className="model-item__size">{model.approxSizeLabel}</span>}
+                        </div>
+                      </div>
+                      {isDownloaded ? (
+                        <div className="model-item__action model-item__action--downloaded"><IconCheck size={16} /></div>
+                      ) : isDownloading ? (
+                        <div className="model-item__action model-item__action--downloading">
+                          {dlTask.progress ?? 0}%
+                        </div>
+                      ) : (
+                        <button
+                          className="model-item__action model-item__action--download"
+                          onClick={() => void handleModelDownload(model.modelKey)}
+                          type="button"
+                        >
+                          <IconDownload size={16} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
         <div className="settings-divider" />
         <div className="download-source-row">
           <span className="download-source-row__label">{t("settings.modelManagement.source")}</span>
@@ -242,56 +343,22 @@ export function SettingsWorkspace({
         </div>
       </div>
 
-      {/* Logs & Maintenance + General Settings */}
+      {/* Storage & Maintenance + General Settings */}
       <div className="settings-bottom-grid">
         <div className="settings-section" style={{ marginTop: 0 }}>
           <div className="settings-section__title">{t("settings.logs.title")}</div>
           <div className="kv-row">
-            <span className="kv-row__key">{t("settings.logs.logLevel")}</span>
-            <span className="kv-row__value">{serviceInfo?.logLevel ?? "warning"}</span>
-          </div>
-          <div className="kv-row">
             <span className="kv-row__key">{t("settings.logs.managedStorage")}</span>
             <span className="kv-row__value">{formatBytes(serviceInfo?.managedStorageBytes)}</span>
           </div>
-          <div className="kv-row">
-            <span className="kv-row__key">{t("settings.logs.modelDir")}</span>
-            <span className="kv-row__value">
-              {modelStorageDir}
-            </span>
-          </div>
-          <div className="kv-row">
-            <span className="kv-row__key">{t("settings.logs.modelSize")}</span>
-            <span className="kv-row__value">{formatBytes(serviceInfo?.modelBytes)}</span>
-          </div>
-          <div className="kv-row">
-            <span className="kv-row__key">{t("settings.logs.voiceLibrary")}</span>
-            <span className="kv-row__value">{formatBytes(serviceInfo?.voiceLibraryBytes)}</span>
-          </div>
-          <div className="kv-row">
-            <span className="kv-row__key">{t("settings.logs.downloadCache")}</span>
-            <span className="kv-row__value">{formatBytes(serviceInfo?.downloadCacheBytes)}</span>
-          </div>
-          <div className="kv-row">
-            <span className="kv-row__key">{t("settings.logs.logSize")}</span>
-            <span className="kv-row__value">{formatBytes(serviceInfo?.logBytes)}</span>
-          </div>
-          <div className="cache-row">
-            <span className="cache-row__left">{t("settings.logs.cache")}</span>
-            <div className="cache-row__right">
-              <span className="cache-row__size">{formatBytes(cacheBytes)}</span>
-              <button
-                className="btn btn--small btn--ghost"
-                type="button"
-                onClick={() => void handleClearCache()}
-                disabled={clearingCache}
-              >
-                {t("settings.logs.clearCache")}
-              </button>
-            </div>
-          </div>
-          <div className="settings-divider" />
-          <div className="settings-actions">
+          <div className="settings-actions" style={{ marginTop: 12 }}>
+            <button
+              className="btn btn--small btn--secondary"
+              type="button"
+              onClick={() => setStorageModalOpen(true)}
+            >
+              {t("settings.logs.manageStorage")}
+            </button>
             <button
               className="btn btn--small btn--secondary"
               disabled={!serviceInfo?.logDir || exportingLogs}
@@ -348,6 +415,15 @@ export function SettingsWorkspace({
           </div>
         </div>
       </div>
+
+      {storageModalOpen && (
+        <StorageModal
+          serviceInfo={serviceInfo}
+          cacheBytes={cacheBytes}
+          onCacheCleared={handleStorageCacheCleared}
+          onClose={() => setStorageModalOpen(false)}
+        />
+      )}
     </>
   );
 }

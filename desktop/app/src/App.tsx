@@ -11,7 +11,12 @@ import type {
   TaskRecord,
 } from "@voca/contracts";
 import { PreviewDock } from "./components/PreviewDock";
-import { loadPersistedTaskHistory, normalizeTaskHistory, savePersistedTaskHistory } from "./lib/historyStorage";
+import {
+  getTaskPlayableAudioPath,
+  loadPersistedTaskHistory,
+  normalizeTaskHistory,
+  savePersistedTaskHistory,
+} from "./lib/historyStorage";
 import { BootstrapFlowPage } from "./pages/BootstrapFlowPage";
 import { PreviewGalleryPage } from "./pages/PreviewGalleryPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
@@ -30,6 +35,7 @@ import {
   getTask,
   prepareModel,
   startBootstrapDownload,
+  audioFileExists,
 } from "./lib/tauri";
 
 type AppView = "loading" | "welcome" | "download" | "initialize" | "complete" | "workspace";
@@ -270,13 +276,15 @@ function upsertTaskHistory(history: TaskRecord[], task: TaskRecord): TaskRecord[
   return normalizeTaskHistory([task, ...history.filter((item) => item.id !== task.id)]);
 }
 
-function removeTasksFromHistory(history: TaskRecord[], removedTaskIds: string[]): TaskRecord[] {
-  if (removedTaskIds.length === 0) {
-    return history;
+function isTaskAudioUnderDirs(task: TaskRecord, clearedAudioDirs: string[]) {
+  if (clearedAudioDirs.length === 0) {
+    return false;
   }
-
-  const removedIdSet = new Set(removedTaskIds);
-  return history.filter((item) => !removedIdSet.has(item.id));
+  const audioPath = getTaskPlayableAudioPath(task);
+  if (!audioPath) {
+    return false;
+  }
+  return clearedAudioDirs.some((dir) => audioPath === dir || audioPath.startsWith(`${dir}/`));
 }
 
 function isTaskTerminal(task: TaskRecord | null) {
@@ -294,11 +302,14 @@ function App() {
   const [preparedModel, setPreparedModel] = useState<ModelPrepareResponse | null>(null);
   const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([]);
   const [downloadedModelCatalog, setDownloadedModelCatalog] = useState<ModelCatalogEntry[]>([]);
+  const [auxiliaryModelCatalog, setAuxiliaryModelCatalog] = useState<ModelCatalogEntry[]>([]);
+  const [downloadedAuxiliaryModelCatalog, setDownloadedAuxiliaryModelCatalog] = useState<ModelCatalogEntry[]>([]);
   const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
   const [setupDiagnostics, setSetupDiagnostics] = useState<SetupDiagnostics | null>(null);
   const [currentTask, setCurrentTask] = useState<TaskRecord | null>(null);
   const [bootstrapDownloadTask, setBootstrapDownloadTask] = useState<TaskRecord | null>(null);
-  const [taskHistory, setTaskHistory] = useState<TaskRecord[]>(() => loadPersistedTaskHistory());
+  const [persistedTaskHistory] = useState<TaskRecord[]>(() => loadPersistedTaskHistory());
+  const [taskHistory, setTaskHistory] = useState<TaskRecord[]>(persistedTaskHistory);
   const [completionAcknowledged, setCompletionAcknowledged] = useState(false);
   const [finalizedBootstrapTaskId, setFinalizedBootstrapTaskId] = useState<string | null>(null);
   const [initializeRequested, setInitializeRequested] = useState(false);
@@ -320,19 +331,23 @@ function App() {
   const refreshModelCatalogState = async () => {
     const catalog = await getModelCatalog();
     const ttsCatalog = catalog.filter((entry) => entry.assetRole === "tts");
+    const auxCatalog = catalog.filter((entry) => entry.assetRole !== "tts");
     setModelCatalog(ttsCatalog);
+    setAuxiliaryModelCatalog(auxCatalog);
 
     const preparedEntries = await Promise.all(
-      ttsCatalog.map(async (entry) => ({
+      catalog.map(async (entry) => ({
         entry,
         prepared: await prepareModel(entry.modelKey, "auto", false),
       })),
     );
 
+    const downloaded = preparedEntries.filter(({ prepared }) => prepared?.configExists);
     setDownloadedModelCatalog(
-      preparedEntries
-        .filter(({ prepared }) => prepared?.configExists)
-        .map(({ entry }) => entry),
+      downloaded.filter(({ entry }) => entry.assetRole === "tts").map(({ entry }) => entry),
+    );
+    setDownloadedAuxiliaryModelCatalog(
+      downloaded.filter(({ entry }) => entry.assetRole !== "tts").map(({ entry }) => entry),
     );
   };
 
@@ -357,7 +372,12 @@ function App() {
         if (!current) {
           return null;
         }
-        return ["queued", "running", "failed", "cancelled"].includes(current.status) ? current : null;
+        if (!bs.isFirstLaunch || bs.phase === "ready") {
+          return null;
+        }
+        return ["queued", "running", "succeeded", "failed", "cancelled"].includes(current.status)
+          ? current
+          : null;
       });
     }
     if (ss.healthy) {
@@ -409,6 +429,46 @@ function App() {
   useEffect(() => {
     savePersistedTaskHistory(taskHistory);
   }, [taskHistory]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const validatePersistedTaskHistory = async () => {
+      const historyWithAudio = persistedTaskHistory
+        .map((task) => ({ id: task.id, path: getTaskPlayableAudioPath(task) }))
+        .filter((item): item is { id: string; path: string } => Boolean(item.path));
+
+      if (historyWithAudio.length === 0) {
+        return;
+      }
+
+      const checks = await Promise.all(
+        historyWithAudio.map(async (item) => ({
+          id: item.id,
+          exists: await audioFileExists(item.path),
+        })),
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      const missingTaskIds = checks.filter((item) => !item.exists).map((item) => item.id);
+      if (missingTaskIds.length === 0) {
+        return;
+      }
+
+      const missingIdSet = new Set(missingTaskIds);
+      setTaskHistory((history) => history.filter((task) => !missingIdSet.has(task.id)));
+      setCurrentTask((task) => (task && missingIdSet.has(task.id) ? null : task));
+    };
+
+    void validatePersistedTaskHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [persistedTaskHistory]);
 
   useEffect(() => {
     if (!currentTask || ["succeeded", "failed", "cancelled"].includes(currentTask.status)) {
@@ -563,12 +623,21 @@ function App() {
     nextServiceInfo: ServiceInfo | null,
     removedTaskIds: string[],
     remainingBytes: number,
+    clearedAudioDirs: string[],
   ) => {
-    if (removedTaskIds.length > 0) {
-      const removedIdSet = new Set(removedTaskIds);
-      setTaskHistory((history) => removeTasksFromHistory(history, removedTaskIds));
-      setCurrentTask((task) => (task && removedIdSet.has(task.id) ? null : task));
-    }
+    const removedIdSet = new Set(removedTaskIds);
+    setTaskHistory((history) =>
+      history.filter((task) => !removedIdSet.has(task.id) && !isTaskAudioUnderDirs(task, clearedAudioDirs)),
+    );
+    setCurrentTask((task) => {
+      if (!task) {
+        return null;
+      }
+      if (removedIdSet.has(task.id) || isTaskAudioUnderDirs(task, clearedAudioDirs)) {
+        return null;
+      }
+      return task;
+    });
 
     setServiceInfo((info) => nextServiceInfo ?? (info ? { ...info, cacheBytes: remainingBytes } : info));
   };
@@ -613,6 +682,8 @@ function App() {
           preparedModel={previewPreparedModel}
           modelCatalog={modelCatalog}
           downloadedModelCatalog={downloadedModelCatalog}
+          auxiliaryModelCatalog={auxiliaryModelCatalog}
+          downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
           serviceInfo={serviceInfo}
           currentTask={previewTask}
           taskHistory={previewTaskHistory}
@@ -691,6 +762,10 @@ function App() {
     }
 
     if (bootstrapTaskStatus === "queued" || bootstrapTaskStatus === "running" || bootstrapTaskStatus === "failed") {
+      return "download";
+    }
+
+    if (bootstrapTaskStatus === "succeeded" && !modelReady) {
       return "download";
     }
 
@@ -857,6 +932,8 @@ function App() {
         preparedModel={preparedModel}
         modelCatalog={modelCatalog}
         downloadedModelCatalog={downloadedModelCatalog}
+        auxiliaryModelCatalog={auxiliaryModelCatalog}
+        downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
         serviceInfo={serviceInfo}
         currentTask={currentTask}
         taskHistory={taskHistory}

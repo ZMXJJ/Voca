@@ -31,6 +31,7 @@ from app.services.storage_paths import (
     app_support_dir,
     audio_output_dir,
     huggingface_hub_cache_dir,
+    legacy_audio_output_dirs,
     logs_dir,
     models_dir,
     modelscope_cache_dir,
@@ -313,17 +314,23 @@ def get_task(task_id: str) -> TaskRecord:
 
 @app.post("/api/v1/cache/clear")
 def clear_cache() -> dict[str, object]:
-    output_dir = _audio_output_dir()
-    removed_task_ids = task_manager.clear_cached_audio_tasks(output_dir)
-    cleared_files, cleared_bytes = _clear_directory_files(output_dir)
+    output_dirs = legacy_audio_output_dirs()
+    removed_task_ids = task_manager.clear_cached_audio_tasks(output_dirs)
+    cleared_files = 0
+    cleared_bytes = 0
+    for output_dir in output_dirs:
+        next_cleared_files, next_cleared_bytes = _clear_directory_files(output_dir)
+        cleared_files += next_cleared_files
+        cleared_bytes += next_cleared_bytes
     service_info = _build_health_response()
     return {
         "success": True,
         "clearedFiles": cleared_files,
         "clearedBytes": cleared_bytes,
-        "remainingBytes": _directory_size_bytes(output_dir),
+        "remainingBytes": sum(_directory_size_bytes(output_dir) for output_dir in output_dirs),
         "removedTasks": len(removed_task_ids),
         "removedTaskIds": removed_task_ids,
+        "clearedAudioDirs": [str(path) for path in output_dirs],
         "serviceInfo": service_info.model_dump(mode="json"),
     }
 

@@ -128,6 +128,7 @@ export type ProviderRecommendation = {
 export type ModelCatalogEntry = {
   modelKey: string;
   displayName: string;
+  description?: string;
   defaultProvider: Exclude<ModelProvider, "local">;
   localDir: string;
   assetRole: ModelAssetRole;

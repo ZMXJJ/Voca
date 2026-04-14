@@ -481,11 +481,18 @@ class VoxCPMBridge:
         recommendation = self.get_provider_recommendation(provider_preference)
         provider = self._resolve_provider(model_entry, recommendation.current)
 
-        override_path = os.environ.get("VOCA_MODEL_DIR", "").strip() or os.environ.get("VOXCPM_MODEL_DIR", "").strip()
+        # `VOCA_MODEL_DIR` points to the shared model root. Only `VOXCPM_MODEL_DIR`
+        # should be treated as a manual override for a specific local VoxCPM model.
+        override_path = os.environ.get("VOXCPM_MODEL_DIR", "").strip()
         if model_entry.assetRole == "tts" and override_path and Path(override_path).is_dir():
             config_exists = is_asset_ready(
                 model_entry.model_copy(update={"localDir": override_path})
             )
+            if ensure_downloaded and not config_exists:
+                raise RuntimeError(
+                    "Local VoxCPM override is not ready. "
+                    f"Expected complete model assets under: {override_path}"
+                )
             return ModelPrepareResponse(
                 modelKey=model_key,
                 modelPath=override_path,
@@ -514,6 +521,11 @@ class VoxCPMBridge:
                 on_download_progress=on_download_progress,
             )
             asset_ready = is_asset_ready(model_entry)
+            if not asset_ready:
+                raise RuntimeError(
+                    "Model assets are still not ready after download. "
+                    f"model_key={model_key} model_path={local_dir}"
+                )
 
         return ModelPrepareResponse(
             modelKey=model_key,

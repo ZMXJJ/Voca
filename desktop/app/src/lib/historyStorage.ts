@@ -31,6 +31,10 @@ export function normalizeTaskHistory(history: TaskRecord[]) {
   return sortTaskHistory(history).slice(0, TASK_HISTORY_LIMIT);
 }
 
+export function getTaskPlayableAudioPath(task: TaskRecord): string | null {
+  return task.result?.audioPath ?? task.result?.enhancedAudioPath ?? task.result?.rawAudioPath ?? null;
+}
+
 export function loadPersistedTaskHistory(): TaskRecord[] {
   if (typeof window === "undefined") {
     return [];
