@@ -248,6 +248,14 @@ h1, h2, h3 { margin: 0; }
   max-width: 480px;
 }
 
+.bootstrap-page__meta {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  text-align: center;
+  max-width: 520px;
+}
+
 .bootstrap-page__content {
   margin-top: 36px;
   width: 100%;
@@ -492,6 +500,18 @@ h1, h2, h3 { margin: 0; }
   border-radius: var(--radius-full);
   background: var(--bg-soft);
   overflow: hidden;
+}
+
+.progress-card__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.progress-card__speed {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 .progress-card__fill {

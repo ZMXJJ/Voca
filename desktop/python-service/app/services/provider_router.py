@@ -9,13 +9,53 @@ from urllib.request import urlopen
 from app.models.schemas import ProviderRecommendation
 
 BAIDU_IP_API = "http://opendata.baidu.com/api.php"
-PUBLIC_IP_API = "https://api.ipify.org?format=json"
+PUBLIC_IP_APIS = (
+    "https://api.ipify.org?format=json",
+    "https://api.ip.sb/jsonip",
+    "https://ifconfig.co/json",
+)
+GEO_IP_APIS = (
+    "https://api.ip.sb/geoip/{ip}",
+    "https://ipapi.co/{ip}/json/",
+)
+DEFAULT_NETWORK_TIMEOUT = 2.5
 
 
-def _read_json(url: str, timeout: float = 5.0) -> dict[str, Any]:
+def _read_json(url: str, timeout: float = DEFAULT_NETWORK_TIMEOUT) -> dict[str, Any]:
     with urlopen(url, timeout=timeout) as response:  # nosec B310 - fixed URLs only
         payload = response.read().decode("utf-8")
     return json.loads(payload)
+
+
+def _clean_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _is_cn_location(*values: Any) -> bool:
+    normalized_values = [str(value or "").strip().lower() for value in values]
+    return any(
+        value in {"cn", "china", "中国", "中华人民共和国"}
+        or "中国" in value
+        or value.endswith("省")
+        or value.endswith("市")
+        for value in normalized_values
+        if value
+    )
+
+
+def _compose_location(*parts: Any) -> str | None:
+    items: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        text = _clean_text(part)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        items.append(text)
+    if not items:
+        return None
+    return " / ".join(items)
 
 
 def get_public_ip() -> str | None:
@@ -23,11 +63,15 @@ def get_public_ip() -> str | None:
     if env_ip:
         return env_ip
 
-    try:
-        data = _read_json(PUBLIC_IP_API)
-        return str(data.get("ip") or "").strip() or None
-    except Exception:  # pragma: no cover - external network fallback
-        return None
+    for url in PUBLIC_IP_APIS:
+        try:
+            data = _read_json(url)
+            ip_value = _clean_text(data.get("ip"))
+            if ip_value:
+                return ip_value
+        except Exception:  # pragma: no cover - external network fallback
+            continue
+    return None
 
 
 def get_baidu_location(ip_address: str) -> str | None:
@@ -46,6 +90,32 @@ def get_baidu_location(ip_address: str) -> str | None:
         return None
 
 
+def get_geoip_location(ip_address: str) -> tuple[str | None, bool | None]:
+    env_location = _clean_text(os.environ.get("VOCA_PUBLIC_LOCATION"))
+    if env_location:
+        return env_location, _is_cn_location(env_location)
+
+    baidu_location = get_baidu_location(ip_address)
+    if baidu_location:
+        return baidu_location, _is_cn_location(baidu_location)
+
+    for url_template in GEO_IP_APIS:
+        try:
+            data = _read_json(url_template.format(ip=ip_address))
+        except Exception:  # pragma: no cover - external network fallback
+            continue
+
+        country = _clean_text(data.get("country") or data.get("country_name"))
+        country_code = _clean_text(data.get("country_code") or data.get("countryCode"))
+        region = _clean_text(data.get("region") or data.get("region_name"))
+        city = _clean_text(data.get("city"))
+        location = _compose_location(country, region, city)
+        if location:
+            return location, _is_cn_location(country_code, country, region, city)
+
+    return None, None
+
+
 def recommend_provider(preferred: str = "auto") -> ProviderRecommendation:
     if preferred in {"huggingface", "modelscope"}:
         return ProviderRecommendation(
@@ -60,8 +130,8 @@ def recommend_provider(preferred: str = "auto") -> ProviderRecommendation:
 
     public_ip = get_public_ip()
     if public_ip:
-        location = get_baidu_location(public_ip)
-        if location and ("中国" in location or "省" in location or "市" in location):
+        location, is_cn = get_geoip_location(public_ip)
+        if location and is_cn:
             return ProviderRecommendation(
                 publicIp=public_ip,
                 location=location,
@@ -86,8 +156,8 @@ def recommend_provider(preferred: str = "auto") -> ProviderRecommendation:
         publicIp=public_ip,
         location=None,
         preferred="auto",
-        recommended="huggingface",
-        current="huggingface",
+        recommended="modelscope",
+        current="modelscope",
         reason="default_fallback",
         userOverridden=False,
     )

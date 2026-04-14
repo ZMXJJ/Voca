@@ -21,7 +21,7 @@ use crate::{
 const DEFAULT_BOOTSTRAP_MODEL_KEY: &str = "voxcpm2";
 const BOOTSTRAP_BUNDLE_TITLE: &str = "Prepare speech tools bundle";
 const RECOMMENDED_MEMORY_BYTES: u64 = 12 * 1024 * 1024 * 1024;
-const MINIMUM_FREE_STORAGE_BYTES: u64 = 5_000_000_000;
+const MINIMUM_FREE_STORAGE_BYTES: u64 = 6_000_000_000;
 
 fn onboarding_flag_path() -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME").ok_or_else(|| "HOME is not set".to_string())?;

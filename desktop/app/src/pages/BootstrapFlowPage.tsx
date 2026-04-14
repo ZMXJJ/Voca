@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type {
   BootstrapState,
   BootstrapAssetDownloadProgress,
@@ -66,6 +67,12 @@ type InitializeCheckItem = {
   title: string;
   summary: string;
   status: InitializeCheckVisualStatus;
+};
+
+type DownloadSpeedSample = {
+  bytes: number;
+  atMs: number;
+  taskUpdatedAt: string | null;
 };
 
 function getFlowSteps(view: BootstrapFlowView, t: Translate) {
@@ -139,7 +146,14 @@ function formatStorageBytes(value: number) {
   return `${size.toFixed(precision)} ${units[unitIndex]}`;
 }
 
-function formatDownloadSummary(downloadTask?: TaskRecord | null) {
+function formatTransferRate(bytesPerSecond: number) {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) {
+    return null;
+  }
+  return `${formatBytes(bytesPerSecond)}/s`;
+}
+
+function formatDownloadSummary(downloadTask: TaskRecord | null | undefined, t: Translate) {
   const structured = downloadTask?.downloadProgress;
   if (!structured) {
     return null;
@@ -155,7 +169,10 @@ function formatDownloadSummary(downloadTask?: TaskRecord | null) {
   }
 
   if (structured.totalFiles && structured.totalFiles > 0) {
-    return `${structured.completedFiles} / ${structured.totalFiles} files`;
+    return t("bootstrap.download.filesCount", {
+      completed: structured.completedFiles,
+      total: structured.totalFiles,
+    });
   }
 
   return null;
@@ -166,7 +183,7 @@ function getInitializeChecks(
   t: Translate,
 ): InitializeCheckItem[] {
   const recommendedMemoryBytes = setupDiagnostics?.recommendedMemoryBytes ?? 12 * 1024 * 1024 * 1024;
-  const minimumFreeStorageBytes = setupDiagnostics?.minimumFreeStorageBytes ?? 5_000_000_000;
+  const minimumFreeStorageBytes = setupDiagnostics?.minimumFreeStorageBytes ?? 6_000_000_000;
   const totalMemoryBytes = setupDiagnostics?.totalMemoryBytes ?? null;
   const availableStorageBytes = setupDiagnostics?.availableStorageBytes ?? null;
   const memoryLow = totalMemoryBytes !== null && totalMemoryBytes < recommendedMemoryBytes;
@@ -290,6 +307,13 @@ export function BootstrapFlowPage({
   onRetryDownload,
 }: BootstrapFlowPageProps) {
   const { t } = useTranslation();
+  const speedSampleRef = useRef<DownloadSpeedSample | null>(null);
+  const stagnantSinceRef = useRef<number | null>(null);
+  const [downloadSpeedBps, setDownloadSpeedBps] = useState<number | null>(null);
+  const latestProgressRef = useRef<{ bytes: number; isActive: boolean }>({
+    bytes: 0,
+    isActive: false,
+  });
   const bootstrapAssets = serviceInfo?.bootstrapAssets ?? [];
   const initializeChecks = getInitializeChecks(setupDiagnostics, t);
   const bootstrapAssetCards = getBootstrapAssetCards(
@@ -308,7 +332,7 @@ export function BootstrapFlowPage({
     bootstrapModel?.displayName ??
     formatModelDisplayName(downloadTask?.result?.modelKey ?? preparedModel?.modelKey);
   const downloadBundleName = t("bootstrap.download.bundleName");
-  const downloadSummary = formatDownloadSummary(downloadTask);
+  const downloadSummary = formatDownloadSummary(downloadTask, t);
   const preferStructuredSummary = downloadTask?.downloadProgress?.phase === "downloading";
   const downloadStatusText =
     downloadTask?.status === "failed"
@@ -316,8 +340,83 @@ export function BootstrapFlowPage({
       : preferStructuredSummary
         ? downloadSummary || downloadTask?.message || t("bootstrap.download.desc")
         : downloadTask?.message || downloadSummary || t("bootstrap.download.desc");
+  const isDownloadErrorState =
+    downloadTask?.status === "failed" || downloadTask?.status === "cancelled";
+  const downloadMetaText =
+    !isDownloadErrorState && downloadStatusText
+      ? t("bootstrap.download.status", { status: downloadStatusText })
+      : null;
+  const speedLabel = downloadSpeedBps ? formatTransferRate(downloadSpeedBps) : null;
+  const downloadSpeedText =
+    downloadTask?.status === "running" && downloadTask.downloadProgress?.phase === "downloading"
+      ? t("bootstrap.download.speed", { speed: speedLabel ?? t("bootstrap.download.speedPending") })
+      : null;
   const canRetryDownload =
     downloadTask?.status === "failed" || downloadTask?.status === "cancelled";
+
+  const progressInfo = downloadTask?.downloadProgress;
+  const isSpeedTrackingActive =
+    view === "download" &&
+    downloadTask?.status === "running" &&
+    progressInfo?.phase === "downloading";
+  latestProgressRef.current = {
+    bytes: progressInfo?.downloadedBytes ?? 0,
+    isActive: !!isSpeedTrackingActive,
+  };
+
+  useEffect(() => {
+    if (view !== "download") {
+      speedSampleRef.current = null;
+      stagnantSinceRef.current = null;
+      setDownloadSpeedBps(null);
+      return;
+    }
+
+    const tick = () => {
+      const { bytes: currentBytes, isActive } = latestProgressRef.current;
+
+      if (!isActive) {
+        speedSampleRef.current = null;
+        stagnantSinceRef.current = null;
+        setDownloadSpeedBps(null);
+        return;
+      }
+
+      const nowMs = Date.now();
+      const previousSample = speedSampleRef.current;
+
+      if (!previousSample) {
+        speedSampleRef.current = { bytes: currentBytes, atMs: nowMs, taskUpdatedAt: null };
+        stagnantSinceRef.current = currentBytes > 0 ? nowMs : null;
+        return;
+      }
+
+      const deltaBytes = currentBytes - previousSample.bytes;
+      const deltaMs = nowMs - previousSample.atMs;
+
+      if (deltaBytes > 0 && deltaMs >= 250) {
+        const instantBps = (deltaBytes / deltaMs) * 1000;
+        setDownloadSpeedBps((previousSpeed) =>
+          previousSpeed && Number.isFinite(previousSpeed)
+            ? previousSpeed * 0.65 + instantBps * 0.35
+            : instantBps,
+        );
+        stagnantSinceRef.current = nowMs;
+        speedSampleRef.current = { bytes: currentBytes, atMs: nowMs, taskUpdatedAt: null };
+      } else {
+        const stagnantSince = stagnantSinceRef.current ?? previousSample.atMs;
+        stagnantSinceRef.current = stagnantSince;
+        if (nowMs - stagnantSince >= 4000) {
+          setDownloadSpeedBps(null);
+        }
+      }
+    };
+
+    tick();
+    const timer = setInterval(tick, 800);
+    return () => clearInterval(timer);
+  }, [view]);
+
   if (view === "welcome") {
     return (
       <main className="welcome-page">
@@ -381,7 +480,10 @@ export function BootstrapFlowPage({
         {view === "download" && (
           <>
             <h1 className="bootstrap-page__title">{t("bootstrap.download.title")}</h1>
-            <p className="bootstrap-page__desc">{downloadStatusText}</p>
+            <p className="bootstrap-page__desc">
+              {isDownloadErrorState ? downloadStatusText : t("bootstrap.download.desc")}
+            </p>
+            {downloadMetaText ? <p className="bootstrap-page__meta">{downloadMetaText}</p> : null}
             <div className="bootstrap-page__content">
               <div className="progress-card">
                 <div className="progress-card__top">
@@ -396,6 +498,11 @@ export function BootstrapFlowPage({
                 <div className="progress-card__bar">
                   <div className="progress-card__fill" style={{ width: `${progress}%` }} />
                 </div>
+                {downloadSpeedText ? (
+                  <div className="progress-card__footer">
+                    <span className="progress-card__speed">{downloadSpeedText}</span>
+                  </div>
+                ) : null}
               </div>
               {bootstrapAssetCards.length > 0 ? (
                 <div className="bootstrap-asset-cards">

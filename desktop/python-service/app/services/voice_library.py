@@ -25,7 +25,6 @@ DEFAULT_VOICES: tuple[dict[str, str], ...] = (
         "language": "中文",
         "description": (
             "温柔清晰的中文女声，语气自然、明亮，适合讲述、说明和陪伴类内容。"
-            "当没有参考音频时，可以优先使用这种偏亲和、稳定的表达风格。"
         ),
         "preset_key": "female_default",
     },
@@ -35,7 +34,6 @@ DEFAULT_VOICES: tuple[dict[str, str], ...] = (
         "language": "中文",
         "description": (
             "沉稳自然的中文男声，吐字清楚、节奏平稳，适合解说、播报和知识类内容。"
-            "当没有参考音频时，可以优先使用这种偏克制、厚实的表达风格。"
         ),
         "preset_key": "male_default",
     },

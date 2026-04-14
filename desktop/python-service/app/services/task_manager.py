@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import threading
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from app.models.schemas import (
     AppError,
@@ -369,6 +372,7 @@ class TaskManager:
                 ),
             )
         except Exception as exc:
+            logger.exception("ASR task %s failed", task_id)
             self._update_task(
                 task_id,
                 status="failed",
@@ -617,9 +621,7 @@ class TaskManager:
             )
 
             for index, entry in enumerate(entries):
-                preferred_provider = (
-                    provider_preference if entry.assetRole == "tts" else entry.defaultProvider
-                )
+                preferred_provider = provider_preference
 
                 def handle_download_progress(event: DownloadProgressEvent, *, asset_index: int = index) -> None:
                     nonlocal asset_progress, latest_progress

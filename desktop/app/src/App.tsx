@@ -265,7 +265,7 @@ function createPreviewSetupDiagnostics(): SetupDiagnostics {
     totalMemoryBytes: 8 * 1024 * 1024 * 1024,
     availableStorageBytes: 42_000_000_000,
     recommendedMemoryBytes: 12 * 1024 * 1024 * 1024,
-    minimumFreeStorageBytes: 5_000_000_000,
+    minimumFreeStorageBytes: 6_000_000_000,
     environmentReady: true,
     environmentStatus: "ready",
     environmentReason: null,

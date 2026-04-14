@@ -78,9 +78,10 @@ export function GenerationWorkspace({
   const loadVoices = useCallback(async () => {
     const nextVoices = await listVoices();
     setVoices(nextVoices);
-    setSelectedVoiceId((current) =>
-      current && nextVoices.some((voice) => voice.id === current) ? current : null,
-    );
+    setSelectedVoiceId((current) => {
+      if (current && nextVoices.some((voice) => voice.id === current)) return current;
+      return nextVoices[0]?.id ?? null;
+    });
     return nextVoices;
   }, []);
 
@@ -246,10 +247,7 @@ export function GenerationWorkspace({
             className="toolbar-select"
             value={selectedVoiceId ?? ""}
             onChange={(v) => setSelectedVoiceId(v || null)}
-            options={[
-              { value: "", label: t("studio.voiceSelect") },
-              ...voices.map((v) => ({ value: v.id, label: v.name })),
-            ]}
+            options={voices.map((v) => ({ value: v.id, label: v.name }))}
             icon={<IconMicrophone size={14} />}
           />
           <div className="toolbar-spacer" />
