@@ -45,22 +45,53 @@ export type TaskType = "bootstrap" | "generate" | "clone" | "asr_transcribe";
 
 export type TaskStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
+export type DownloadProgress = {
+  phase: "listing" | "downloading" | "finalizing";
+  provider?: ModelProvider | null;
+  currentFile?: string | null;
+  downloadedBytes: number;
+  totalBytes?: number | null;
+  totalBytesComplete: boolean;
+  completedFiles: number;
+  totalFiles?: number | null;
+};
+
+export type BootstrapAssetDownloadProgress = {
+  modelKey: string;
+  displayName: string;
+  status: "pending" | "running" | "succeeded" | "failed";
+  progress: number;
+  provider?: ModelProvider | null;
+  currentFile?: string | null;
+  downloadedBytes: number;
+  totalBytes?: number | null;
+  totalBytesComplete: boolean;
+};
+
 export type TaskRecord = {
   id: string;
   type: TaskType;
   status: TaskStatus;
   createdAt: string;
   updatedAt: string;
+  title?: string;
   progress?: number;
   message?: string;
+  downloadProgress?: DownloadProgress | null;
+  bootstrapAssetProgress?: BootstrapAssetDownloadProgress[] | null;
   error?: AppError | null;
   result?: {
     audioPath?: string;
+    rawAudioPath?: string;
+    enhancedAudioPath?: string;
     sampleRate?: number;
     durationMs?: number;
+    transcript?: string;
+    transcriptLanguage?: string;
     modelKey?: string;
     modelPath?: string;
     provider?: ModelProvider;
+    completedAssets?: string[];
   } | null;
 };
 
@@ -71,6 +102,8 @@ export type GenerationMode =
   | "ultimate_clone";
 
 export type ModelProvider = "huggingface" | "modelscope" | "local";
+
+export type ModelAssetRole = "tts" | "asr" | "enhancer";
 
 export type ProviderPreference = "auto" | "huggingface" | "modelscope";
 
@@ -97,6 +130,9 @@ export type ModelCatalogEntry = {
   displayName: string;
   defaultProvider: Exclude<ModelProvider, "local">;
   localDir: string;
+  assetRole: ModelAssetRole;
+  bootstrapRequired: boolean;
+  approxSizeLabel?: string;
   providers: {
     huggingface?: {
       repoId: string;
@@ -105,6 +141,16 @@ export type ModelCatalogEntry = {
       modelId: string;
     };
   };
+};
+
+export type BootstrapAssetStatus = {
+  modelKey: string;
+  displayName: string;
+  assetRole: ModelAssetRole;
+  ready: boolean;
+  bootstrapRequired: boolean;
+  localDir: string;
+  approxSizeLabel?: string | null;
 };
 
 export type ModelPrepareResponse = {
@@ -138,20 +184,90 @@ export type SidecarStatus = {
   reason?: string;
 };
 
+export type SetupEnvironmentStatus = "ready" | "missing" | "starting" | "error";
+
+export type SetupDiagnostics = {
+  cpuName?: string | null;
+  totalMemoryBytes?: number | null;
+  availableStorageBytes?: number | null;
+  recommendedMemoryBytes: number;
+  minimumFreeStorageBytes: number;
+  environmentReady: boolean;
+  environmentStatus: SetupEnvironmentStatus;
+  environmentReason?: string | null;
+};
+
 export type ServiceInfo = {
   service: string;
   status: string;
   modelLoaded: boolean;
+  asrLoaded: boolean;
+  coreModelReady?: boolean;
+  asrModelReady?: boolean;
+  zipEnhancerReady?: boolean;
+  speechToolsReady?: boolean;
+  bootstrapAssetsReady?: boolean;
   version: string;
+  deviceName?: string;
   deviceType?: string;
   audioOutputDir?: string;
+  cacheBytes?: number;
+  logLevel?: string;
+  logDir?: string;
+  logBytes?: number;
+  storageDir?: string;
+  modelDir?: string;
+  modelBytes?: number;
+  voicesDir?: string;
+  voiceLibraryBytes?: number;
+  huggingfaceCacheDir?: string;
+  huggingfaceCacheBytes?: number;
+  modelscopeCacheDir?: string;
+  modelscopeCacheBytes?: number;
+  torchCacheDir?: string;
+  torchCacheBytes?: number;
+  downloadCacheBytes?: number;
+  managedStorageBytes?: number;
+  bootstrapAssets?: BootstrapAssetStatus[];
 };
+
+export type VoiceSourceType = "builtin" | "user";
 
 export type VoiceEntry = {
   id: string;
   name: string;
   language: string;
+  description: string;
   durationSeconds?: number;
-  audioPath?: string;
-  isBuiltin: boolean;
+  referenceAudioPath?: string;
+  referenceTranscript?: string | null;
+  transcriptLanguage?: string | null;
+  sourceType: VoiceSourceType;
+  canRename: boolean;
+  canDelete: boolean;
+  presetKey?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type VoiceCreatePayload = {
+  name: string;
+  language: string;
+  description: string;
+  referenceAudioPath?: string;
+  referenceTranscript?: string;
+  transcriptLanguage?: string;
+};
+
+export type VoiceUpdatePayload = {
+  name?: string;
+  language?: string;
+  description?: string;
+  referenceTranscript?: string;
+  transcriptLanguage?: string;
+};
+
+export type AudioTranscriptionPayload = {
+  audioPath: string;
+  modelKey?: string;
 };

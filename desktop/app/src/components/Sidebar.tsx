@@ -25,7 +25,7 @@ export function Sidebar({ activeSection, onSectionChange, sidecarStatus }: Sideb
     <aside className="sidebar">
       <div className="sidebar__brand">
         <div className="sidebar__logo"><IconVocaLogo height={28} /></div>
-        <div className="sidebar__tagline">Powered by VoxCPM</div>
+        <div className="sidebar__tagline">{t("sidebar.tagline")}</div>
       </div>
 
       <nav className="sidebar__nav">

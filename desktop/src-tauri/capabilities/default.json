@@ -3,15 +3,5 @@
   "identifier": "default",
   "description": "Default capability for the Voca desktop skeleton.",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    {
-      "identifier": "core:asset:default",
-      "allow": [
-        { "path": "$TEMP/**" },
-        { "path": "$APPDATA/**" },
-        { "path": "$HOME/**" }
-      ]
-    }
-  ]
+  "permissions": ["core:default"]
 }

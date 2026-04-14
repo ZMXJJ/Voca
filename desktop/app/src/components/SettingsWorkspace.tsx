@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   BootstrapState,
   ModelCatalogEntry,
@@ -10,9 +10,50 @@ import type {
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
-import { clearCache } from "../lib/tauri";
+import { clearCache, exportLogs, openStorageDirectory } from "../lib/tauri";
 import { IconCheck, IconDownload } from "./Icons";
 import { CustomSelect } from "./CustomSelect";
+
+function formatInferenceDevice(serviceInfo: ServiceInfo | null) {
+  const deviceName = serviceInfo?.deviceName?.trim();
+  const deviceType = serviceInfo?.deviceType?.trim();
+
+  if (deviceName && deviceType) {
+    return `${deviceName} [${deviceType}]`;
+  }
+
+  return deviceName || deviceType || "—";
+}
+
+function getModelStorageDir(modelPath?: string | null) {
+  const fallback = "~/Library/Application Support/Voca/models";
+  if (!modelPath) return fallback;
+
+  const normalizedPath = modelPath.replace(/\\/g, "/");
+  const marker = "/models/";
+  const markerIndex = normalizedPath.lastIndexOf(marker);
+
+  if (markerIndex >= 0) {
+    return normalizedPath.slice(0, markerIndex + marker.length - 1);
+  }
+
+  return normalizedPath;
+}
+
+function formatBytes(bytes?: number | null) {
+  if (!bytes || bytes <= 0) return "0 B";
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const precision = value >= 100 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
 
 type SettingsWorkspaceProps = {
   bootstrapState: BootstrapState;
@@ -20,6 +61,7 @@ type SettingsWorkspaceProps = {
   providerRecommendation: ProviderRecommendation | null;
   preparedModel: ModelPrepareResponse | null;
   modelCatalog: ModelCatalogEntry[];
+  downloadedModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
   taskHistory: TaskRecord[];
   onPrepareModel: (
@@ -27,6 +69,11 @@ type SettingsWorkspaceProps = {
     providerPreference: "auto" | "huggingface" | "modelscope",
     ensureDownloaded: boolean,
   ) => Promise<void>;
+  onCacheCleared: (
+    serviceInfo: ServiceInfo | null,
+    removedTaskIds: string[],
+    remainingBytes: number,
+  ) => void;
 };
 
 export function SettingsWorkspace({
@@ -35,15 +82,61 @@ export function SettingsWorkspace({
   providerRecommendation,
   preparedModel,
   modelCatalog,
+  downloadedModelCatalog,
   serviceInfo,
   taskHistory,
   onPrepareModel,
+  onCacheCleared,
 }: SettingsWorkspaceProps) {
   const { t } = useTranslation();
   const [providerPreference, setProviderPreference] = useState<"auto" | "huggingface" | "modelscope">(
     providerRecommendation?.preferred ?? "auto",
   );
+  const [cacheBytes, setCacheBytes] = useState(serviceInfo?.cacheBytes ?? 0);
+  const [clearingCache, setClearingCache] = useState(false);
+  const [exportingLogs, setExportingLogs] = useState(false);
+  const [openingStorageDir, setOpeningStorageDir] = useState(false);
   const completedTasks = taskHistory.filter((t) => t.status === "succeeded").length;
+  const modelStorageDir = serviceInfo?.modelDir ?? getModelStorageDir(preparedModel?.modelPath);
+
+  useEffect(() => {
+    setCacheBytes(serviceInfo?.cacheBytes ?? 0);
+  }, [serviceInfo?.cacheBytes]);
+
+  const handleClearCache = async () => {
+    if (clearingCache) return;
+    setClearingCache(true);
+    try {
+      const result = await clearCache();
+      if (result?.success) {
+        const remainingBytes = result.serviceInfo?.cacheBytes ?? result.remainingBytes ?? 0;
+        setCacheBytes(remainingBytes);
+        onCacheCleared(result.serviceInfo ?? null, result.removedTaskIds ?? [], remainingBytes);
+      }
+    } finally {
+      setClearingCache(false);
+    }
+  };
+
+  const handleExportLogs = async () => {
+    if (!serviceInfo?.logDir || exportingLogs) return;
+    setExportingLogs(true);
+    try {
+      await exportLogs(serviceInfo.logDir);
+    } finally {
+      setExportingLogs(false);
+    }
+  };
+
+  const handleOpenStorageDir = async () => {
+    if (!serviceInfo?.storageDir || openingStorageDir) return;
+    setOpeningStorageDir(true);
+    try {
+      await openStorageDirectory(serviceInfo.storageDir);
+    } finally {
+      setOpeningStorageDir(false);
+    }
+  };
 
   return (
     <>
@@ -68,7 +161,7 @@ export function SettingsWorkspace({
             </div>
             <div className="kv-row">
               <span className="kv-row__key">{t("settings.serviceStatus.device")}</span>
-              <span className="kv-row__value">{serviceInfo?.deviceType ?? "—"}</span>
+              <span className="kv-row__value">{formatInferenceDevice(serviceInfo)}</span>
             </div>
             <div className="kv-row">
               <span className="kv-row__key">{t("settings.serviceStatus.phase")}</span>
@@ -110,10 +203,11 @@ export function SettingsWorkspace({
         </div>
         <div className="model-list">
           {modelCatalog.map((model) => {
-            const isActive = preparedModel?.modelKey === model.modelKey;
-            const isDownloaded = isActive && preparedModel?.existsLocally;
+            const isDownloaded = downloadedModelCatalog.some(
+              (entry) => entry.modelKey === model.modelKey,
+            );
             return (
-              <div key={model.modelKey} className={`model-item${isActive ? " model-item--active" : ""}`}>
+              <div key={model.modelKey} className="model-item">
                 <div className="model-item__info">
                   <div className="model-item__name">{model.displayName}</div>
                   <div className="model-item__desc">{model.localDir}</div>
@@ -154,22 +248,43 @@ export function SettingsWorkspace({
           <div className="settings-section__title">{t("settings.logs.title")}</div>
           <div className="kv-row">
             <span className="kv-row__key">{t("settings.logs.logLevel")}</span>
-            <span className="kv-row__value">warning</span>
+            <span className="kv-row__value">{serviceInfo?.logLevel ?? "warning"}</span>
+          </div>
+          <div className="kv-row">
+            <span className="kv-row__key">{t("settings.logs.managedStorage")}</span>
+            <span className="kv-row__value">{formatBytes(serviceInfo?.managedStorageBytes)}</span>
           </div>
           <div className="kv-row">
             <span className="kv-row__key">{t("settings.logs.modelDir")}</span>
             <span className="kv-row__value">
-              {preparedModel?.modelPath ?? "~/Library/.../Voca/models"}
+              {modelStorageDir}
             </span>
+          </div>
+          <div className="kv-row">
+            <span className="kv-row__key">{t("settings.logs.modelSize")}</span>
+            <span className="kv-row__value">{formatBytes(serviceInfo?.modelBytes)}</span>
+          </div>
+          <div className="kv-row">
+            <span className="kv-row__key">{t("settings.logs.voiceLibrary")}</span>
+            <span className="kv-row__value">{formatBytes(serviceInfo?.voiceLibraryBytes)}</span>
+          </div>
+          <div className="kv-row">
+            <span className="kv-row__key">{t("settings.logs.downloadCache")}</span>
+            <span className="kv-row__value">{formatBytes(serviceInfo?.downloadCacheBytes)}</span>
+          </div>
+          <div className="kv-row">
+            <span className="kv-row__key">{t("settings.logs.logSize")}</span>
+            <span className="kv-row__value">{formatBytes(serviceInfo?.logBytes)}</span>
           </div>
           <div className="cache-row">
             <span className="cache-row__left">{t("settings.logs.cache")}</span>
             <div className="cache-row__right">
-              <span className="cache-row__size">128.5 MB</span>
+              <span className="cache-row__size">{formatBytes(cacheBytes)}</span>
               <button
                 className="btn btn--small btn--ghost"
                 type="button"
-                onClick={() => void clearCache()}
+                onClick={() => void handleClearCache()}
+                disabled={clearingCache}
               >
                 {t("settings.logs.clearCache")}
               </button>
@@ -177,10 +292,20 @@ export function SettingsWorkspace({
           </div>
           <div className="settings-divider" />
           <div className="settings-actions">
-            <button className="btn btn--small btn--secondary" disabled type="button">
+            <button
+              className="btn btn--small btn--secondary"
+              disabled={!serviceInfo?.logDir || exportingLogs}
+              onClick={() => void handleExportLogs()}
+              type="button"
+            >
               {t("settings.logs.exportLogs")}
             </button>
-            <button className="btn btn--small btn--secondary" disabled type="button">
+            <button
+              className="btn btn--small btn--secondary"
+              disabled={!serviceInfo?.storageDir || openingStorageDir}
+              onClick={() => void handleOpenStorageDir()}
+              type="button"
+            >
               {t("settings.logs.openDir")}
             </button>
           </div>

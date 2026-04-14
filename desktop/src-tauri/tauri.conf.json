@@ -27,12 +27,10 @@
     "active": true,
     "targets": "all",
     "icon": ["icons/icon.png", "icons/icon.icns"],
-    "resources": {
-      "../.bundle-resources/python-service/app/**/*": "python-service/app/",
-      "../.bundle-resources/python-service/.venv/**/*": "python-service/.venv/",
-      "../.bundle-resources/manifest.json": "python-service/manifest.json",
-      "../.bundle-resources/python-runtime/**/*": "python-runtime/",
-      "../.bundle-resources/VoxCPM/src/**/*": "VoxCPM/src/"
-    }
+    "resources": [
+      "../.bundle-resources/python-service",
+      "../.bundle-resources/python-runtime",
+      "../.bundle-resources/VoxCPM"
+    ]
   }
 }

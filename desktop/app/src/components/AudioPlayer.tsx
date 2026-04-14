@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { IconPlay, IconPause, IconDownload } from "./Icons";
 
 type AudioPlayerProps = {
   audioPath: string | null;
+  autoPlay?: boolean;
+  playNonce?: number;
+  downloadName?: string;
 };
 
-export function AudioPlayer({ audioPath }: AudioPlayerProps) {
+export function AudioPlayer({
+  audioPath,
+  autoPlay = false,
+  playNonce = 0,
+  downloadName,
+}: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!audioPath) {
@@ -21,11 +30,15 @@ export function AudioPlayer({ audioPath }: AudioPlayerProps) {
       setDuration(0);
       return;
     }
-    try {
-      setAudioSrc(convertFileSrc(audioPath));
-    } catch {
-      setAudioSrc(null);
-    }
+    let cancelled = false;
+    invoke<string>("read_audio_base64", { path: audioPath })
+      .then((dataUrl) => {
+        if (!cancelled) setAudioSrc(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setAudioSrc(null);
+      });
+    return () => { cancelled = true; };
   }, [audioPath]);
 
   useEffect(() => {
@@ -59,6 +72,27 @@ export function AudioPlayer({ audioPath }: AudioPlayerProps) {
     };
   }, [audioSrc]);
 
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !audioSrc || !autoPlay) return;
+
+    const tryPlay = () => {
+      void audio.play().then(() => setPlaying(true)).catch(() => {
+        setPlaying(false);
+      });
+    };
+
+    if (audio.readyState >= 2) {
+      tryPlay();
+      return;
+    }
+
+    audio.addEventListener("canplay", tryPlay, { once: true });
+    return () => {
+      audio.removeEventListener("canplay", tryPlay);
+    };
+  }, [audioSrc, autoPlay, playNonce]);
+
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
     if (!audio || !audioSrc) return;
@@ -90,6 +124,21 @@ export function AudioPlayer({ audioPath }: AudioPlayerProps) {
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
+  const handleDownload = useCallback(() => {
+    if (!audioPath || saving) return;
+
+    const fallbackName = audioPath.split("/").pop() || "voca-output.wav";
+    setSaving(true);
+    invoke<boolean>("save_audio_as", {
+      path: audioPath,
+      suggestedName: downloadName || fallbackName,
+    })
+      .catch(() => false)
+      .finally(() => {
+        setSaving(false);
+      });
+  }, [audioPath, downloadName, saving]);
+
   return (
     <div className="audio-player">
       {audioSrc && <audio ref={audioRef} src={audioSrc} preload="metadata" />}
@@ -111,8 +160,10 @@ export function AudioPlayer({ audioPath }: AudioPlayerProps) {
       <span className="audio-player__time">{formatTime(duration)}</span>
       <button
         className="audio-player__download"
-        disabled={!audioPath}
+        disabled={!audioPath || saving}
+        onClick={handleDownload}
         type="button"
+        title={saving ? "Saving..." : "Download audio"}
       >
         <IconDownload size={18} />
       </button>

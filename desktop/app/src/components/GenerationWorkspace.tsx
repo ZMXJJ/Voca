@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GenerationParams,
   ModelCatalogEntry,
@@ -69,22 +69,33 @@ export function GenerationWorkspace({
 }: GenerationWorkspaceProps) {
   const { t } = useTranslation();
   const [targetText, setTargetText] = useState("");
-  const [modelKey, setModelKey] = useState("voxcpm2-default");
+  const [modelKey, setModelKey] = useState("voxcpm2");
   const [providerPreference] = useState<"auto" | "huggingface" | "modelscope">("auto");
   const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
   const [voices, setVoices] = useState<VoiceEntry[]>([]);
 
-  useEffect(() => {
-    void listVoices().then(setVoices);
+  const loadVoices = useCallback(async () => {
+    const nextVoices = await listVoices();
+    setVoices(nextVoices);
+    setSelectedVoiceId((current) =>
+      current && nextVoices.some((voice) => voice.id === current) ? current : null,
+    );
+    return nextVoices;
   }, []);
+
+  useEffect(() => {
+    void loadVoices();
+  }, [loadVoices]);
 
   const [configOpen, setConfigOpen] = useState(false);
   const configRef = useRef<HTMLDivElement>(null);
   const [cfgValue, setCfgValue] = useState(2.0);
   const [inferenceSteps, setInferenceSteps] = useState(10);
   const [normalize, setNormalize] = useState(true);
-  const [denoise, setDenoise] = useState(true);
+  const [denoise, setDenoise] = useState(false);
   const [seed, setSeed] = useState(-1);
+  const [selectedHistoryTaskId, setSelectedHistoryTaskId] = useState<string | null>(null);
+  const [historyPlayNonce, setHistoryPlayNonce] = useState(0);
 
   useEffect(() => {
     if (!configOpen) return;
@@ -105,13 +116,49 @@ export function GenerationWorkspace({
   const taskIsRunning = currentTask
     ? !["succeeded", "failed", "cancelled"].includes(currentTask.status)
     : false;
+  const hasDownloadedModels = modelCatalog.length > 0;
   const modelReady = preparedModel?.configExists ?? false;
 
+  useEffect(() => {
+    if (modelCatalog.length === 0) return;
+
+    const preferredModelKey = preparedModel?.modelKey;
+    const nextModelKey =
+      (preferredModelKey && modelCatalog.some((model) => model.modelKey === preferredModelKey)
+        ? preferredModelKey
+        : null) ?? modelCatalog[0]?.modelKey;
+
+    if (nextModelKey && nextModelKey !== modelKey) {
+      setModelKey(nextModelKey);
+    }
+  }, [modelCatalog, modelKey, preparedModel?.modelKey]);
+
   const latestAudioPath = useMemo(() => {
+    if (selectedHistoryTaskId) {
+      const selectedTask = taskHistory.find((task) => task.id === selectedHistoryTaskId);
+      if (selectedTask?.result?.audioPath) {
+        return selectedTask.result.audioPath;
+      }
+    }
     if (currentTask?.result?.audioPath) return currentTask.result.audioPath;
     const found = taskHistory.find((t) => t.result?.audioPath);
     return found?.result?.audioPath ?? null;
-  }, [currentTask, taskHistory]);
+  }, [currentTask, selectedHistoryTaskId, taskHistory]);
+
+  const selectedHistoryTask = useMemo(() => {
+    if (selectedHistoryTaskId) {
+      return taskHistory.find((task) => task.id === selectedHistoryTaskId) ?? null;
+    }
+    if (currentTask?.result?.audioPath) {
+      return currentTask;
+    }
+    return taskHistory.find((task) => task.result?.audioPath) ?? null;
+  }, [currentTask, selectedHistoryTaskId, taskHistory]);
+
+  const selectedVoice = useMemo(
+    () => voices.find((voice) => voice.id === selectedVoiceId) ?? null,
+    [selectedVoiceId, voices],
+  );
 
   const handleGenerate = () => {
     if (!targetText.trim()) return;
@@ -120,7 +167,9 @@ export function GenerationWorkspace({
       targetText,
       modelKey,
       providerPreference,
-      controlInstruction: "",
+      controlInstruction: selectedVoice?.description?.trim() || "",
+      referenceAudioPath: selectedVoice?.referenceAudioPath,
+      promptText: selectedVoice?.referenceTranscript?.trim() || undefined,
       streaming: false,
       cfgValue,
       inferenceTimesteps: inferenceSteps,
@@ -144,13 +193,15 @@ export function GenerationWorkspace({
         />
         <div className="text-composer__divider" />
         <div className="text-composer__toolbar">
-          <CustomSelect
-            className="toolbar-select"
-            value={modelKey}
-            onChange={setModelKey}
-            options={modelCatalog.map((m) => ({ value: m.modelKey, label: m.displayName }))}
-            icon={<IconModel size={14} />}
-          />
+          {hasDownloadedModels ? (
+            <CustomSelect
+              className="toolbar-select"
+              value={modelKey}
+              onChange={setModelKey}
+              options={modelCatalog.map((m) => ({ value: m.modelKey, label: m.displayName }))}
+              icon={<IconModel size={14} />}
+            />
+          ) : null}
           <CustomSelect
             className="toolbar-select"
             value={selectedVoiceId ?? ""}
@@ -164,7 +215,7 @@ export function GenerationWorkspace({
           <div className="toolbar-spacer" />
           <button
             className="toolbar-btn toolbar-btn--generate"
-            disabled={!modelReady || taskIsRunning || !sidecarStatus.healthy}
+            disabled={!hasDownloadedModels || !modelReady || taskIsRunning || !sidecarStatus.healthy}
             onClick={handleGenerate}
             type="button"
           >
@@ -187,7 +238,7 @@ export function GenerationWorkspace({
                 <button
                   className="config-panel__reset"
                   type="button"
-                  onClick={() => { setCfgValue(2.0); setInferenceSteps(10); setNormalize(true); setDenoise(true); setSeed(-1); }}
+                  onClick={() => { setCfgValue(2.0); setInferenceSteps(10); setNormalize(true); setDenoise(false); setSeed(-1); }}
                 >
                   {t("studio.config.reset")}
                 </button>
@@ -276,8 +327,10 @@ export function GenerationWorkspace({
 
       <div className="studio-grid">
         <VoiceLibrary
+          voices={voices}
           selectedVoiceId={selectedVoiceId}
           onSelectVoice={setSelectedVoiceId}
+          onReloadVoices={loadVoices}
         />
 
         <div className="card">
@@ -293,13 +346,31 @@ export function GenerationWorkspace({
                 {t("studio.generationHistory.empty")}
               </p>
             ) : (
-              <div className="history-list">
-                {taskHistory.slice(0, 6).map((task) => (
-                  <div key={task.id} className="history-item">
-                    <div className="history-item__play"><IconPlay size={12} /></div>
+              <div className="history-list history-list--compact">
+                {taskHistory.slice(0, 5).map((task) => (
+                  <div
+                    key={task.id}
+                    className={`history-item${selectedHistoryTaskId === task.id ? " history-item--selected" : ""}`}
+                    onClick={() => {
+                      setSelectedHistoryTaskId(task.id);
+                      setHistoryPlayNonce((value) => value + 1);
+                    }}
+                  >
+                    <button
+                      className="history-item__play"
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedHistoryTaskId(task.id);
+                        setHistoryPlayNonce((value) => value + 1);
+                      }}
+                      aria-label={`Play ${task.title || task.message || t("studio.generationHistory.untitled")}`}
+                    >
+                      <IconPlay size={12} />
+                    </button>
                     <div className="history-item__info">
                       <div className="history-item__text">
-                        {task.message || task.result?.audioPath || t("studio.generationHistory.untitled")}
+                        {task.title || task.message || task.result?.audioPath || t("studio.generationHistory.untitled")}
                       </div>
                       <div className="history-item__meta">
                         {formatHistoryTime(task.createdAt)} · {formatDuration(task.result?.durationMs)}
@@ -313,7 +384,16 @@ export function GenerationWorkspace({
         </div>
       </div>
 
-      <AudioPlayer audioPath={latestAudioPath} />
+      <AudioPlayer
+        audioPath={latestAudioPath}
+        autoPlay={Boolean(selectedHistoryTaskId)}
+        playNonce={historyPlayNonce}
+        downloadName={
+          selectedHistoryTask?.title
+            ? `${selectedHistoryTask.title.slice(0, 48)}.wav`
+            : undefined
+        }
+      />
     </>
   );
 }

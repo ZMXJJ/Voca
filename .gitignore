@@ -20,3 +20,6 @@ desktop/python-service/**/*.pyc
 
 # Logs and caches
 *.log
+
+# Local signing / notarization secrets
+desktop/.env.apple-notarize.local

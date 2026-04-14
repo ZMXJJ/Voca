@@ -26,6 +26,27 @@ pub async fn create_generate_task(
 }
 
 #[tauri::command]
+pub async fn create_asr_task(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    audio_path: String,
+    model_key: Option<String>,
+) -> Result<TaskRecord, String> {
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
+    if !sidecar.healthy {
+        return Err(sidecar
+            .reason
+            .unwrap_or_else(|| "python_sidecar_not_ready".into()));
+    }
+
+    let payload = serde_json::json!({
+        "audioPath": audio_path,
+        "modelKey": model_key.unwrap_or_else(|| "sensevoice_small".into()),
+    });
+    post_json(state.inner(), "/api/v1/tasks/asr", &payload).await
+}
+
+#[tauri::command]
 pub async fn get_task(
     app_handle: AppHandle,
     state: State<'_, AppState>,

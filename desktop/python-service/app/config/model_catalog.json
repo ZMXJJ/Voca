@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "modelKey": "voxcpm2",
+      "displayName": "VoxCPM2",
+      "defaultProvider": "huggingface",
+      "localDirName": "voxcpm2",
+      "assetRole": "tts",
+      "bootstrapRequired": true,
+      "approxSizeLabel": "~2.3 GB",
+      "providers": {
+        "huggingface": {
+          "repoId": "openbmb/VoxCPM2"
+        },
+        "modelscope": {
+          "modelId": "OpenBMB/VoxCPM2"
+        }
+      }
+    },
+    {
+      "modelKey": "voxcpm1_5",
+      "displayName": "VoxCPM1.5",
+      "defaultProvider": "huggingface",
+      "localDirName": "voxcpm1_5",
+      "assetRole": "tts",
+      "bootstrapRequired": false,
+      "providers": {
+        "huggingface": {
+          "repoId": "openbmb/VoxCPM1.5"
+        },
+        "modelscope": {
+          "modelId": "OpenBMB/VoxCPM1.5"
+        }
+      }
+    },
+    {
+      "modelKey": "voxcpm_05b",
+      "displayName": "VoxCPM-0.5B",
+      "defaultProvider": "huggingface",
+      "localDirName": "voxcpm_05b",
+      "assetRole": "tts",
+      "bootstrapRequired": false,
+      "providers": {
+        "huggingface": {
+          "repoId": "openbmb/VoxCPM-0.5B"
+        },
+        "modelscope": {
+          "modelId": "OpenBMB/VoxCPM-0.5B"
+        }
+      }
+    },
+    {
+      "modelKey": "sensevoice_small",
+      "displayName": "SenseVoiceSmall",
+      "defaultProvider": "modelscope",
+      "localDirName": "sensevoice_small",
+      "assetRole": "asr",
+      "bootstrapRequired": true,
+      "approxSizeLabel": "~936 MB",
+      "providers": {
+        "huggingface": {
+          "repoId": "FunAudioLLM/SenseVoiceSmall"
+        },
+        "modelscope": {
+          "modelId": "iic/SenseVoiceSmall"
+        }
+      }
+    },
+    {
+      "modelKey": "zipenhancer_16k",
+      "displayName": "ZipEnhancer 16k",
+      "defaultProvider": "modelscope",
+      "localDirName": "zipenhancer_16k",
+      "assetRole": "enhancer",
+      "bootstrapRequired": true,
+      "approxSizeLabel": "~48 MB",
+      "providers": {
+        "modelscope": {
+          "modelId": "iic/speech_zipenhancer_ans_multiloss_16k_base"
+        }
+      }
+    }
+  ]
+}

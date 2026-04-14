@@ -35,13 +35,58 @@ pub struct SidecarStatus {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SetupDiagnostics {
+    pub cpu_name: Option<String>,
+    pub total_memory_bytes: Option<u64>,
+    pub available_storage_bytes: Option<u64>,
+    pub recommended_memory_bytes: u64,
+    pub minimum_free_storage_bytes: u64,
+    pub environment_ready: bool,
+    pub environment_status: String,
+    pub environment_reason: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadProgress {
+    pub phase: String,
+    pub provider: Option<String>,
+    pub current_file: Option<String>,
+    pub downloaded_bytes: u64,
+    pub total_bytes: Option<u64>,
+    pub total_bytes_complete: bool,
+    pub completed_files: u32,
+    pub total_files: Option<u32>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapAssetDownloadProgress {
+    pub model_key: String,
+    pub display_name: String,
+    pub status: String,
+    pub progress: u8,
+    pub provider: Option<String>,
+    pub current_file: Option<String>,
+    pub downloaded_bytes: u64,
+    pub total_bytes: Option<u64>,
+    pub total_bytes_complete: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TaskResult {
     pub audio_path: Option<String>,
+    pub raw_audio_path: Option<String>,
+    pub enhanced_audio_path: Option<String>,
     pub sample_rate: Option<u32>,
     pub duration_ms: Option<u32>,
+    pub transcript: Option<String>,
+    pub transcript_language: Option<String>,
     pub model_key: Option<String>,
     pub model_path: Option<String>,
     pub provider: Option<String>,
+    pub completed_assets: Option<Vec<String>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -52,8 +97,11 @@ pub struct TaskRecord {
     pub status: String,
     pub created_at: String,
     pub updated_at: String,
+    pub title: Option<String>,
     pub progress: Option<u8>,
     pub message: Option<String>,
+    pub download_progress: Option<DownloadProgress>,
+    pub bootstrap_asset_progress: Option<Vec<BootstrapAssetDownloadProgress>>,
     pub error: Option<AppError>,
     pub result: Option<TaskResult>,
 }

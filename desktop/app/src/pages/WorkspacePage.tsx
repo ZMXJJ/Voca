@@ -22,6 +22,7 @@ type WorkspacePageProps = {
   providerRecommendation: ProviderRecommendation | null;
   preparedModel: ModelPrepareResponse | null;
   modelCatalog: ModelCatalogEntry[];
+  downloadedModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
   currentTask: TaskRecord | null;
   taskHistory: TaskRecord[];
@@ -31,6 +32,11 @@ type WorkspacePageProps = {
     ensureDownloaded: boolean,
   ) => Promise<void>;
   onSubmitTask: (payload: GenerationParams) => Promise<void>;
+  onCacheCleared: (
+    serviceInfo: ServiceInfo | null,
+    removedTaskIds: string[],
+    remainingBytes: number,
+  ) => void;
 };
 
 export function WorkspacePage({
@@ -39,11 +45,13 @@ export function WorkspacePage({
   providerRecommendation,
   preparedModel,
   modelCatalog,
+  downloadedModelCatalog,
   serviceInfo,
   currentTask,
   taskHistory,
   onPrepareModel,
   onSubmitTask,
+  onCacheCleared,
 }: WorkspacePageProps) {
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("studio");
 
@@ -59,9 +67,11 @@ export function WorkspacePage({
             providerRecommendation={providerRecommendation}
             preparedModel={preparedModel}
             modelCatalog={modelCatalog}
+            downloadedModelCatalog={downloadedModelCatalog}
             serviceInfo={serviceInfo}
             taskHistory={taskHistory}
             onPrepareModel={onPrepareModel}
+            onCacheCleared={onCacheCleared}
           />
         );
       case "studio":
@@ -71,7 +81,7 @@ export function WorkspacePage({
             currentTask={currentTask}
             providerRecommendation={providerRecommendation}
             preparedModel={preparedModel}
-            modelCatalog={modelCatalog}
+            modelCatalog={downloadedModelCatalog}
             sidecarStatus={sidecarStatus}
             taskHistory={taskHistory}
             onPrepareModel={onPrepareModel}
@@ -83,10 +93,12 @@ export function WorkspacePage({
     activeSection,
     bootstrapState,
     currentTask,
+    downloadedModelCatalog,
     modelCatalog,
     serviceInfo,
     onPrepareModel,
     onSubmitTask,
+    onCacheCleared,
     preparedModel,
     providerRecommendation,
     sidecarStatus,
