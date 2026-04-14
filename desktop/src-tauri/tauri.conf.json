@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Voca",
-  "version": "0.1.0-dev",
+  "version": "0.2.0-dev",
   "identifier": "com.voca.desktop",
   "build": {
     "beforeDevCommand": "npm --prefix app run dev",
@@ -14,6 +14,7 @@
       {
         "label": "main",
         "title": "Voca",
+        "hiddenTitle": true,
         "width": 1440,
         "height": 980,
         "resizable": true
@@ -31,6 +32,10 @@
       "../.bundle-resources/python-service",
       "../.bundle-resources/python-runtime",
       "../.bundle-resources/VoxCPM"
-    ]
+    ],
+    "macOS": {
+      "entitlements": "./Entitlements.plist",
+      "minimumSystemVersion": "13.0"
+    }
   }
 }

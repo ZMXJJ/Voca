@@ -148,6 +148,7 @@ const zhCN = {
       referenceTranscriptPlaceholder: "选择参考音频后会自动转写到这里；保存前你可以手动修改。",
       transcriptHint: "上传参考音频后，会自动生成转写文本。",
       transcribing: "正在转写参考音频...",
+      transcribingHint: "系统正在分析音频内容，通常几秒内完成；完成后会自动填入下方文本框。",
       transcribed: "转写已完成，保存前可以继续修改。",
       transcribeFailed: "参考音频转写失败，你可以重试或手动填写。",
       typeLabel: "音色类型",

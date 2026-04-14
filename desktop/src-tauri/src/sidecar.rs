@@ -76,7 +76,7 @@ fn detect_site_packages(venv_root: &Path) -> Option<PathBuf> {
 }
 
 fn find_python_executable(bin_root: &Path) -> Option<PathBuf> {
-    ["python3.11", "python3", "python"]
+    ["VocaService", "python3.11", "python3", "python"]
         .into_iter()
         .map(|name| bin_root.join(name))
         .find(|path| path.exists())

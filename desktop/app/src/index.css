@@ -1618,6 +1618,44 @@ h1, h2, h3 { margin: 0; }
   color: var(--text-dim);
 }
 
+.voice-form__status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(99, 102, 241, 0.16);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.voice-form__status-spinner {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  flex-shrink: 0;
+  border: 2px solid rgba(99, 102, 241, 0.18);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: splash-spin 0.8s linear infinite;
+}
+
+.voice-form__status-copy {
+  min-width: 0;
+}
+
+.voice-form__status-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.voice-form__status-text {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .voice-form__value {
   padding: 10px 12px;
   border-radius: 12px;
@@ -1973,12 +2011,37 @@ h1, h2, h3 { margin: 0; }
 .model-item__action--download:hover { background: var(--surface-high); }
 
 .model-item__action--downloading {
-  background: var(--accent-bg);
-  color: var(--accent);
-  font-size: 0.66rem;
-  font-weight: 600;
+  position: relative;
+  background: transparent;
   cursor: default;
-  animation: model-dl-pulse 1.5s ease-in-out infinite;
+}
+
+.model-item__ring {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+
+.model-item__ring-track {
+  stroke: var(--border-light, #e5e7eb);
+}
+
+.model-item__ring-fill {
+  stroke: var(--accent);
+  transition: stroke-dashoffset 0.4s ease;
+}
+
+.model-item__ring-label {
+  font-size: 0.56rem;
+  font-weight: 600;
+  color: var(--accent);
+  z-index: 1;
+}
+
+.model-item__speed {
+  color: var(--accent);
+  font-weight: 500;
+  font-size: 0.72rem;
 }
 
 @keyframes model-dl-pulse {

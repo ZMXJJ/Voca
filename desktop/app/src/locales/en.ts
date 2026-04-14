@@ -151,6 +151,8 @@ const en = {
       referenceTranscriptPlaceholder: "SenseVoice will fill this automatically after you choose reference audio. You can edit it before saving.",
       transcriptHint: "If reference audio is provided, transcript will be generated automatically.",
       transcribing: "Transcribing reference audio...",
+      transcribingHint:
+        "We are analyzing the audio now. This usually finishes within a few seconds and will fill the transcript box automatically.",
       transcribed: "Transcript ready. You can edit it before saving.",
       transcribeFailed: "Failed to transcribe reference audio. You can retry or type it manually.",
       typeLabel: "Voice Type",

@@ -9,6 +9,7 @@ import type {
   TaskRecord,
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
+import { getVersion } from "@tauri-apps/api/app";
 import i18n from "../i18n";
 import { exportLogs, getTask, openStorageDirectory, startModelDownload } from "../lib/tauri";
 import { IconCheck, IconChevronDown, IconDownload } from "./Icons";
@@ -44,6 +45,47 @@ function formatBytes(bytes?: number | null) {
 
   const precision = value >= 100 || unitIndex === 0 ? 0 : 1;
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function formatSpeed(bytesPerSecond: number) {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return null;
+  return `${formatBytes(bytesPerSecond)}/s`;
+}
+
+const PROGRESS_RING_SIZE = 32;
+const PROGRESS_RING_STROKE = 2.5;
+const PROGRESS_RING_RADIUS = (PROGRESS_RING_SIZE - PROGRESS_RING_STROKE) / 2;
+const PROGRESS_RING_CIRCUMFERENCE = 2 * Math.PI * PROGRESS_RING_RADIUS;
+
+function ProgressRing({ progress }: { progress: number }) {
+  const clamped = Math.max(0, Math.min(progress, 100));
+  const offset = PROGRESS_RING_CIRCUMFERENCE * (1 - clamped / 100);
+  return (
+    <div className="model-item__action model-item__action--downloading">
+      <svg className="model-item__ring" width={PROGRESS_RING_SIZE} height={PROGRESS_RING_SIZE}>
+        <circle
+          className="model-item__ring-track"
+          cx={PROGRESS_RING_SIZE / 2}
+          cy={PROGRESS_RING_SIZE / 2}
+          r={PROGRESS_RING_RADIUS}
+          fill="none"
+          strokeWidth={PROGRESS_RING_STROKE}
+        />
+        <circle
+          className="model-item__ring-fill"
+          cx={PROGRESS_RING_SIZE / 2}
+          cy={PROGRESS_RING_SIZE / 2}
+          r={PROGRESS_RING_RADIUS}
+          fill="none"
+          strokeWidth={PROGRESS_RING_STROKE}
+          strokeDasharray={PROGRESS_RING_CIRCUMFERENCE}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+        />
+      </svg>
+      <span className="model-item__ring-label">{clamped}%</span>
+    </div>
+  );
 }
 
 type SettingsWorkspaceProps = {
@@ -94,12 +136,19 @@ export function SettingsWorkspace({
   const [openingStorageDir, setOpeningStorageDir] = useState(false);
   const [auxExpanded, setAuxExpanded] = useState(false);
   const [downloadingTasks, setDownloadingTasks] = useState<Record<string, TaskRecord>>({});
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [downloadSpeeds, setDownloadSpeeds] = useState<Record<string, number | null>>({});
+  const speedSamplesRef = useRef<Record<string, { bytes: number; atMs: number }>>({});
   const completedTasks = taskHistory.filter((t) => t.status === "succeeded").length;
   const pollTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     setCacheBytes(serviceInfo?.cacheBytes ?? 0);
   }, [serviceInfo?.cacheBytes]);
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {});
+  }, []);
 
   const handleModelDownload = useCallback(async (modelKey: string) => {
     const task = await startModelDownload(modelKey, providerPreference);
@@ -129,7 +178,25 @@ export function SettingsWorkspace({
         void getTask(task.id).then((updated) => {
           if (!updated) return;
           setDownloadingTasks((prev) => ({ ...prev, [modelKey]: updated }));
+
+          const currentBytes = updated.downloadProgress?.downloadedBytes ?? 0;
+          const nowMs = Date.now();
+          const prev = speedSamplesRef.current[modelKey];
+          if (prev && currentBytes > prev.bytes) {
+            const deltaMs = nowMs - prev.atMs;
+            if (deltaMs > 0) {
+              const bps = ((currentBytes - prev.bytes) / deltaMs) * 1000;
+              setDownloadSpeeds((s) => ({
+                ...s,
+                [modelKey]: s[modelKey] ? s[modelKey]! * 0.6 + bps * 0.4 : bps,
+              }));
+            }
+          }
+          speedSamplesRef.current[modelKey] = { bytes: currentBytes, atMs: nowMs };
+
           if (updated.status === "succeeded") {
+            setDownloadSpeeds((s) => ({ ...s, [modelKey]: null }));
+            delete speedSamplesRef.current[modelKey];
             void onPrepareModel(modelKey, providerPreference, false);
           }
         });
@@ -199,12 +266,6 @@ export function SettingsWorkspace({
               <span className="kv-row__key">{t("settings.serviceStatus.device")}</span>
               <span className="kv-row__value">{formatInferenceDevice(serviceInfo)}</span>
             </div>
-            <div className="kv-row">
-              <span className="kv-row__key">{t("settings.serviceStatus.phase")}</span>
-              <span className="kv-row__value kv-row__value--accent">
-                {bootstrapState.phase}
-              </span>
-            </div>
           </div>
           <div>
             <div className="kv-row">
@@ -248,14 +309,16 @@ export function SettingsWorkspace({
               <div key={model.modelKey} className="model-item">
                 <div className="model-item__info">
                   <div className="model-item__name">{model.displayName}</div>
-                  <div className="model-item__desc">{model.description ?? model.localDir}</div>
+                  <div className="model-item__desc">
+                    {isDownloading && downloadSpeeds[model.modelKey] ? (
+                      <span className="model-item__speed">{formatSpeed(downloadSpeeds[model.modelKey]!)}</span>
+                    ) : (model.description ?? model.localDir)}
+                  </div>
                 </div>
                 {isDownloaded ? (
                   <div className="model-item__action model-item__action--downloaded"><IconCheck size={16} /></div>
                 ) : isDownloading ? (
-                  <div className="model-item__action model-item__action--downloading">
-                    {dlTask.progress ?? 0}%
-                  </div>
+                  <ProgressRing progress={dlTask.progress ?? 0} />
                 ) : (
                   <button
                     className="model-item__action model-item__action--download"
@@ -302,16 +365,20 @@ export function SettingsWorkspace({
                           {roleKey && <span className="model-item__tag">{t(roleKey)}</span>}
                         </div>
                         <div className="model-item__desc">
-                          {model.description ?? model.localDir}
-                          {model.approxSizeLabel && <span className="model-item__size">{model.approxSizeLabel}</span>}
+                          {isDownloading && downloadSpeeds[model.modelKey] ? (
+                            <span className="model-item__speed">{formatSpeed(downloadSpeeds[model.modelKey]!)}</span>
+                          ) : (
+                            <>
+                              {model.description ?? model.localDir}
+                              {model.approxSizeLabel && <span className="model-item__size">{model.approxSizeLabel}</span>}
+                            </>
+                          )}
                         </div>
                       </div>
                       {isDownloaded ? (
                         <div className="model-item__action model-item__action--downloaded"><IconCheck size={16} /></div>
                       ) : isDownloading ? (
-                        <div className="model-item__action model-item__action--downloading">
-                          {dlTask.progress ?? 0}%
-                        </div>
+                        <ProgressRing progress={dlTask.progress ?? 0} />
                       ) : (
                         <button
                           className="model-item__action model-item__action--download"
@@ -407,7 +474,7 @@ export function SettingsWorkspace({
           <div className="version-row">
             <span className="version-row__left">{t("settings.general.version")}</span>
             <div className="version-row__right">
-              <span className="version-row__value">Voca {serviceInfo?.version ?? "0.1.0"}</span>
+              <span className="version-row__value">Voca {appVersion ?? serviceInfo?.version}</span>
               <button className="btn btn--small btn--ghost" disabled type="button">
                 {t("settings.general.checkUpdate")}
               </button>

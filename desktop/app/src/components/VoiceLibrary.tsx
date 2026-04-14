@@ -121,9 +121,11 @@ export function VoiceLibrary({
   };
 
   const handlePickReferenceAudio = async () => {
+    if (transcribingCreateAudio || creating) return;
     const selectedPath = await pickAudioFile();
     if (!selectedPath) return;
     setCreateTranscriptError(null);
+    setCreateError(null);
     setCreateForm((current) => ({
       ...current,
       referenceAudioPath: selectedPath,
@@ -354,6 +356,7 @@ export function VoiceLibrary({
                     type="button"
                     className="btn btn--ghost btn--small"
                     onClick={() => void handlePickReferenceAudio()}
+                    disabled={transcribingCreateAudio || creating}
                   >
                     {t("studio.voiceLibrary.chooseReferenceAudio")}
                   </button>
@@ -365,6 +368,7 @@ export function VoiceLibrary({
                       <button
                         type="button"
                         className="btn btn--ghost btn--small"
+                        disabled={transcribingCreateAudio || creating}
                         onClick={() =>
                           setCreateForm((current) => ({
                             ...current,
@@ -384,13 +388,21 @@ export function VoiceLibrary({
                   )}
                 </div>
                 <div className="voice-form__help">{t("studio.voiceLibrary.uploadHint")}</div>
-                <div className="voice-form__help">
-                  {transcribingCreateAudio
-                    ? t("studio.voiceLibrary.transcribing")
-                    : createForm.referenceTranscript
+                {transcribingCreateAudio ? (
+                  <div className="voice-form__status" role="status" aria-live="polite">
+                    <span className="voice-form__status-spinner" aria-hidden="true" />
+                    <div className="voice-form__status-copy">
+                      <div className="voice-form__status-title">{t("studio.voiceLibrary.transcribing")}</div>
+                      <div className="voice-form__status-text">{t("studio.voiceLibrary.transcribingHint")}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="voice-form__help">
+                    {createForm.referenceTranscript
                       ? t("studio.voiceLibrary.transcribed")
                       : t("studio.voiceLibrary.transcriptHint")}
-                </div>
+                  </div>
+                )}
               </div>
 
               <label className="voice-form__field">
@@ -403,6 +415,8 @@ export function VoiceLibrary({
                   }
                   placeholder={t("studio.voiceLibrary.referenceTranscriptPlaceholder")}
                   rows={4}
+                  disabled={transcribingCreateAudio}
+                  aria-busy={transcribingCreateAudio}
                 />
               </label>
 
