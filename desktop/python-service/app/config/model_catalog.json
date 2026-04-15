@@ -5,7 +5,7 @@
       "modelKey": "voxcpm2",
       "displayName": "VoxCPM2",
       "descriptionKey": "settings.modelManagement.desc.voxcpm2",
-      "tags": ["2B", "30 languages", "48kHz"],
+      "tags": ["2B", "settings.modelManagement.tag.langs30", "48kHz"],
       "defaultProvider": "huggingface",
       "localDirName": "voxcpm2",
       "assetRole": "tts",

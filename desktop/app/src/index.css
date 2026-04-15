@@ -1210,6 +1210,13 @@ h1, h2, h3 { margin: 0; }
   text-align: right;
 }
 
+.config-panel__hint {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
 /* Custom slider track & thumb */
 .config-panel__slider {
   -webkit-appearance: none;
@@ -1522,10 +1529,13 @@ h1, h2, h3 { margin: 0; }
   cursor: pointer;
   font-size: 20px;
   line-height: 1;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .voice-modal__close:hover {
-  background: var(--bg-soft);
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.4);
+  color: #f87171;
 }
 
 .voice-modal__footer {
@@ -1539,6 +1549,24 @@ h1, h2, h3 { margin: 0; }
 .voice-modal__readonly {
   font-size: 12px;
   color: var(--text-dim);
+}
+
+.voice-delete-confirm-banner {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  background: rgba(220, 38, 38, 0.06);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.voice-delete-confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .voice-form__field {

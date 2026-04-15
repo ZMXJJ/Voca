@@ -555,8 +555,17 @@ class VoxCPMBridge:
 
         model = self._load_model(model_key=payload.modelKey, model_path=prepared.modelPath)
 
-        final_text = self._build_final_text(payload.targetText, payload.controlInstruction)
-        generate_kwargs = self._build_generate_kwargs(payload=payload, final_text=final_text)
+        use_extreme = bool(
+            payload.extremeClone
+            and payload.referenceAudioPath
+            and payload.promptText
+            and payload.promptText.strip()
+        )
+        control = None if use_extreme else payload.controlInstruction
+        final_text = self._build_final_text(payload.targetText, control)
+        generate_kwargs = self._build_generate_kwargs(
+            payload=payload, final_text=final_text, extreme_clone=use_extreme,
+        )
         waveform = model.generate(**generate_kwargs)
         sample_rate = int(model.tts_model.sample_rate)
         raw_audio_path = self._write_waveform(task_id=task_id, sample_rate=sample_rate, waveform=waveform)
@@ -592,18 +601,23 @@ class VoxCPMBridge:
         control = (control_instruction or "").strip()
         return f"({control}){text}" if control else text
 
-    def _build_generate_kwargs(self, payload: GenerationRequest, final_text: str) -> dict[str, Any]:
+    def _build_generate_kwargs(
+        self,
+        payload: GenerationRequest,
+        final_text: str,
+        *,
+        extreme_clone: bool = False,
+    ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "text": final_text,
             "cfg_value": float(payload.cfgValue or 2.0),
             "inference_timesteps": int(payload.inferenceTimesteps or 10),
             "normalize": bool(payload.normalize),
-            # Keep VoxCPM's built-in denoiser off. Desktop now treats denoise as a post-process step.
             "denoise": False,
         }
         if payload.referenceAudioPath:
             kwargs["reference_wav_path"] = payload.referenceAudioPath
-        if payload.promptText and payload.referenceAudioPath and payload.promptText.strip():
+        if extreme_clone and payload.promptText and payload.promptText.strip():
             kwargs["prompt_wav_path"] = payload.referenceAudioPath
             kwargs["prompt_text"] = payload.promptText.strip()
         return kwargs

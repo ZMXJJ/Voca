@@ -35,6 +35,9 @@ if VOXCPM_SRC.exists() and str(VOXCPM_SRC) not in sys.path:
 _TARGET_SAMPLE_RATE = 16000
 
 
+_SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wma"}
+
+
 def _load_audio_as_ndarray(audio_path: str):
     """Load any audio format into a 16 kHz mono numpy array.
 
@@ -48,15 +51,42 @@ def _load_audio_as_ndarray(audio_path: str):
     audio I/O entirely.
     """
     import numpy as np
-    import librosa
 
-    audio_data, _ = librosa.load(
-        audio_path,
-        sr=_TARGET_SAMPLE_RATE,
-        mono=True,
-        dtype=np.float32,
+    ext = Path(audio_path).suffix.lower()
+    if ext not in _SUPPORTED_EXTENSIONS:
+        raise ValueError(
+            f"Unsupported audio format '{ext}'. "
+            f"Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
+        )
+
+    try:
+        import librosa
+        audio_data, _ = librosa.load(
+            audio_path,
+            sr=_TARGET_SAMPLE_RATE,
+            mono=True,
+            dtype=np.float32,
+        )
+        return np.asarray(audio_data, dtype=np.float32)
+    except Exception as exc:
+        logger.warning("librosa.load failed for %s: %s — trying soundfile fallback", audio_path, exc)
+
+    try:
+        import soundfile as sf
+        audio_data, sr = sf.read(audio_path, dtype="float32", always_2d=True)
+        audio_data = audio_data.mean(axis=1)
+        if sr != _TARGET_SAMPLE_RATE:
+            import librosa
+            audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=_TARGET_SAMPLE_RATE)
+        return np.asarray(audio_data, dtype=np.float32)
+    except Exception as sf_exc:
+        logger.warning("soundfile fallback also failed for %s: %s", audio_path, sf_exc)
+
+    raise RuntimeError(
+        f"Failed to decode audio file: {Path(audio_path).name} (format: {ext}). "
+        f"Both librosa and soundfile backends failed. "
+        f"Please try converting to WAV format and retry."
     )
-    return np.asarray(audio_data, dtype=np.float32)
 
 
 class ASRBridge:

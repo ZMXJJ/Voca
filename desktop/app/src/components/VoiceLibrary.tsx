@@ -97,6 +97,7 @@ export function VoiceLibrary({
   const [detailError, setDetailError] = useState<string | null>(null);
   const [savingDetail, setSavingDetail] = useState(false);
   const [deletingDetail, setDeletingDetail] = useState(false);
+  const [detailDeleteConfirm, setDetailDeleteConfirm] = useState(false);
 
   const rows = chunkPairs(voices);
   const detailVoice = useMemo(
@@ -119,6 +120,10 @@ export function VoiceLibrary({
     });
     setDetailError(null);
   }, [detailVoice, detailVoiceId]);
+
+  useEffect(() => {
+    setDetailDeleteConfirm(false);
+  }, [detailVoiceId]);
 
   const validateVoiceForm = (payload: VoiceCreatePayload) => {
     if (!payload.name.trim()) return t("studio.voiceLibrary.validationName");
@@ -270,12 +275,8 @@ export function VoiceLibrary({
     }
   };
 
-  const handleDeleteVoice = async () => {
+  const handleDeleteVoiceConfirmed = async () => {
     if (!detailVoice) return;
-    const confirmed = window.confirm(
-      t("studio.voiceLibrary.deleteConfirm", { name: detailVoice.name }),
-    );
-    if (!confirmed) return;
 
     setDeletingDetail(true);
     setDetailError(null);
@@ -351,10 +352,7 @@ export function VoiceLibrary({
       </div>
 
       {createOpen ? (
-        <div className="voice-modal__overlay" onClick={() => {
-          setCreateTranscriptError(null);
-          setCreateOpen(false);
-        }}>
+        <div className="voice-modal__overlay">
           <div className="voice-modal" onClick={(event) => event.stopPropagation()}>
             <div className="voice-modal__header">
               <h3 className="voice-modal__title">{t("studio.voiceLibrary.uploadTitle")}</h3>
@@ -501,14 +499,17 @@ export function VoiceLibrary({
       ) : null}
 
       {detailVoice ? (
-        <div className="voice-modal__overlay" onClick={() => setDetailVoiceId(null)}>
+        <div className="voice-modal__overlay">
           <div className="voice-modal" onClick={(event) => event.stopPropagation()}>
             <div className="voice-modal__header">
               <h3 className="voice-modal__title">{t("studio.voiceLibrary.detailTitle")}</h3>
               <button
                 type="button"
                 className="voice-modal__close"
-                onClick={() => setDetailVoiceId(null)}
+                onClick={() => {
+                  setDetailDeleteConfirm(false);
+                  setDetailVoiceId(null);
+                }}
                 aria-label={t("studio.voiceLibrary.close")}
               >
                 ×
@@ -578,19 +579,46 @@ export function VoiceLibrary({
                 </div>
               </div>
 
+              {detailVoice.canDelete && detailDeleteConfirm ? (
+                <div className="voice-delete-confirm-banner" role="status">
+                  {t("studio.voiceLibrary.deleteConfirm", { name: detailVoice.name })}
+                </div>
+              ) : null}
+
               {detailError ? <div className="voice-form__error">{detailError}</div> : null}
             </div>
 
             <div className="voice-modal__footer">
               {detailVoice.canDelete ? (
-                <button
-                  type="button"
-                  className="voice-action voice-action--danger"
-                  onClick={() => void handleDeleteVoice()}
-                  disabled={deletingDetail}
-                >
-                  {t("studio.voiceLibrary.delete")}
-                </button>
+                detailDeleteConfirm ? (
+                  <div className="voice-delete-confirm-actions">
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--small"
+                      onClick={() => setDetailDeleteConfirm(false)}
+                      disabled={deletingDetail}
+                    >
+                      {t("studio.voiceLibrary.cancel")}
+                    </button>
+                    <button
+                      type="button"
+                      className="voice-action voice-action--danger"
+                      onClick={() => void handleDeleteVoiceConfirmed()}
+                      disabled={deletingDetail}
+                    >
+                      {t("studio.voiceLibrary.deleteConfirmAction")}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="voice-action voice-action--danger"
+                    onClick={() => setDetailDeleteConfirm(true)}
+                    disabled={deletingDetail}
+                  >
+                    {t("studio.voiceLibrary.delete")}
+                  </button>
+                )
               ) : (
                 <span className="voice-modal__readonly">{t("studio.voiceLibrary.readonly")}</span>
               )}
@@ -600,7 +628,10 @@ export function VoiceLibrary({
               <button
                 type="button"
                 className="btn btn--secondary btn--small"
-                onClick={() => setDetailVoiceId(null)}
+                onClick={() => {
+                  setDetailDeleteConfirm(false);
+                  setDetailVoiceId(null);
+                }}
               >
                 {t("studio.voiceLibrary.close")}
               </button>

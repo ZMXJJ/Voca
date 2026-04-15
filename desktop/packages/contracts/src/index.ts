@@ -173,6 +173,7 @@ export type GenerationParams = {
   controlInstruction?: string;
   referenceAudioPath?: string;
   promptText?: string;
+  extremeClone?: boolean;
   cfgValue?: number;
   inferenceTimesteps?: number;
   normalize?: boolean;

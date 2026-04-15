@@ -263,7 +263,25 @@ function listMachORpaths(filePath) {
   return rpaths;
 }
 
+function resolveHomebrewPrefix() {
+  if (resolveHomebrewPrefix._cached !== undefined) {
+    return resolveHomebrewPrefix._cached;
+  }
+  const result = spawnSync("brew", ["--prefix"], { encoding: "utf8" });
+  resolveHomebrewPrefix._cached = result.status === 0 ? result.stdout.trim() : null;
+  return resolveHomebrewPrefix._cached;
+}
+
 function resolveDynamicLibraryReference(reference, loaderDir, rpaths) {
+  if (reference.includes("@@HOMEBREW_PREFIX@@")) {
+    const brewPrefix = resolveHomebrewPrefix();
+    if (brewPrefix) {
+      const resolved = reference.replace(/@@HOMEBREW_PREFIX@@/g, brewPrefix);
+      return existsSync(resolved) ? resolved : null;
+    }
+    return null;
+  }
+
   if (reference.startsWith("/")) {
     return existsSync(reference) ? reference : null;
   }
@@ -810,6 +828,12 @@ async function signEmbeddedMachOBinaries() {
   console.log(
     `Signing ${signTargets.length} embedded Python binaries (${concurrency} parallel) with ${isAdHoc ? "ad-hoc" : identity}...`,
   );
+  const entitlementsPath = path.join(path.dirname(stageRoot), "src-tauri", "Entitlements.plist");
+  const hasEntitlements = existsSync(entitlementsPath);
+  if (hasEntitlements) {
+    console.log(`Using entitlements: ${entitlementsPath}`);
+  }
+
   const tasks = signTargets.map((target) => () => {
     const args = ["--force", "--sign", identity];
     if (!isAdHoc) {
@@ -817,6 +841,9 @@ async function signEmbeddedMachOBinaries() {
     }
     if (target.requiresRuntime && !isAdHoc) {
       args.push("--options", "runtime");
+      if (hasEntitlements) {
+        args.push("--entitlements", entitlementsPath);
+      }
     }
     args.push(target.filePath);
     return runCommandAsync("codesign", args);

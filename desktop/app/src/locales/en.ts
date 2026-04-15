@@ -173,6 +173,7 @@ const en = {
       close: "Close",
       delete: "Delete",
       deleteConfirm: "Delete \"{{name}}\"? This action cannot be undone.",
+      deleteConfirmAction: "Confirm delete",
       createFailed: "Failed to create voice. Please try again.",
       updateFailed: "Failed to update voice. Please try again.",
       deleteFailed: "Failed to delete voice. Please try again.",
@@ -202,6 +203,8 @@ const en = {
       random: "Random",
       normalize: "Text Normalize",
       denoise: "Post-generate Denoise",
+      extremeClone: "Extreme Clone",
+      extremeCloneHint: "Uses the reference transcript for deep voice cloning with higher fidelity. Requires a voice with both reference audio and transcript.",
     },
   },
   history: {
@@ -252,6 +255,7 @@ const en = {
       },
       tag: {
         zhEn: "Chinese & English",
+        langs30: "30 languages",
       },
     },
     logs: {

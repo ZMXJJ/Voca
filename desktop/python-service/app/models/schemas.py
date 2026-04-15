@@ -73,6 +73,8 @@ class ModelCatalogEntry(BaseModel):
     modelKey: str
     displayName: str
     description: str | None = None
+    descriptionKey: str | None = None
+    tags: list[str] = Field(default_factory=list)
     defaultProvider: Literal["huggingface", "modelscope"]
     localDir: str
     assetRole: Literal["tts", "asr", "enhancer"] = "tts"
@@ -129,6 +131,7 @@ class GenerationRequest(BaseModel):
     controlInstruction: str | None = None
     referenceAudioPath: str | None = None
     promptText: str | None = None
+    extremeClone: bool = False
     cfgValue: float | None = 2.0
     inferenceTimesteps: int | None = 10
     normalize: bool | None = True

@@ -153,6 +153,8 @@ def _build_model_entry(raw_entry: dict) -> ModelCatalogEntry:
         modelKey=normalized_model_key,
         displayName=str(raw_entry["displayName"]),
         description=raw_entry.get("description"),
+        descriptionKey=raw_entry.get("descriptionKey"),
+        tags=raw_entry.get("tags") or [],
         defaultProvider=str(raw_entry["defaultProvider"]),
         localDir=str(models_dir() / local_dir_name),
         assetRole=str(raw_entry.get("assetRole") or "tts"),

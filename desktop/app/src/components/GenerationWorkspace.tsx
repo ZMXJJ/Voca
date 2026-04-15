@@ -101,6 +101,7 @@ export function GenerationWorkspace({
   const [inferenceSteps, setInferenceSteps] = useState(10);
   const [normalize, setNormalize] = useState(true);
   const [denoise, setDenoise] = useState(false);
+  const [extremeClone, setExtremeClone] = useState(false);
   const [seed, setSeed] = useState(-1);
   const [selectedHistoryTaskId, setSelectedHistoryTaskId] = useState<string | null>(null);
   const [historyPlayNonce, setHistoryPlayNonce] = useState(0);
@@ -186,7 +187,9 @@ export function GenerationWorkspace({
   const downloadToastTimer = useRef<number | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const errorToastTimer = useRef<number | null>(null);
-  const acknowledgedFailures = useRef<Set<string>>(new Set());
+  const acknowledgedFailures = useRef<Set<string>>(
+    new Set(taskHistory.filter((t) => t.status === "failed").map((t) => t.id)),
+  );
 
   const handleDownloadComplete = useCallback(() => {
     setShowDownloadToast(true);
@@ -225,14 +228,17 @@ export function GenerationWorkspace({
 
   const handleGenerate = () => {
     if (!targetText.trim()) return;
+    const hasRef = Boolean(selectedVoice?.referenceAudioPath);
+    const hasTranscript = Boolean(selectedVoice?.referenceTranscript?.trim());
     void onSubmit({
-      mode: "voice_design",
+      mode: hasRef ? "controllable_clone" : "voice_design",
       targetText,
       modelKey,
       providerPreference,
-      controlInstruction: selectedVoice?.description?.trim() || "",
+      controlInstruction: extremeClone ? undefined : (selectedVoice?.description?.trim() || ""),
       referenceAudioPath: selectedVoice?.referenceAudioPath,
       promptText: selectedVoice?.referenceTranscript?.trim() || undefined,
+      extremeClone: extremeClone && hasRef && hasTranscript,
       streaming: false,
       cfgValue,
       inferenceTimesteps: inferenceSteps,
@@ -298,7 +304,7 @@ export function GenerationWorkspace({
                 <button
                   className="config-panel__reset"
                   type="button"
-                  onClick={() => { setCfgValue(2.0); setInferenceSteps(10); setNormalize(true); setDenoise(false); setSeed(-1); }}
+                  onClick={() => { setCfgValue(2.0); setInferenceSteps(10); setNormalize(true); setDenoise(false); setExtremeClone(false); setSeed(-1); }}
                 >
                   {t("studio.config.reset")}
                 </button>
@@ -380,6 +386,22 @@ export function GenerationWorkspace({
                   <span className="config-panel__switch-thumb" />
                 </button>
               </label>
+
+              <div className="config-panel__divider" />
+
+              <label className="config-panel__toggle-row">
+                <span>{t("studio.config.extremeClone")}</span>
+                <button
+                  type="button"
+                  className={`config-panel__switch${extremeClone ? " config-panel__switch--on" : ""}`}
+                  onClick={() => setExtremeClone((v) => !v)}
+                  role="switch"
+                  aria-checked={extremeClone}
+                >
+                  <span className="config-panel__switch-thumb" />
+                </button>
+              </label>
+              <p className="config-panel__hint">{t("studio.config.extremeCloneHint")}</p>
             </div>
           </div>
         </div>

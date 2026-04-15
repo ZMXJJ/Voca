@@ -116,6 +116,7 @@ pub struct GenerationPayload {
     pub control_instruction: Option<String>,
     pub reference_audio_path: Option<String>,
     pub prompt_text: Option<String>,
+    pub extreme_clone: Option<bool>,
     pub cfg_value: Option<f32>,
     pub inference_timesteps: Option<u32>,
     pub normalize: Option<bool>,

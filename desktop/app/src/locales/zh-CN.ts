@@ -164,6 +164,7 @@ const zhCN = {
       close: "关闭",
       delete: "删除",
       deleteConfirm: "确定删除“{{name}}”吗？此操作不可撤销。",
+      deleteConfirmAction: "确认删除",
       createFailed: "创建音色失败，请重试。",
       updateFailed: "更新音色失败，请重试。",
       deleteFailed: "删除音色失败，请重试。",
@@ -193,6 +194,8 @@ const zhCN = {
       random: "随机",
       normalize: "文本归一化",
       denoise: "生成后降噪",
+      extremeClone: "极致克隆",
+      extremeCloneHint: "开启后将利用参考音频的转写文本进行深度克隆，音色还原度更高。需要音色包含参考音频及转写文本。",
     },
   },
   history: {
@@ -243,6 +246,7 @@ const zhCN = {
       },
       tag: {
         zhEn: "中英文",
+        langs30: "30 种语言",
       },
     },
     logs: {

@@ -662,7 +662,12 @@ function App() {
   ) => {
     const removedIdSet = new Set(removedTaskIds);
     setTaskHistory((history) =>
-      history.filter((task) => !removedIdSet.has(task.id) && !isTaskAudioUnderDirs(task, clearedAudioDirs)),
+      history.filter((task) => {
+        if (removedIdSet.has(task.id)) return false;
+        if (isTaskAudioUnderDirs(task, clearedAudioDirs)) return false;
+        if (isTaskTerminal(task) && !getTaskPlayableAudioPath(task)) return false;
+        return true;
+      }),
     );
     setRunningTaskIds((prev) => {
       const next = new Set(prev);

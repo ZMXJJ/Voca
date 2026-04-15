@@ -96,6 +96,24 @@ export function AudioPlayer({
     };
   }, [audioElementKey]);
 
+  useEffect(() => {
+    if (!shouldAutoPlay) return;
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const attemptPlay = () => {
+      audio.currentTime = 0;
+      void audio.play().catch(() => {});
+    };
+
+    if (audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      attemptPlay();
+    } else {
+      audio.addEventListener("canplay", attemptPlay, { once: true });
+      return () => audio.removeEventListener("canplay", attemptPlay);
+    }
+  }, [audioElementKey, shouldAutoPlay]);
+
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
     if (!audio || !audioSrc) return;
@@ -148,7 +166,7 @@ export function AudioPlayer({
 
   return (
     <div className="audio-player" title={loadError ?? undefined}>
-      {audioSrc && <audio key={audioElementKey} ref={audioRef} src={audioSrc} preload="metadata" autoPlay={shouldAutoPlay} />}
+      {audioSrc && <audio key={audioElementKey} ref={audioRef} src={audioSrc} preload="auto" />}
       <button
         className="audio-player__play-btn"
         disabled={!audioSrc}
