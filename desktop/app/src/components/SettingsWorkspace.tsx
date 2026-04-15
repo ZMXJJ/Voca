@@ -11,8 +11,8 @@ import type {
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import i18n from "../i18n";
-import { exportLogs, getTask, openStorageDirectory, startModelDownload } from "../lib/tauri";
-import { IconCheck, IconChevronDown, IconDownload } from "./Icons";
+import { exportLogs, getTask, openExternalUrl, openStorageDirectory, startModelDownload } from "../lib/tauri";
+import { IconCheck, IconChevronDown, IconDownload, IconHeart } from "./Icons";
 import { CustomSelect } from "./CustomSelect";
 import { StorageModal } from "./StorageModal";
 
@@ -20,6 +20,22 @@ const ASSET_ROLE_I18N_KEY: Record<string, string> = {
   asr: "settings.modelManagement.roleAsr",
   enhancer: "settings.modelManagement.roleEnhancer",
 };
+
+function getModelPageUrl(
+  model: { providers: { huggingface?: { repoId: string }; modelscope?: { modelId: string } } },
+  preference: "auto" | "huggingface" | "modelscope",
+): string | null {
+  if (preference === "modelscope" && model.providers.modelscope) {
+    return `https://modelscope.cn/models/${model.providers.modelscope.modelId}`;
+  }
+  if (model.providers.huggingface) {
+    return `https://huggingface.co/${model.providers.huggingface.repoId}`;
+  }
+  if (model.providers.modelscope) {
+    return `https://modelscope.cn/models/${model.providers.modelscope.modelId}`;
+  }
+  return null;
+}
 
 function formatInferenceDevice(serviceInfo: ServiceInfo | null) {
   const deviceName = serviceInfo?.deviceName?.trim();
@@ -308,11 +324,34 @@ export function SettingsWorkspace({
             return (
               <div key={model.modelKey} className="model-item">
                 <div className="model-item__info">
-                  <div className="model-item__name">{model.displayName}</div>
+                  <div className="model-item__name">
+                    {model.displayName}
+                    {getModelPageUrl(model, providerPreference) && (
+                      <button
+                        className="model-item__heart"
+                        type="button"
+                        onClick={() => void openExternalUrl(getModelPageUrl(model, providerPreference)!)}
+                      >
+                        <IconHeart size={13} />
+                      </button>
+                    )}
+                  </div>
                   <div className="model-item__desc">
                     {isDownloading && downloadSpeeds[model.modelKey] ? (
                       <span className="model-item__speed">{formatSpeed(downloadSpeeds[model.modelKey]!)}</span>
-                    ) : (model.description ?? model.localDir)}
+                    ) : model.tags && model.tags.length > 0 ? (
+                      <div className="model-item__tags">
+                        {model.tags.map((tag) => (
+                          <span key={tag} className="model-item__tag-pill">{tag.startsWith("settings.") ? t(tag) : tag}</span>
+                        ))}
+                        {model.approxSizeLabel && <span className="model-item__tag-pill">{model.approxSizeLabel}</span>}
+                      </div>
+                    ) : (
+                      <>
+                        {model.descriptionKey ? t(model.descriptionKey) : model.description ?? model.localDir}
+                        {model.approxSizeLabel && <span className="model-item__size">{model.approxSizeLabel}</span>}
+                      </>
+                    )}
                   </div>
                 </div>
                 {isDownloaded ? (
@@ -363,13 +402,29 @@ export function SettingsWorkspace({
                         <div className="model-item__name">
                           {model.displayName}
                           {roleKey && <span className="model-item__tag">{t(roleKey)}</span>}
+                          {getModelPageUrl(model, providerPreference) && (
+                            <button
+                              className="model-item__heart"
+                              type="button"
+                              onClick={() => void openExternalUrl(getModelPageUrl(model, providerPreference)!)}
+                            >
+                              <IconHeart size={13} />
+                            </button>
+                          )}
                         </div>
                         <div className="model-item__desc">
                           {isDownloading && downloadSpeeds[model.modelKey] ? (
                             <span className="model-item__speed">{formatSpeed(downloadSpeeds[model.modelKey]!)}</span>
+                          ) : model.tags && model.tags.length > 0 ? (
+                            <div className="model-item__tags">
+                              {model.tags.map((tag) => (
+                                <span key={tag} className="model-item__tag-pill">{tag.startsWith("settings.") ? t(tag) : tag}</span>
+                              ))}
+                              {model.approxSizeLabel && <span className="model-item__tag-pill">{model.approxSizeLabel}</span>}
+                            </div>
                           ) : (
                             <>
-                              {model.description ?? model.localDir}
+                              {model.descriptionKey ? t(model.descriptionKey) : model.description ?? model.localDir}
                               {model.approxSizeLabel && <span className="model-item__size">{model.approxSizeLabel}</span>}
                             </>
                           )}

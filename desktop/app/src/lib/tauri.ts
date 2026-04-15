@@ -28,6 +28,18 @@ type CacheClearResult = {
   serviceInfo?: ServiceInfo | null;
 };
 
+export type TaskQueryErrorKind = "sidecar_unavailable" | "request_failed";
+
+export class TaskQueryError extends Error {
+  kind: TaskQueryErrorKind;
+
+  constructor(kind: TaskQueryErrorKind, message: string) {
+    super(message);
+    this.name = "TaskQueryError";
+    this.kind = kind;
+  }
+}
+
 const fallbackBootstrapState: BootstrapState = {
   isFirstLaunch: true,
   phase: "welcome",
@@ -61,6 +73,30 @@ function getInvokeErrorMessage(error: unknown, fallback: string): string {
   }
 
   return fallback;
+}
+
+function classifyTaskQueryError(message: string): TaskQueryErrorKind {
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("python_sidecar_not_ready") ||
+    normalized.includes("python_service_venv_missing") ||
+    normalized.includes("tauri_not_available") ||
+    normalized.includes("error sending request") ||
+    normalized.includes("error trying to connect") ||
+    normalized.includes("failed to connect") ||
+    normalized.includes("connection refused") ||
+    normalized.includes("connection reset") ||
+    normalized.includes("tcp connect error") ||
+    normalized.includes("timed out")
+  ) {
+    return "sidecar_unavailable";
+  }
+  return "request_failed";
+}
+
+function createTaskQueryError(error: unknown, fallback: string): TaskQueryError {
+  const message = getInvokeErrorMessage(error, fallback);
+  return new TaskQueryError(classifyTaskQueryError(message), message);
 }
 
 export async function getQuickBootstrapState(): Promise<BootstrapState> {
@@ -117,9 +153,17 @@ export async function createGenerateTask(payload: GenerationParams): Promise<Tas
 
 export async function getTask(taskId: string): Promise<TaskRecord | null> {
   try {
-    return await invoke<TaskRecord>("get_task", { taskId });
+    return await invoke<TaskRecord | null>("get_task", { taskId });
   } catch {
     return null;
+  }
+}
+
+export async function getTaskStrict(taskId: string): Promise<TaskRecord | null> {
+  try {
+    return await invoke<TaskRecord | null>("get_task", { taskId });
+  } catch (error) {
+    throw createTaskQueryError(error, "Failed to fetch task");
   }
 }
 
@@ -241,6 +285,14 @@ export async function exportLogs(logDir: string): Promise<boolean> {
 export async function openStorageDirectory(path: string): Promise<boolean> {
   try {
     return await invoke<boolean>("open_storage_directory", { path });
+  } catch {
+    return false;
+  }
+}
+
+export async function openExternalUrl(url: string): Promise<boolean> {
+  try {
+    return await invoke<boolean>("open_external_url", { url });
   } catch {
     return false;
   }

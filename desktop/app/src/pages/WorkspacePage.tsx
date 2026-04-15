@@ -26,7 +26,6 @@ type WorkspacePageProps = {
   auxiliaryModelCatalog: ModelCatalogEntry[];
   downloadedAuxiliaryModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
-  currentTask: TaskRecord | null;
   taskHistory: TaskRecord[];
   onPrepareModel: (
     modelKey: string,
@@ -52,7 +51,6 @@ export function WorkspacePage({
   auxiliaryModelCatalog,
   downloadedAuxiliaryModelCatalog,
   serviceInfo,
-  currentTask,
   taskHistory,
   onPrepareModel,
   onSubmitTask,
@@ -85,7 +83,6 @@ export function WorkspacePage({
       default:
         return (
           <GenerationWorkspace
-            currentTask={currentTask}
             providerRecommendation={providerRecommendation}
             preparedModel={preparedModel}
             modelCatalog={downloadedModelCatalog}
@@ -100,7 +97,6 @@ export function WorkspacePage({
     activeSection,
     auxiliaryModelCatalog,
     bootstrapState,
-    currentTask,
     downloadedAuxiliaryModelCatalog,
     downloadedModelCatalog,
     modelCatalog,

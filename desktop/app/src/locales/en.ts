@@ -155,6 +155,16 @@ const en = {
         "We are analyzing the audio now. This usually finishes within a few seconds and will fill the transcript box automatically.",
       transcribed: "Transcript ready. You can edit it before saving.",
       transcribeFailed: "Failed to transcribe reference audio. You can retry or type it manually.",
+      transcribeTaskMissing:
+        "The transcription task could not be found, likely because the local service restarted. Please reselect the reference audio and try again.",
+      transcribeServiceRestarted:
+        "The local transcription service restarted and the current task was lost. Please reselect the reference audio and try again.",
+      transcribeServiceUnavailable:
+        "The local transcription service is temporarily unavailable. Please try again in a moment.",
+      transcribeStatusCheckFailed:
+        "We could not read the transcription task status. Please try again.",
+      transcribeTimedOut:
+        "Reference audio transcription timed out. Please retry, or fill in the transcript manually if the issue continues.",
       typeLabel: "Voice Type",
       readonly: "Preset voices are view-only",
       create: "Create Voice",
@@ -175,6 +185,12 @@ const en = {
       count: "{{count}} records",
       empty: "No generation records yet",
       untitled: "Untitled task",
+      status: {
+        queued: "Queued",
+        running: "Generating",
+        failed: "Failed",
+        cancelled: "Cancelled",
+      },
     },
     downloadComplete: "Download complete",
     config: {
@@ -227,6 +243,16 @@ const en = {
       auxiliaryModels: "Auxiliary Models",
       roleAsr: "ASR",
       roleEnhancer: "Enhancer",
+      desc: {
+        voxcpm2: "High-quality TTS with emotion & style control",
+        voxcpm1_5: "Balanced quality and speed for TTS",
+        voxcpm_05b: "Lightweight TTS, fast inference",
+        sensevoice_small: "Multilingual speech recognition",
+        zipenhancer_16k: "Audio enhancement & denoising",
+      },
+      tag: {
+        zhEn: "Chinese & English",
+      },
     },
     logs: {
       title: "Storage & Maintenance",

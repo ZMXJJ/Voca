@@ -151,6 +151,11 @@ const zhCN = {
       transcribingHint: "系统正在分析音频内容，通常几秒内完成；完成后会自动填入下方文本框。",
       transcribed: "转写已完成，保存前可以继续修改。",
       transcribeFailed: "参考音频转写失败，你可以重试或手动填写。",
+      transcribeTaskMissing: "转写任务已丢失，可能是服务刚刚重启。请重新选择参考音频后再试。",
+      transcribeServiceRestarted: "本地转写服务已重启，当前转写任务已丢失。请重新选择参考音频后再试。",
+      transcribeServiceUnavailable: "本地转写服务暂时不可用，请稍后重试。",
+      transcribeStatusCheckFailed: "无法获取转写任务状态，请重试。",
+      transcribeTimedOut: "参考音频转写超时，请重试；如果问题持续，请稍后再试或手动填写文本。",
       typeLabel: "音色类型",
       readonly: "默认音色仅支持查看",
       create: "创建音色",
@@ -171,6 +176,12 @@ const zhCN = {
       count: "{{count}} 条记录",
       empty: "暂无生成记录",
       untitled: "未命名任务",
+      status: {
+        queued: "排队中",
+        running: "生成中",
+        failed: "失败",
+        cancelled: "已取消",
+      },
     },
     downloadComplete: "已下载完成",
     config: {
@@ -223,6 +234,16 @@ const zhCN = {
       auxiliaryModels: "辅助模型",
       roleAsr: "语音识别",
       roleEnhancer: "音频增强",
+      desc: {
+        voxcpm2: "高质量语音合成，支持情感与风格控制",
+        voxcpm1_5: "平衡质量与速度的语音合成模型",
+        voxcpm_05b: "轻量级语音合成，推理速度快",
+        sensevoice_small: "多语言语音识别",
+        zipenhancer_16k: "音频增强与降噪",
+      },
+      tag: {
+        zhEn: "中英文",
+      },
     },
     logs: {
       title: "存储与维护",

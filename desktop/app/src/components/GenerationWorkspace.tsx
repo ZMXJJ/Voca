@@ -17,7 +17,6 @@ import { IconModel, IconMicrophone, IconSparkle, IconSliders, IconPlay } from ".
 import { VoiceLibrary } from "./VoiceLibrary";
 
 type GenerationWorkspaceProps = {
-  currentTask: TaskRecord | null;
   providerRecommendation: ProviderRecommendation | null;
   preparedModel: ModelPrepareResponse | null;
   modelCatalog: ModelCatalogEntry[];
@@ -60,8 +59,15 @@ function formatDuration(ms?: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function isTaskRunning(task: TaskRecord) {
+  return task.status === "queued" || task.status === "running";
+}
+
+function isTaskFailed(task: TaskRecord) {
+  return task.status === "failed" || task.status === "cancelled";
+}
+
 export function GenerationWorkspace({
-  currentTask,
   preparedModel,
   modelCatalog,
   sidecarStatus,
@@ -115,13 +121,17 @@ export function GenerationWorkspace({
     return () => document.removeEventListener("keydown", handler);
   }, [configOpen]);
 
-  const taskIsRunning = currentTask
-    ? !["succeeded", "failed", "cancelled"].includes(currentTask.status)
-    : false;
   const hasDownloadedModels = modelCatalog.length > 0;
   const modelReady = preparedModel?.configExists ?? false;
   const playableHistory = useMemo(
     () => taskHistory.filter((task) => Boolean(getTaskPlayableAudioPath(task))),
+    [taskHistory],
+  );
+  const displayHistory = useMemo(
+    () =>
+      taskHistory
+        .filter((task) => task.type === "generate" && (Boolean(getTaskPlayableAudioPath(task)) || isTaskRunning(task) || isTaskFailed(task)))
+        .slice(0, 5),
     [taskHistory],
   );
 
@@ -156,21 +166,16 @@ export function GenerationWorkspace({
         return selectedAudioPath;
       }
     }
-    const currentAudioPath = currentTask ? getTaskPlayableAudioPath(currentTask) : null;
-    if (currentAudioPath) return currentAudioPath;
     const found = playableHistory.find((task) => getTaskPlayableAudioPath(task));
     return found ? getTaskPlayableAudioPath(found) : null;
-  }, [currentTask, playableHistory, selectedHistoryTaskId]);
+  }, [playableHistory, selectedHistoryTaskId]);
 
   const selectedHistoryTask = useMemo(() => {
     if (selectedHistoryTaskId) {
       return playableHistory.find((task) => task.id === selectedHistoryTaskId) ?? null;
     }
-    if (currentTask && getTaskPlayableAudioPath(currentTask)) {
-      return currentTask;
-    }
     return playableHistory[0] ?? null;
-  }, [currentTask, playableHistory, selectedHistoryTaskId]);
+  }, [playableHistory, selectedHistoryTaskId]);
 
   const selectedVoice = useMemo(
     () => voices.find((voice) => voice.id === selectedVoiceId) ?? null,
@@ -179,6 +184,9 @@ export function GenerationWorkspace({
 
   const [showDownloadToast, setShowDownloadToast] = useState(false);
   const downloadToastTimer = useRef<number | null>(null);
+  const [errorToast, setErrorToast] = useState<string | null>(null);
+  const errorToastTimer = useRef<number | null>(null);
+  const acknowledgedFailures = useRef<Set<string>>(new Set());
 
   const handleDownloadComplete = useCallback(() => {
     setShowDownloadToast(true);
@@ -189,8 +197,22 @@ export function GenerationWorkspace({
   useEffect(() => {
     return () => {
       if (downloadToastTimer.current) window.clearTimeout(downloadToastTimer.current);
+      if (errorToastTimer.current) window.clearTimeout(errorToastTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    const newFailure = taskHistory.find(
+      (task) => task.type === "generate" && task.status === "failed" && !acknowledgedFailures.current.has(task.id),
+    );
+    if (!newFailure) return;
+
+    acknowledgedFailures.current.add(newFailure.id);
+    const detail = newFailure.error?.message || newFailure.message || t("studio.generationHistory.status.failed");
+    setErrorToast(detail);
+    if (errorToastTimer.current) window.clearTimeout(errorToastTimer.current);
+    errorToastTimer.current = window.setTimeout(() => setErrorToast(null), 6000);
+  }, [taskHistory, t]);
 
   const downloadFileName = useMemo(() => {
     const task = selectedHistoryTask;
@@ -253,12 +275,12 @@ export function GenerationWorkspace({
           <div className="toolbar-spacer" />
           <button
             className="toolbar-btn toolbar-btn--generate"
-            disabled={!hasDownloadedModels || !modelReady || taskIsRunning || !sidecarStatus.healthy}
+            disabled={!hasDownloadedModels || !modelReady || !sidecarStatus.healthy}
             onClick={handleGenerate}
             type="button"
           >
             <IconSparkle size={16} />
-            {taskIsRunning ? t("studio.generating") : t("studio.generate")}
+            {t("studio.generate")}
           </button>
           <div className="config-popover" ref={configRef}>
             <button
@@ -375,47 +397,67 @@ export function GenerationWorkspace({
           <div className="card__header">
             <h3 className="card__title">{t("studio.generationHistory.title")}</h3>
             <span className="card__count">
-              {t("studio.generationHistory.count", { count: playableHistory.length })}
+              {t("studio.generationHistory.count", { count: displayHistory.length })}
             </span>
           </div>
           <div className="card__body">
-            {playableHistory.length === 0 ? (
+            {displayHistory.length === 0 ? (
               <p style={{ color: "var(--text-dim)", fontSize: "13px", textAlign: "center", padding: "32px 0" }}>
                 {t("studio.generationHistory.empty")}
               </p>
             ) : (
               <div className="history-list history-list--compact">
-                {playableHistory.slice(0, 5).map((task) => (
-                  <div
-                    key={task.id}
-                    className={`history-item${selectedHistoryTaskId === task.id ? " history-item--selected" : ""}`}
-                    onClick={() => {
-                      setSelectedHistoryTaskId(task.id);
-                      setHistoryPlayNonce((value) => value + 1);
-                    }}
-                  >
-                    <button
-                      className="history-item__play"
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
+                {displayHistory.map((task) => {
+                  const audioPath = getTaskPlayableAudioPath(task);
+                  const isPlayable = Boolean(audioPath);
+                  const isPending = isTaskRunning(task);
+                  const isFailed = isTaskFailed(task);
+                  const statusLabel = (isPending || isFailed) ? t(`studio.generationHistory.status.${task.status}`) : null;
+                  const statusTone = isFailed ? "status-badge--error" : task.status === "running" ? "status-badge--accent" : "status-badge--muted";
+
+                  return (
+                    <div
+                      key={task.id}
+                      className={`history-item${selectedHistoryTaskId === task.id ? " history-item--selected" : ""}${!isPlayable ? " history-item--inactive" : ""}`}
+                      onClick={() => {
+                        if (!isPlayable) return;
                         setSelectedHistoryTaskId(task.id);
                         setHistoryPlayNonce((value) => value + 1);
                       }}
-                      aria-label={`Play ${task.title || task.message || t("studio.generationHistory.untitled")}`}
                     >
-                      <IconPlay size={12} />
-                    </button>
-                    <div className="history-item__info">
-                      <div className="history-item__text">
-                        {task.title || task.message || task.result?.audioPath || t("studio.generationHistory.untitled")}
-                      </div>
-                      <div className="history-item__meta">
-                        {formatHistoryTime(task.createdAt)} · {formatDuration(task.result?.durationMs)}
+                      <button
+                        className="history-item__play"
+                        type="button"
+                        disabled={!isPlayable}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (!isPlayable) return;
+                          setSelectedHistoryTaskId(task.id);
+                          setHistoryPlayNonce((value) => value + 1);
+                        }}
+                        aria-label={`Play ${task.title || task.message || t("studio.generationHistory.untitled")}`}
+                      >
+                        <IconPlay size={12} />
+                      </button>
+                      <div className="history-item__content">
+                        <div className="history-item__info">
+                          <div className="history-item__text">
+                            {task.title || task.message || task.result?.audioPath || t("studio.generationHistory.untitled")}
+                          </div>
+                          <div className="history-item__meta">
+                            {formatHistoryTime(task.createdAt)}
+                            {isPlayable ? ` · ${formatDuration(task.result?.durationMs)}` : ""}
+                          </div>
+                        </div>
+                        {statusLabel ? (
+                          <span className={`status-badge history-item__status ${statusTone}`}>
+                            {statusLabel}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -433,6 +475,13 @@ export function GenerationWorkspace({
 
       {showDownloadToast && (
         <div className="download-toast">{t("generation.downloadComplete")}</div>
+      )}
+
+      {errorToast && (
+        <div className="error-toast" onClick={() => setErrorToast(null)}>
+          <span className="error-toast__label">{t("studio.generationHistory.status.failed")}</span>
+          <span className="error-toast__detail">{errorToast}</span>
+        </div>
       )}
     </>
   );

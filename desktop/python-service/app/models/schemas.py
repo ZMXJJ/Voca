@@ -17,6 +17,8 @@ class AppError(BaseModel):
 class HealthResponse(BaseModel):
     service: str
     status: Literal["ok"]
+    instanceId: str | None = None
+    startedAt: str | None = None
     modelLoaded: bool
     asrLoaded: bool
     coreModelReady: bool = False

@@ -26,6 +26,8 @@ export function AudioPlayer({
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const audioElementKey = `${audioSrc ?? "empty"}:${playNonce}`;
+  const shouldAutoPlay = autoPlay && playNonce > 0;
 
   useEffect(() => {
     if (!audioPath) {
@@ -73,42 +75,26 @@ export function AudioPlayer({
     const onLoadedMetadata = () => {
       if (Number.isFinite(audio.duration)) setDuration(audio.duration);
       setCurrentTime(0);
-      setPlaying(false);
     };
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
 
     audio.addEventListener("timeupdate", onTimeUpdate);
     audio.addEventListener("durationchange", onDurationChange);
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("loadedmetadata", onLoadedMetadata);
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPause);
 
     return () => {
       audio.removeEventListener("timeupdate", onTimeUpdate);
       audio.removeEventListener("durationchange", onDurationChange);
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("loadedmetadata", onLoadedMetadata);
+      audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("pause", onPause);
     };
-  }, [audioSrc]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !audioSrc || !autoPlay) return;
-
-    const tryPlay = () => {
-      void audio.play().then(() => setPlaying(true)).catch(() => {
-        setPlaying(false);
-      });
-    };
-
-    if (audio.readyState >= 2) {
-      tryPlay();
-      return;
-    }
-
-    audio.addEventListener("canplay", tryPlay, { once: true });
-    return () => {
-      audio.removeEventListener("canplay", tryPlay);
-    };
-  }, [audioSrc, autoPlay, playNonce]);
+  }, [audioElementKey]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
@@ -162,7 +148,7 @@ export function AudioPlayer({
 
   return (
     <div className="audio-player" title={loadError ?? undefined}>
-      {audioSrc && <audio ref={audioRef} src={audioSrc} preload="metadata" />}
+      {audioSrc && <audio key={audioElementKey} ref={audioRef} src={audioSrc} preload="metadata" autoPlay={shouldAutoPlay} />}
       <button
         className="audio-player__play-btn"
         disabled={!audioSrc}

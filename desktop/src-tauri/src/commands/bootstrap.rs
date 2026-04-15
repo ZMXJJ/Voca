@@ -468,3 +468,20 @@ pub async fn open_storage_directory(path: String) -> Result<bool, String> {
     reveal_in_file_manager(&target_path)?;
     Ok(true)
 }
+
+#[tauri::command]
+pub async fn open_external_url(url: String) -> Result<bool, String> {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err("Only HTTP(S) URLs are allowed".into());
+    }
+
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = Command::new("explorer");
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let mut command = Command::new("xdg-open");
+
+    command.arg(&url).status().map_err(|e| e.to_string())?;
+    Ok(true)
+}

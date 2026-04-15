@@ -18,8 +18,21 @@ const stageServiceRoot = path.join(stageRoot, "python-service");
 const stageVenvRoot = path.join(stageServiceRoot, ".venv");
 const stagePythonPath = path.join(stageVenvRoot, "bin", "python");
 const ffmpegCacheRoot = path.join(desktopRoot, ".cache", "ffmpeg-runtime");
-const homebrewEnv = { HOMEBREW_NO_AUTO_UPDATE: "1" };
 const homebrewFfmpegFormula = process.env.VOCA_FFMPEG_BREW_FORMULA?.trim() || "ffmpeg";
+const ffmpegFormulaApiRoot = "https://formulae.brew.sh/api/formula";
+const defaultFfmpegBottleTag = (() => {
+  if (process.platform !== "darwin") {
+    return "";
+  }
+  if (os.arch() === "arm64") {
+    return "arm64_sonoma";
+  }
+  if (os.arch() === "x64") {
+    return "sonoma";
+  }
+  return "";
+})();
+const ffmpegBottleTag = process.env.VOCA_FFMPEG_BOTTLE_TAG?.trim() || defaultFfmpegBottleTag;
 
 function ensureExists(targetPath, label) {
   if (!existsSync(targetPath)) {
@@ -252,12 +265,12 @@ function listMachORpaths(filePath) {
 
 function resolveDynamicLibraryReference(reference, loaderDir, rpaths) {
   if (reference.startsWith("/")) {
-    return existsSync(reference) ? realpathSync(reference) : null;
+    return existsSync(reference) ? reference : null;
   }
 
   if (reference.startsWith("@loader_path/")) {
     const candidate = path.resolve(loaderDir, reference.slice("@loader_path/".length));
-    return existsSync(candidate) ? realpathSync(candidate) : null;
+    return existsSync(candidate) ? candidate : null;
   }
 
   if (reference.startsWith("@executable_path/")) {
@@ -281,7 +294,7 @@ function resolveDynamicLibraryReference(reference, loaderDir, rpaths) {
 
     const candidate = path.resolve(baseDir, suffix);
     if (existsSync(candidate)) {
-      return realpathSync(candidate);
+      return candidate;
     }
   }
 
@@ -301,13 +314,7 @@ function normalizeCacheSegment(value) {
 }
 
 function resolveBrewPrefix(formula) {
-  const result = spawnSync("brew", ["--prefix", formula], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      ...homebrewEnv,
-    },
-  });
+  const result = spawnSync("brew", ["--prefix", formula], { encoding: "utf8" });
   if (result.status !== 0) {
     return null;
   }
@@ -315,136 +322,153 @@ function resolveBrewPrefix(formula) {
   return value || null;
 }
 
-function queryHomebrewFormulaInfo(formula) {
-  const parsed = JSON.parse(runCommandCapture("brew", ["info", "--json=v2", formula], homebrewEnv));
-  const entry = parsed?.formulae?.[0];
-  if (!entry) {
-    throw new Error(`Unable to query Homebrew metadata for formula: ${formula}`);
-  }
-  return entry;
+function fetchJson(url) {
+  return JSON.parse(runCommandCapture("curl", ["-fsSL", url]));
 }
 
-function resolveInstalledHomebrewFfmpegInfo() {
-  let info = queryHomebrewFormulaInfo(homebrewFfmpegFormula);
-  if (!Array.isArray(info.installed) || info.installed.length === 0) {
-    console.log(`Homebrew formula ${homebrewFfmpegFormula} is not installed. Installing it now for FFmpeg runtime bundling...`);
-    runCommand("brew", ["install", homebrewFfmpegFormula], homebrewEnv);
-    info = queryHomebrewFormulaInfo(homebrewFfmpegFormula);
+function resolvePinnedBottleMetadata(formula, bottleTag) {
+  if (!bottleTag) {
+    throw new Error("No default FFmpeg bottle tag is available for this platform. Set VOCA_FFMPEG_BOTTLE_TAG explicitly.");
   }
 
-  const prefix = runCommandCapture("brew", ["--prefix", homebrewFfmpegFormula], homebrewEnv);
-  const libDir = path.join(prefix, "lib");
-  ensureExists(libDir, `Homebrew ${homebrewFfmpegFormula} lib directory`);
-
-  return {
-    formula: info.name || homebrewFfmpegFormula,
-    version: info.installed?.[0]?.version || info.versions?.stable || "unknown",
-    prefix,
-    libDir,
-  };
-}
-
-function vendorDynamicLibraries(entryLibraryPaths, destinationLibDir) {
-  mkdirSync(destinationLibDir, { recursive: true });
-  const sourceLibraries = collectVendoredLibraryClosure(entryLibraryPaths);
-  const copiedLibraries = new Map();
-
-  for (const sourcePath of sourceLibraries) {
-    const destinationPath = path.join(destinationLibDir, path.basename(sourcePath));
-    cpSync(sourcePath, destinationPath, {
-      preserveTimestamps: true,
-      dereference: true,
-    });
-    copiedLibraries.set(path.basename(sourcePath), destinationPath);
-  }
-
-  for (const destinationPath of copiedLibraries.values()) {
-    const basename = path.basename(destinationPath);
-    runCommand("install_name_tool", ["-id", `@rpath/${basename}`, destinationPath]);
-
-    const dependencies = listDynamicLibraryDependencies(destinationPath);
-    for (const dependency of dependencies) {
-      const dependencyBasename = path.basename(dependency);
-      if (!copiedLibraries.has(dependencyBasename)) {
-        continue;
-      }
-      if (dependency === `@rpath/${dependencyBasename}`) {
-        continue;
-      }
-      runCommand("install_name_tool", ["-change", dependency, `@rpath/${dependencyBasename}`, destinationPath]);
-    }
-
-    const staleDependencyRpaths = listMachORpaths(destinationPath).filter(
-      (rpath) => !rpath.startsWith("@") && !isSystemLibrary(rpath),
+  const formulaInfo = fetchJson(`${ffmpegFormulaApiRoot}/${encodeURIComponent(formula)}.json`);
+  const bottleFile = formulaInfo?.bottle?.stable?.files?.[bottleTag];
+  if (!bottleFile) {
+    const availableTargets = Object.keys(formulaInfo?.bottle?.stable?.files ?? {});
+    throw new Error(
+      `Formula ${formula} does not publish a bottle for ${bottleTag}. Available targets: ${availableTargets.join(", ") || "none"}.`,
     );
-    upsertRpath(destinationPath, "@loader_path", staleDependencyRpaths);
   }
 
   return {
-    sourceLibraries,
-    copiedLibraries,
+    formula: formulaInfo.name || formula,
+    version: formulaInfo.versions?.stable || "unknown",
+    bottleTag,
+    url: bottleFile.url,
+    sha256: bottleFile.sha256,
+    cellar: bottleFile.cellar,
   };
 }
 
-function tryUseCachedFfmpegLibDir(torchcodecRoot) {
-  if (!existsSync(ffmpegCacheRoot)) {
-    return null;
+function parseGhcrRepository(url) {
+  const match = url.match(/^https:\/\/ghcr\.io\/v2\/([^/]+\/[^/]+\/[^/]+)\/blobs\//);
+  if (!match) {
+    throw new Error(`Unsupported GHCR bottle URL: ${url}`);
   }
-
-  const entries = readdirSync(ffmpegCacheRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => path.join(ffmpegCacheRoot, entry.name))
-    .sort((left, right) => right.localeCompare(left));
-
-  for (const cacheDir of entries) {
-    const candidateLibDir = path.join(cacheDir, "lib");
-    if (!existsSync(candidateLibDir)) {
-      continue;
-    }
-    try {
-      const selection = chooseTorchcodecFfmpegLibraries(torchcodecRoot, candidateLibDir);
-      return {
-        libDir: candidateLibDir,
-        source: "cache",
-        cacheDir,
-        versionHint: path.basename(cacheDir),
-        matchedTorchcodecCore: path.basename(selection.torchcodecCorePath),
-      };
-    } catch {
-      // Ignore stale/incompatible caches and continue scanning.
-    }
-  }
-
-  return null;
+  return match[1];
 }
 
-function ensureCachedHomebrewFfmpegLibDir(torchcodecRoot) {
-  const info = resolveInstalledHomebrewFfmpegInfo();
-  const selection = chooseTorchcodecFfmpegLibraries(torchcodecRoot, info.libDir);
+function downloadGhcrBlob(url, destinationPath) {
+  const repository = parseGhcrRepository(url);
+  const tokenResponse = fetchJson(`https://ghcr.io/token?service=ghcr.io&scope=repository:${repository}:pull`);
+  const token = tokenResponse?.token;
+  if (!token) {
+    throw new Error(`Unable to fetch GHCR token for ${repository}`);
+  }
+
+  runCommand("curl", [
+    "-fL",
+    "-H",
+    `Authorization: Bearer ${token}`,
+    "-H",
+    "Accept: application/vnd.oci.image.layer.v1.tar+gzip",
+    "-o",
+    destinationPath,
+    url,
+  ]);
+}
+
+function verifySha256(filePath, expectedSha256) {
+  const output = runCommandCapture("shasum", ["-a", "256", filePath]);
+  const actualSha256 = output.split(/\s+/)[0]?.trim();
+  if (actualSha256 !== expectedSha256) {
+    throw new Error(`SHA256 mismatch for ${filePath}: expected ${expectedSha256}, got ${actualSha256}`);
+  }
+}
+
+function extractTarball(archivePath, destinationDir) {
+  mkdirSync(destinationDir, { recursive: true });
+  runCommand("tar", ["-xzf", archivePath, "-C", destinationDir]);
+}
+
+function locateBottleLibDir(extractedRoot, formula, version) {
+  const directCandidate = path.join(extractedRoot, formula, version, "lib");
+  if (existsSync(directCandidate)) {
+    return directCandidate;
+  }
+
+  const stack = [extractedRoot];
+  while (stack.length > 0) {
+    const currentPath = stack.pop();
+    const entries = readdirSync(currentPath, { withFileTypes: true });
+    const hasLibDir = entries.some((entry) => entry.isDirectory() && entry.name === "lib");
+    if (hasLibDir) {
+      const libDir = path.join(currentPath, "lib");
+      const libEntries = existsSync(libDir) ? readdirSync(libDir) : [];
+      if (libEntries.some((name) => name.startsWith("libavutil."))) {
+        return libDir;
+      }
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        stack.push(path.join(currentPath, entry.name));
+      }
+    }
+  }
+
+  throw new Error(`Unable to locate FFmpeg lib directory inside extracted bottle for ${formula} ${version}.`);
+}
+
+function ensureCachedPinnedBottleFfmpegLibDir(torchcodecRoot) {
+  const metadata = resolvePinnedBottleMetadata(homebrewFfmpegFormula, ffmpegBottleTag);
   const cacheDir = path.join(
     ffmpegCacheRoot,
-    `${normalizeCacheSegment(info.formula)}-${normalizeCacheSegment(info.version)}`,
+    `${normalizeCacheSegment(metadata.formula)}-${normalizeCacheSegment(metadata.version)}-${normalizeCacheSegment(metadata.bottleTag)}`,
   );
   const cacheLibDir = path.join(cacheDir, "lib");
   const manifestPath = path.join(cacheDir, "manifest.json");
 
-  const cacheIsReady =
-    existsSync(cacheLibDir) &&
-    selection.requiredBasenames.every((basename) => existsSync(path.join(cacheLibDir, basename)));
+  if (existsSync(cacheLibDir)) {
+    try {
+      const selection = chooseTorchcodecFfmpegLibraries(torchcodecRoot, cacheLibDir);
+      return {
+        libDir: cacheLibDir,
+        source: "bottle-cache",
+        cacheDir,
+        formula: metadata.formula,
+        version: metadata.version,
+        bottleTag: metadata.bottleTag,
+        matchedTorchcodecCore: path.basename(selection.torchcodecCorePath),
+      };
+    } catch {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  }
 
-  if (!cacheIsReady) {
-    rmSync(cacheDir, { recursive: true, force: true });
-    mkdirSync(cacheLibDir, { recursive: true });
+  mkdirSync(cacheDir, { recursive: true });
+  const bottleArchivePath = path.join(cacheDir, "bottle.tar.gz");
+  const extractedRoot = path.join(cacheDir, "raw");
+
+  try {
+    downloadGhcrBlob(metadata.url, bottleArchivePath);
+    verifySha256(bottleArchivePath, metadata.sha256);
+    extractTarball(bottleArchivePath, extractedRoot);
+
+    const extractedLibDir = locateBottleLibDir(extractedRoot, metadata.formula, metadata.version);
+    const selection = chooseTorchcodecFfmpegLibraries(torchcodecRoot, extractedLibDir);
     const vendored = vendorDynamicLibraries(selection.entryLibraryPaths, cacheLibDir);
+
     writeFileSync(
       manifestPath,
       JSON.stringify(
         {
-          source: "homebrew",
-          formula: info.formula,
-          version: info.version,
-          prefix: info.prefix,
-          libDir: info.libDir,
+          source: "homebrew-bottle",
+          formula: metadata.formula,
+          version: metadata.version,
+          bottleTag: metadata.bottleTag,
+          url: metadata.url,
+          sha256: metadata.sha256,
+          cellar: metadata.cellar,
           generatedAt: new Date().toISOString(),
           matchedTorchcodecCore: path.basename(selection.torchcodecCorePath),
           bundledLibraries: [...vendored.copiedLibraries.keys()].sort((left, right) => left.localeCompare(right)),
@@ -453,15 +477,20 @@ function ensureCachedHomebrewFfmpegLibDir(torchcodecRoot) {
         2,
       ),
     );
+  } finally {
+    rmSync(bottleArchivePath, { force: true });
+    rmSync(extractedRoot, { recursive: true, force: true });
   }
 
+  const finalSelection = chooseTorchcodecFfmpegLibraries(torchcodecRoot, cacheLibDir);
   return {
     libDir: cacheLibDir,
-    source: "homebrew-cache",
+    source: "homebrew-bottle-cache",
     cacheDir,
-    formula: info.formula,
-    version: info.version,
-    matchedTorchcodecCore: path.basename(selection.torchcodecCorePath),
+    formula: metadata.formula,
+    version: metadata.version,
+    bottleTag: metadata.bottleTag,
+    matchedTorchcodecCore: path.basename(finalSelection.torchcodecCorePath),
   };
 }
 
@@ -485,15 +514,10 @@ function resolveFfmpegLibDir(torchcodecRoot) {
     };
   }
 
-  const cachedLibDir = tryUseCachedFfmpegLibDir(torchcodecRoot);
-  if (cachedLibDir) {
-    return cachedLibDir;
-  }
-
   try {
-    return ensureCachedHomebrewFfmpegLibDir(torchcodecRoot);
+    return ensureCachedPinnedBottleFfmpegLibDir(torchcodecRoot);
   } catch (error) {
-    console.warn(`Automatic Homebrew FFmpeg provisioning failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`Automatic pinned FFmpeg bottle provisioning failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   const candidates = [
@@ -517,7 +541,7 @@ function resolveFfmpegLibDir(torchcodecRoot) {
   }
 
   throw new Error(
-    "Unable to locate FFmpeg shared libraries. Set VOCA_FFMPEG_LIB_DIR / VOCA_FFMPEG_PREFIX, or ensure Homebrew is available so the build can auto-install and cache FFmpeg.",
+    "Unable to locate FFmpeg shared libraries. Set VOCA_FFMPEG_LIB_DIR / VOCA_FFMPEG_PREFIX, or allow the build to download the pinned FFmpeg bottle for this platform.",
   );
 }
 
@@ -588,6 +612,110 @@ function collectVendoredLibraryClosure(entryLibraryPaths) {
   }
 
   return resolvedPaths.sort((left, right) => left.localeCompare(right));
+}
+
+function collectVendoredLibraryGraph(entryLibraryPaths) {
+  const pending = [...entryLibraryPaths];
+  const seenRealPaths = new Set();
+  const aliasesByRealPath = new Map();
+  const sourceLibraries = [];
+
+  while (pending.length > 0) {
+    const currentPath = pending.pop();
+    const realPath = realpathSync(currentPath);
+    const aliases = aliasesByRealPath.get(realPath) ?? new Set();
+    aliases.add(path.basename(currentPath));
+    aliasesByRealPath.set(realPath, aliases);
+
+    if (seenRealPaths.has(realPath)) {
+      continue;
+    }
+
+    seenRealPaths.add(realPath);
+    sourceLibraries.push(realPath);
+
+    const loaderDir = path.dirname(currentPath);
+    const rpaths = listMachORpaths(currentPath);
+    for (const dependency of listDynamicLibraryDependencies(currentPath)) {
+      const resolvedDependency = resolveDynamicLibraryReference(dependency, loaderDir, rpaths);
+      if (!resolvedDependency || isSystemLibrary(resolvedDependency)) {
+        continue;
+      }
+      pending.push(resolvedDependency);
+    }
+  }
+
+  return {
+    sourceLibraries: sourceLibraries.sort((left, right) => left.localeCompare(right)),
+    aliasesByRealPath,
+  };
+}
+
+function preferredInstallName(realPath, aliases) {
+  return [...new Set([path.basename(realPath), ...aliases])]
+    .sort((left, right) => left.length - right.length || left.localeCompare(right))[0];
+}
+
+function vendorDynamicLibraries(entryLibraryPaths, destinationLibDir) {
+  mkdirSync(destinationLibDir, { recursive: true });
+  const graph = collectVendoredLibraryGraph(entryLibraryPaths);
+  const copiedLibraries = new Map();
+  const destinationByRealPath = new Map();
+
+  for (const sourcePath of graph.sourceLibraries) {
+    const destinationPath = path.join(destinationLibDir, path.basename(sourcePath));
+    cpSync(sourcePath, destinationPath, {
+      preserveTimestamps: true,
+      dereference: true,
+    });
+    destinationByRealPath.set(sourcePath, destinationPath);
+    copiedLibraries.set(path.basename(sourcePath), destinationPath);
+  }
+
+  for (const [realPath, aliases] of graph.aliasesByRealPath.entries()) {
+    const canonicalDestinationPath = destinationByRealPath.get(realPath);
+    if (!canonicalDestinationPath) {
+      continue;
+    }
+    for (const alias of aliases) {
+      const aliasDestinationPath = path.join(destinationLibDir, alias);
+      if (aliasDestinationPath === canonicalDestinationPath) {
+        copiedLibraries.set(alias, canonicalDestinationPath);
+        continue;
+      }
+      rmSync(aliasDestinationPath, { force: true });
+      linkSync(canonicalDestinationPath, aliasDestinationPath);
+      copiedLibraries.set(alias, aliasDestinationPath);
+    }
+  }
+
+  for (const [realPath, destinationPath] of destinationByRealPath.entries()) {
+    const aliases = graph.aliasesByRealPath.get(realPath) ?? new Set();
+    const installName = preferredInstallName(realPath, aliases);
+    runCommand("install_name_tool", ["-id", `@rpath/${installName}`, destinationPath]);
+
+    const dependencies = listDynamicLibraryDependencies(destinationPath);
+    for (const dependency of dependencies) {
+      const dependencyBasename = path.basename(dependency);
+      if (!copiedLibraries.has(dependencyBasename)) {
+        continue;
+      }
+      if (dependency === `@rpath/${dependencyBasename}`) {
+        continue;
+      }
+      runCommand("install_name_tool", ["-change", dependency, `@rpath/${dependencyBasename}`, destinationPath]);
+    }
+
+    const staleDependencyRpaths = listMachORpaths(destinationPath).filter(
+      (rpath) => !rpath.startsWith("@") && !isSystemLibrary(rpath),
+    );
+    upsertRpath(destinationPath, "@loader_path", staleDependencyRpaths);
+  }
+
+  return {
+    sourceLibraries: graph.sourceLibraries,
+    copiedLibraries,
+  };
 }
 
 function upsertRpath(filePath, rpath, staleRpaths = []) {
@@ -665,11 +793,7 @@ function collectSignTargets(rootPath) {
 }
 
 async function signEmbeddedMachOBinaries() {
-  const identity = process.env.APPLE_SIGNING_IDENTITY?.trim();
-  if (!identity) {
-    console.log("Skipping embedded Python binary signing because APPLE_SIGNING_IDENTITY is not set.");
-    return;
-  }
+  const identity = process.env.APPLE_SIGNING_IDENTITY?.trim() || "-";
 
   const signTargets = [
     ...collectSignTargets(path.join(stageRoot, "python-runtime")),
@@ -681,13 +805,17 @@ async function signEmbeddedMachOBinaries() {
     return;
   }
 
+  const isAdHoc = identity === "-";
   const concurrency = resolveCodesignConcurrency();
   console.log(
-    `Signing ${signTargets.length} embedded Python binaries (${concurrency} parallel) with ${identity}...`,
+    `Signing ${signTargets.length} embedded Python binaries (${concurrency} parallel) with ${isAdHoc ? "ad-hoc" : identity}...`,
   );
   const tasks = signTargets.map((target) => () => {
-    const args = ["--force", "--sign", identity, "--timestamp"];
-    if (target.requiresRuntime) {
+    const args = ["--force", "--sign", identity];
+    if (!isAdHoc) {
+      args.push("--timestamp");
+    }
+    if (target.requiresRuntime && !isAdHoc) {
       args.push("--options", "runtime");
     }
     args.push(target.filePath);

@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { VoiceCreatePayload, VoiceEntry } from "@voca/contracts";
-import { createAsrTask, createVoice, deleteVoice, getTask, pickAudioFile, updateVoice } from "../lib/tauri";
+import type { ServiceInfo, VoiceCreatePayload, VoiceEntry } from "@voca/contracts";
+import {
+  TaskQueryError,
+  createAsrTask,
+  createVoice,
+  deleteVoice,
+  getServiceInfo,
+  getTaskStrict,
+  pickAudioFile,
+  updateVoice,
+} from "../lib/tauri";
 import { IconUpload } from "./Icons";
 
 type VoiceLibraryProps = {
@@ -43,6 +52,15 @@ function displayAudioName(path?: string) {
   if (!path) return null;
   const segments = path.split(/[\\/]/);
   return segments[segments.length - 1] || path;
+}
+
+function getServiceInstanceId(serviceInfo: ServiceInfo | null | undefined) {
+  return serviceInfo?.instanceId?.trim() || null;
+}
+
+function hasServiceRestarted(expectedInstanceId: string | null, serviceInfo: ServiceInfo | null) {
+  const currentInstanceId = getServiceInstanceId(serviceInfo);
+  return Boolean(expectedInstanceId && currentInstanceId && currentInstanceId !== expectedInstanceId);
 }
 
 function formatActionError(prefix: string, error: unknown) {
@@ -109,15 +127,45 @@ export function VoiceLibrary({
     return null;
   };
 
-  const pollTaskUntilFinished = async (taskId: string) => {
+  const pollTaskUntilFinished = async (taskId: string, expectedInstanceId: string | null) => {
+    let missingTaskPolls = 0;
     for (let attempt = 0; attempt < 180; attempt += 1) {
-      const task = await getTask(taskId);
-      if (task && ["succeeded", "failed", "cancelled"].includes(task.status)) {
-        return task;
+      let task: Awaited<ReturnType<typeof getTaskStrict>>;
+      try {
+        task = await getTaskStrict(taskId);
+      } catch (error) {
+        if (error instanceof TaskQueryError) {
+          const latestServiceInfo = await getServiceInfo();
+          if (hasServiceRestarted(expectedInstanceId, latestServiceInfo)) {
+            throw new Error(t("studio.voiceLibrary.transcribeServiceRestarted"));
+          }
+          if (error.kind === "sidecar_unavailable") {
+            throw new Error(t("studio.voiceLibrary.transcribeServiceUnavailable"));
+          }
+          throw new Error(t("studio.voiceLibrary.transcribeStatusCheckFailed"));
+        }
+        throw error;
+      }
+      if (!task) {
+        missingTaskPolls += 1;
+        if (missingTaskPolls >= 2) {
+          const latestServiceInfo = await getServiceInfo();
+          if (hasServiceRestarted(expectedInstanceId, latestServiceInfo)) {
+            throw new Error(t("studio.voiceLibrary.transcribeServiceRestarted"));
+          }
+        }
+        if (missingTaskPolls >= 6) {
+          throw new Error(t("studio.voiceLibrary.transcribeTaskMissing"));
+        }
+      } else {
+        missingTaskPolls = 0;
+        if (["succeeded", "failed", "cancelled"].includes(task.status)) {
+          return task;
+        }
       }
       await new Promise((resolve) => window.setTimeout(resolve, 700));
     }
-    throw new Error("ASR task timed out");
+    throw new Error(t("studio.voiceLibrary.transcribeTimedOut"));
   };
 
   const handlePickReferenceAudio = async () => {
@@ -135,11 +183,15 @@ export function VoiceLibrary({
 
     setTranscribingCreateAudio(true);
     try {
+      const serviceInfoBeforeTask = await getServiceInfo();
       const task = await createAsrTask({
         audioPath: selectedPath,
         modelKey: "sensevoice_small",
       });
-      const finishedTask = await pollTaskUntilFinished(task.id);
+      const serviceInfoAfterTask = await getServiceInfo();
+      const expectedInstanceId =
+        getServiceInstanceId(serviceInfoAfterTask) ?? getServiceInstanceId(serviceInfoBeforeTask);
+      const finishedTask = await pollTaskUntilFinished(task.id, expectedInstanceId);
       if (finishedTask.status !== "succeeded") {
         throw new Error(finishedTask.error?.message || finishedTask.message || "ASR task failed");
       }

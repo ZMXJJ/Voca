@@ -337,6 +337,14 @@ async fn ensure_success(response: reqwest::Response) -> Result<(), String> {
     Err(format!("request failed with status {status}: {detail}"))
 }
 
+fn healthy_sidecar_status() -> SidecarStatus {
+    SidecarStatus {
+        running: true,
+        healthy: true,
+        reason: None,
+    }
+}
+
 pub async fn ensure_sidecar_running(
     app_handle: &AppHandle,
     state: &AppState,
@@ -353,24 +361,20 @@ pub async fn ensure_sidecar_running(
     let tracked_running = tracked_sidecar_running(state)?;
     if fetch_health(&client, port).await.unwrap_or(false) {
         let compatible = is_sidecar_compatible(&client, port).await.unwrap_or(false);
-        if compatible && tracked_running {
-            return Ok(SidecarStatus {
-                running: true,
-                healthy: true,
-                reason: None,
-            });
+        if compatible {
+            // Reuse any healthy compatible sidecar already listening on the port,
+            // even if this app instance did not spawn or no longer tracks it.
+            return Ok(healthy_sidecar_status());
         }
 
-        shutdown_sidecar(state)?;
+        if tracked_running {
+            shutdown_sidecar(state)?;
+        }
         kill_port_listener(port)?;
     }
 
     if fetch_health(&client, port).await.unwrap_or(false) {
-        return Ok(SidecarStatus {
-            running: true,
-            healthy: true,
-            reason: None,
-        });
+        return Ok(healthy_sidecar_status());
     }
 
     let sidecar_paths = resolve_sidecar_paths(app_handle);
@@ -460,11 +464,7 @@ pub async fn ensure_sidecar_running(
     for _ in 0..HEALTH_RETRIES {
         tokio::time::sleep(Duration::from_millis(250)).await;
         if fetch_health(&client, port).await.unwrap_or(false) {
-            return Ok(SidecarStatus {
-                running: true,
-                healthy: true,
-                reason: None,
-            });
+            return Ok(healthy_sidecar_status());
         }
     }
 

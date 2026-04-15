@@ -4,12 +4,13 @@
     {
       "modelKey": "voxcpm2",
       "displayName": "VoxCPM2",
-      "description": "高质量语音合成，支持情感与风格控制",
+      "descriptionKey": "settings.modelManagement.desc.voxcpm2",
+      "tags": ["2B", "30 languages", "48kHz"],
       "defaultProvider": "huggingface",
       "localDirName": "voxcpm2",
       "assetRole": "tts",
       "bootstrapRequired": true,
-      "approxSizeLabel": "~2.3 GB",
+      "approxSizeLabel": "~4.96 GB",
       "providers": {
         "huggingface": {
           "repoId": "openbmb/VoxCPM2"
@@ -22,11 +23,13 @@
     {
       "modelKey": "voxcpm1_5",
       "displayName": "VoxCPM1.5",
-      "description": "平衡质量与速度的语音合成模型",
+      "descriptionKey": "settings.modelManagement.desc.voxcpm1_5",
+      "tags": ["0.6B", "settings.modelManagement.tag.zhEn", "44.1kHz"],
       "defaultProvider": "huggingface",
       "localDirName": "voxcpm1_5",
       "assetRole": "tts",
       "bootstrapRequired": false,
+      "approxSizeLabel": "~1.95 GB",
       "providers": {
         "huggingface": {
           "repoId": "openbmb/VoxCPM1.5"
@@ -39,11 +42,13 @@
     {
       "modelKey": "voxcpm_05b",
       "displayName": "VoxCPM-0.5B",
-      "description": "轻量级语音合成，推理速度快",
+      "descriptionKey": "settings.modelManagement.desc.voxcpm_05b",
+      "tags": ["0.5B", "settings.modelManagement.tag.zhEn", "16kHz"],
       "defaultProvider": "huggingface",
       "localDirName": "voxcpm_05b",
       "assetRole": "tts",
       "bootstrapRequired": false,
+      "approxSizeLabel": "~1.61 GB",
       "providers": {
         "huggingface": {
           "repoId": "openbmb/VoxCPM-0.5B"
@@ -56,7 +61,8 @@
     {
       "modelKey": "sensevoice_small",
       "displayName": "SenseVoiceSmall",
-      "description": "多语言语音识别",
+      "descriptionKey": "settings.modelManagement.desc.sensevoice_small",
+      "tags": [],
       "defaultProvider": "modelscope",
       "localDirName": "sensevoice_small",
       "assetRole": "asr",
@@ -74,7 +80,8 @@
     {
       "modelKey": "zipenhancer_16k",
       "displayName": "ZipEnhancer 16k",
-      "description": "16kHz 音频增强与降噪",
+      "descriptionKey": "settings.modelManagement.desc.zipenhancer_16k",
+      "tags": [],
       "defaultProvider": "modelscope",
       "localDirName": "zipenhancer_16k",
       "assetRole": "enhancer",

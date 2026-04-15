@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import queue
 import threading
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +133,19 @@ class TaskManager:
         self._lock = threading.Lock()
         self._bridge = VoxCPMBridge()
         self._asr_bridge = ASRBridge()
+        self._work_queue: queue.Queue[Callable[[], None]] = queue.Queue()
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker.start()
+
+    def _worker_loop(self) -> None:
+        while True:
+            try:
+                job = self._work_queue.get()
+                job()
+            except Exception:
+                logger.exception("Worker loop caught unexpected error")
+            finally:
+                self._work_queue.task_done()
 
     def is_model_loaded(self) -> bool:
         return self._bridge.is_model_loaded()
@@ -165,6 +180,7 @@ class TaskManager:
     def create_generate_task(self, payload: GenerationRequest) -> TaskRecord:
         task_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
+        queue_depth = self._work_queue.qsize()
         task = TaskRecord(
             id=task_id,
             type="generate",
@@ -173,21 +189,18 @@ class TaskManager:
             updatedAt=now,
             title=self._task_title_from_text(payload.targetText),
             progress=0,
-            message="Task queued",
+            message=f"Queued (position {queue_depth + 1})" if queue_depth > 0 else "Task queued",
         )
         with self._lock:
             self._tasks[task_id] = task
 
-        threading.Thread(
-            target=self._run_generate_task,
-            args=(task_id, payload),
-            daemon=True,
-        ).start()
+        self._work_queue.put(lambda tid=task_id, p=payload: self._run_generate_task(tid, p))
         return task
 
     def create_asr_task(self, audio_path: str, model_key: str = "sensevoice_small") -> TaskRecord:
         task_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
+        queue_depth = self._work_queue.qsize()
         task = TaskRecord(
             id=task_id,
             type="asr_transcribe",
@@ -196,16 +209,12 @@ class TaskManager:
             updatedAt=now,
             title=f"Transcribe {Path(audio_path).name}",
             progress=0,
-            message="ASR task queued",
+            message=f"Queued (position {queue_depth + 1})" if queue_depth > 0 else "ASR task queued",
         )
         with self._lock:
             self._tasks[task_id] = task
 
-        threading.Thread(
-            target=self._run_asr_task,
-            args=(task_id, audio_path, model_key),
-            daemon=True,
-        ).start()
+        self._work_queue.put(lambda tid=task_id, ap=audio_path, mk=model_key: self._run_asr_task(tid, ap, mk))
         return task
 
     def create_bootstrap_bundle_task(self, provider_preference: str = "auto") -> TaskRecord:
@@ -234,11 +243,7 @@ class TaskManager:
         with self._lock:
             self._tasks[task_id] = task
 
-        threading.Thread(
-            target=self._run_bootstrap_bundle_task,
-            args=(task_id, provider_preference),
-            daemon=True,
-        ).start()
+        self._work_queue.put(lambda tid=task_id, pp=provider_preference: self._run_bootstrap_bundle_task(tid, pp))
         return task
 
     def get_task(self, task_id: str) -> TaskRecord | None:
@@ -412,11 +417,7 @@ class TaskManager:
         with self._lock:
             self._tasks[task_id] = task
 
-        threading.Thread(
-            target=self._run_download_task,
-            args=(task_id, model_key, provider_preference),
-            daemon=True,
-        ).start()
+        self._work_queue.put(lambda tid=task_id, mk=model_key, pp=provider_preference: self._run_download_task(tid, mk, pp))
         return task
 
     def _run_download_task(self, task_id: str, model_key: str, provider_preference: str) -> None:

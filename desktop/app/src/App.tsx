@@ -306,9 +306,16 @@ function App() {
   const [downloadedAuxiliaryModelCatalog, setDownloadedAuxiliaryModelCatalog] = useState<ModelCatalogEntry[]>([]);
   const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
   const [setupDiagnostics, setSetupDiagnostics] = useState<SetupDiagnostics | null>(null);
-  const [currentTask, setCurrentTask] = useState<TaskRecord | null>(null);
+  const [runningTaskIds, setRunningTaskIds] = useState<Set<string>>(new Set());
   const [bootstrapDownloadTask, setBootstrapDownloadTask] = useState<TaskRecord | null>(null);
-  const [persistedTaskHistory] = useState<TaskRecord[]>(() => loadPersistedTaskHistory());
+  const [persistedTaskHistory] = useState<TaskRecord[]>(() => {
+    const loaded = loadPersistedTaskHistory();
+    return loaded.map((task) =>
+      ["queued", "running"].includes(task.status)
+        ? { ...task, status: "failed" as const, message: "Task interrupted by app restart" }
+        : task,
+    );
+  });
   const [taskHistory, setTaskHistory] = useState<TaskRecord[]>(persistedTaskHistory);
   const [completionAcknowledged, setCompletionAcknowledged] = useState(false);
   const [finalizedBootstrapTaskId, setFinalizedBootstrapTaskId] = useState<string | null>(null);
@@ -460,7 +467,11 @@ function App() {
 
       const missingIdSet = new Set(missingTaskIds);
       setTaskHistory((history) => history.filter((task) => !missingIdSet.has(task.id)));
-      setCurrentTask((task) => (task && missingIdSet.has(task.id) ? null : task));
+      setRunningTaskIds((prev) => {
+        const next = new Set(prev);
+        for (const id of missingIdSet) next.delete(id);
+        return next;
+      });
     };
 
     void validatePersistedTaskHistory();
@@ -471,21 +482,43 @@ function App() {
   }, [persistedTaskHistory]);
 
   useEffect(() => {
-    if (!currentTask || ["succeeded", "failed", "cancelled"].includes(currentTask.status)) {
+    if (runningTaskIds.size === 0) {
       return;
     }
 
+    const ids = [...runningTaskIds];
     const timer = window.setInterval(() => {
-      void getTask(currentTask.id).then((task) => {
-        if (task) {
-          setCurrentTask(task);
-          setTaskHistory((history) => upsertTaskHistory(history, task));
-        }
-      });
+      for (const taskId of ids) {
+        void getTask(taskId).then((task) => {
+          if (task) {
+            setTaskHistory((history) => upsertTaskHistory(history, task));
+            if (["succeeded", "failed", "cancelled"].includes(task.status)) {
+              setRunningTaskIds((prev) => {
+                const next = new Set(prev);
+                next.delete(taskId);
+                return next;
+              });
+            }
+          } else {
+            setRunningTaskIds((prev) => {
+              const next = new Set(prev);
+              next.delete(taskId);
+              return next;
+            });
+            setTaskHistory((history) =>
+              history.map((item) =>
+                item.id === taskId && !["succeeded", "failed", "cancelled"].includes(item.status)
+                  ? { ...item, status: "failed" as const, message: "Task lost (service may have restarted)" }
+                  : item,
+              ),
+            );
+          }
+        });
+      }
     }, 600);
 
     return () => window.clearInterval(timer);
-  }, [currentTask]);
+  }, [runningTaskIds]);
 
   useEffect(() => {
     if (!bootstrapDownloadTask || isTaskTerminal(bootstrapDownloadTask)) {
@@ -615,8 +648,10 @@ function App() {
 
   const handleSubmitTask = async (payload: GenerationParams) => {
     const task = await createGenerateTask(payload);
-    setCurrentTask(task);
     setTaskHistory((history) => upsertTaskHistory(history, task));
+    if (!["succeeded", "failed", "cancelled"].includes(task.status)) {
+      setRunningTaskIds((prev) => new Set(prev).add(task.id));
+    }
   };
 
   const handleCacheCleared = (
@@ -629,14 +664,10 @@ function App() {
     setTaskHistory((history) =>
       history.filter((task) => !removedIdSet.has(task.id) && !isTaskAudioUnderDirs(task, clearedAudioDirs)),
     );
-    setCurrentTask((task) => {
-      if (!task) {
-        return null;
-      }
-      if (removedIdSet.has(task.id) || isTaskAudioUnderDirs(task, clearedAudioDirs)) {
-        return null;
-      }
-      return task;
+    setRunningTaskIds((prev) => {
+      const next = new Set(prev);
+      for (const id of removedIdSet) next.delete(id);
+      return next;
     });
 
     setServiceInfo((info) => nextServiceInfo ?? (info ? { ...info, cacheBytes: remainingBytes } : info));
@@ -662,7 +693,7 @@ function App() {
   );
 
   const previewRecommendation = providerRecommendation ?? fallbackProviderRecommendation;
-  const previewTask = createPreviewTask(currentTask);
+  const previewTask = createPreviewTask(null);
   const previewBootstrapDownloadTask = createPreviewBootstrapDownloadTask();
   const previewSetupDiagnostics = createPreviewSetupDiagnostics();
   const previewTaskHistory = taskHistory.length > 0 ? upsertTaskHistory(taskHistory, previewTask) : [previewTask];
@@ -685,7 +716,6 @@ function App() {
           auxiliaryModelCatalog={auxiliaryModelCatalog}
           downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
           serviceInfo={serviceInfo}
-          currentTask={previewTask}
           taskHistory={previewTaskHistory}
           onPrepareModel={handlePrepareModel}
           onSubmitTask={handleSubmitTask}
@@ -935,7 +965,6 @@ function App() {
         auxiliaryModelCatalog={auxiliaryModelCatalog}
         downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
         serviceInfo={serviceInfo}
-        currentTask={currentTask}
         taskHistory={taskHistory}
         onPrepareModel={handlePrepareModel}
         onSubmitTask={handleSubmitTask}

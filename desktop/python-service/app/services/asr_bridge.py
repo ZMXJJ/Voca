@@ -38,22 +38,25 @@ _TARGET_SAMPLE_RATE = 16000
 def _load_audio_as_ndarray(audio_path: str):
     """Load any audio format into a 16 kHz mono numpy array.
 
-    Uses torchaudio's built-in FFmpeg C++ bindings (shipped inside the
-    torchaudio wheel) so the app never needs a system ``ffmpeg`` CLI.
-    Returns a 1-D float32 numpy array at 16 kHz — ready to be fed
-    directly to FunASR's ``model.generate(input=ndarray)``, bypassing
-    FunASR's own audio I/O entirely.
+    Prefer librosa/audioread here instead of torchaudio. In the packaged
+    desktop runtime, torchaudio's native loader can terminate the sidecar
+    process outright while decoding reference audio, which makes the task
+    table disappear before we can surface a normal error.
+
+    Returns a 1-D float32 numpy array at 16 kHz, ready to be fed directly
+    to FunASR's ``model.generate(input=ndarray)``, bypassing FunASR's own
+    audio I/O entirely.
     """
     import numpy as np
-    import torchaudio
+    import librosa
 
-    waveform, sr = torchaudio.load(audio_path)
-    if waveform.shape[0] > 1:
-        waveform = waveform.mean(dim=0, keepdim=True)
-    if sr != _TARGET_SAMPLE_RATE:
-        waveform = torchaudio.functional.resample(waveform, sr, _TARGET_SAMPLE_RATE)
-
-    return waveform.squeeze(0).numpy().astype(np.float32)
+    audio_data, _ = librosa.load(
+        audio_path,
+        sr=_TARGET_SAMPLE_RATE,
+        mono=True,
+        dtype=np.float32,
+    )
+    return np.asarray(audio_data, dtype=np.float32)
 
 
 class ASRBridge:

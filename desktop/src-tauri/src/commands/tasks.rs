@@ -5,6 +5,10 @@ use crate::{
     state::{AppState, GenerationPayload, TaskRecord},
 };
 
+fn is_task_not_found_error(error: &str) -> bool {
+    error.contains("request failed with status 404")
+}
+
 #[tauri::command]
 pub async fn create_generate_task(
     app_handle: AppHandle,
@@ -51,7 +55,7 @@ pub async fn get_task(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     task_id: String,
-) -> Result<TaskRecord, String> {
+) -> Result<Option<TaskRecord>, String> {
     let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
     if !sidecar.healthy {
         return Err(sidecar
@@ -59,7 +63,11 @@ pub async fn get_task(
             .unwrap_or_else(|| "python_sidecar_not_ready".into()));
     }
 
-    get_json(state.inner(), &format!("/api/v1/tasks/{task_id}")).await
+    match get_json(state.inner(), &format!("/api/v1/tasks/{task_id}")).await {
+        Ok(task) => Ok(Some(task)),
+        Err(error) if is_task_not_found_error(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 #[tauri::command]

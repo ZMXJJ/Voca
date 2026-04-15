@@ -129,6 +129,8 @@ export type ModelCatalogEntry = {
   modelKey: string;
   displayName: string;
   description?: string;
+  descriptionKey?: string;
+  tags?: string[];
   defaultProvider: Exclude<ModelProvider, "local">;
   localDir: string;
   assetRole: ModelAssetRole;
@@ -201,6 +203,8 @@ export type SetupDiagnostics = {
 export type ServiceInfo = {
   service: string;
   status: string;
+  instanceId?: string;
+  startedAt?: string;
   modelLoaded: boolean;
   asrLoaded: boolean;
   coreModelReady?: boolean;

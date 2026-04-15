@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import platform
 import subprocess
+import uuid
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -42,6 +44,8 @@ from app.services.storage_paths import (
 app = FastAPI(title="Voca Python Service", version="0.1.0")
 task_manager = TaskManager()
 SERVICE_LOG_LEVEL = "warning"
+SERVICE_INSTANCE_ID = str(uuid.uuid4())
+SERVICE_STARTED_AT = datetime.now(UTC).isoformat()
 
 
 def _read_command_output(command: list[str]) -> str | None:
@@ -168,6 +172,8 @@ def _build_health_response() -> HealthResponse:
     return HealthResponse(
         service="voca-python-service",
         status="ok",
+        instanceId=SERVICE_INSTANCE_ID,
+        startedAt=SERVICE_STARTED_AT,
         modelLoaded=task_manager.is_model_loaded(),
         asrLoaded=task_manager.is_asr_loaded(),
         coreModelReady=asset_ready_map.get("voxcpm2", False),
