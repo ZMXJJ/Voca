@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import { IconPlay, IconPause, IconDownload } from "./Icons";
 
 type AudioPlayerProps = {
@@ -19,6 +20,7 @@ export function AudioPlayer({
   defaultDirectory,
   onDownloadComplete,
 }: AudioPlayerProps) {
+  const { t } = useTranslation();
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -166,6 +168,7 @@ export function AudioPlayer({
 
   return (
     <div className="audio-player" title={loadError ?? undefined}>
+      <span className="audio-player__ai-badge">{t("player.aiGenerated")}</span>
       {audioSrc && <audio key={audioElementKey} ref={audioRef} src={audioSrc} preload="auto" />}
       <button
         className="audio-player__play-btn"

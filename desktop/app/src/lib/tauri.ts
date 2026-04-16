@@ -17,6 +17,14 @@ import type {
 } from "@voca/contracts";
 import i18n from "../i18n";
 
+export type UpdateCheckResult = {
+  updateAvailable: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  releaseUrl: string;
+  releaseNotes: string | null;
+};
+
 type CacheClearResult = {
   success: boolean;
   clearedFiles: number;
@@ -298,6 +306,10 @@ export async function openExternalUrl(url: string): Promise<boolean> {
   }
 }
 
+export async function checkForUpdate(): Promise<UpdateCheckResult> {
+  return await invoke<UpdateCheckResult>("check_for_update");
+}
+
 export async function audioFileExists(path: string): Promise<boolean> {
   try {
     return await invoke<boolean>("audio_file_exists", { path });
@@ -352,6 +364,14 @@ export async function deleteVoice(voiceId: string): Promise<boolean> {
 export async function pickAudioFile(): Promise<string | null> {
   try {
     return await invoke<string | null>("pick_audio_file");
+  } catch {
+    return null;
+  }
+}
+
+export async function pickDirectory(defaultPath?: string): Promise<string | null> {
+  try {
+    return await invoke<string | null>("pick_directory", { defaultPath: defaultPath ?? null });
   } catch {
     return null;
   }

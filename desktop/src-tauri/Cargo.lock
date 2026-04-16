@@ -4676,6 +4676,7 @@ dependencies = [
  "objc2-foundation",
  "reqwest 0.12.28",
  "rfd",
+ "semver",
  "serde",
  "serde_json",
  "shellexpand",

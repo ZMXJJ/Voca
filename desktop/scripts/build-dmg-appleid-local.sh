@@ -50,17 +50,59 @@ if [[ -z "${DMG_FILE}" ]]; then
   exit 1
 fi
 
-# ── Notarize DMG ──
-echo "Notarizing DMG: ${DMG_FILE}"
-xcrun notarytool submit "${DMG_FILE}" \
-  --apple-id "${APPLE_ID}" \
-  --team-id "${APPLE_TEAM_ID}" \
-  --password "${APPLE_PASSWORD}" \
+NOTARIZE_ARGS=(
+  --apple-id "${APPLE_ID}"
+  --team-id "${APPLE_TEAM_ID}"
+  --password "${APPLE_PASSWORD}"
   --wait
+)
 
-echo "Stapling DMG: ${DMG_FILE}"
+# ── Step 1: Notarize the DMG (also approves all contents including the .app) ──
+echo "Notarizing DMG: ${DMG_FILE}"
+xcrun notarytool submit "${DMG_FILE}" "${NOTARIZE_ARGS[@]}"
+
+# ── Step 2: Staple the .app inside the DMG ──
+# The .app inside the DMG doesn't carry a stapled ticket; users who drag it
+# to /Applications would need an online Gatekeeper check, which fails behind
+# corporate firewalls. Fix: convert DMG to writable, staple the .app, convert
+# back.
+WORK_DIR=$(mktemp -d)
+trap 'rm -rf "${WORK_DIR}"' EXIT
+
+echo "Converting DMG to writable image..."
+hdiutil convert "${DMG_FILE}" -format UDRW -o "${WORK_DIR}/writable.dmg"
+
+echo "Mounting writable image..."
+hdiutil attach "${WORK_DIR}/writable.dmg" -readwrite -nobrowse -mountpoint "${WORK_DIR}/mnt"
+
+APP_PATH="${WORK_DIR}/mnt/Voca.app"
+if [[ ! -d "${APP_PATH}" ]]; then
+  echo "Voca.app not found inside DMG" >&2
+  hdiutil detach "${WORK_DIR}/mnt"
+  exit 1
+fi
+
+echo "Stapling .app inside DMG: ${APP_PATH}"
+xcrun stapler staple "${APP_PATH}"
+
+echo "Unmounting writable image..."
+hdiutil detach "${WORK_DIR}/mnt"
+
+echo "Converting back to compressed read-only DMG..."
+rm -f "${DMG_FILE}"
+hdiutil convert "${WORK_DIR}/writable.dmg" -format UDZO -imagekey zlib-level=9 -o "${DMG_FILE}"
+
+# ── Step 3: Re-sign and re-notarize the rebuilt DMG ──
+echo "Re-signing DMG..."
+codesign --force --sign "${APPLE_SIGNING_IDENTITY}" --timestamp "${DMG_FILE}"
+
+echo "Re-notarizing final DMG: ${DMG_FILE}"
+xcrun notarytool submit "${DMG_FILE}" "${NOTARIZE_ARGS[@]}"
+
+echo "Stapling final DMG..."
 xcrun stapler staple "${DMG_FILE}"
 
+# ── Verify ──
 echo "Verifying DMG notarization..."
 spctl --assess --type open --context context:primary-signature --verbose "${DMG_FILE}"
 

@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { getTaskPlayableAudioPath } from "../lib/historyStorage";
 import { listVoices } from "../lib/tauri";
 import { AudioPlayer } from "./AudioPlayer";
+import { getAudioDownloadPath } from "./SettingsWorkspace";
 import { CustomSelect } from "./CustomSelect";
 import { IconModel, IconMicrophone, IconSparkle, IconSliders, IconPlay } from "./Icons";
 import { VoiceLibrary } from "./VoiceLibrary";
@@ -131,8 +132,7 @@ export function GenerationWorkspace({
   const displayHistory = useMemo(
     () =>
       taskHistory
-        .filter((task) => task.type === "generate" && (Boolean(getTaskPlayableAudioPath(task)) || isTaskRunning(task) || isTaskFailed(task)))
-        .slice(0, 5),
+        .filter((task) => task.type === "generate" && (Boolean(getTaskPlayableAudioPath(task)) || isTaskRunning(task) || isTaskFailed(task))),
     [taskHistory],
   );
 
@@ -491,7 +491,7 @@ export function GenerationWorkspace({
         autoPlay={Boolean(selectedHistoryTaskId)}
         playNonce={historyPlayNonce}
         downloadName={downloadFileName}
-        defaultDirectory="~/Downloads/Voca"
+        defaultDirectory={getAudioDownloadPath()}
         onDownloadComplete={handleDownloadComplete}
       />
 

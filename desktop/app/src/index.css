@@ -1470,6 +1470,42 @@ h1, h2, h3 { margin: 0; }
   background: var(--bg-soft);
 }
 
+/* ================================================
+   SHARED MODAL ANIMATIONS
+   ================================================ */
+
+@keyframes modal-overlay-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modal-overlay-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@keyframes modal-content-slide-up {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+@keyframes modal-content-slide-down {
+  from { opacity: 1; transform: translateY(0)   scale(1); }
+  to   { opacity: 0; transform: translateY(16px) scale(0.97); }
+}
+
+.modal-closing-overlay {
+  animation: modal-overlay-fade-out 0.2s ease-in forwards !important;
+}
+
+.modal-closing-content {
+  animation: modal-content-slide-down 0.2s ease-in forwards !important;
+}
+
+/* ================================================
+   VOICE MODAL
+   ================================================ */
+
 .voice-modal__overlay {
   position: fixed;
   inset: 0;
@@ -1479,6 +1515,7 @@ h1, h2, h3 { margin: 0; }
   justify-content: center;
   padding: 24px;
   z-index: 120;
+  animation: modal-overlay-fade-in 0.2s ease-out;
 }
 
 .voice-modal {
@@ -1491,6 +1528,7 @@ h1, h2, h3 { margin: 0; }
   box-shadow: 0 24px 80px rgba(15, 23, 42, 0.16);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
+  animation: modal-content-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .voice-modal__header,
@@ -1848,6 +1886,19 @@ h1, h2, h3 { margin: 0; }
     0 0 0 0.5px rgba(0, 0, 0, 0.06),
     0 4px 16px -2px rgba(0, 0, 0, 0.05),
     inset 0 1px 2px rgba(255, 255, 255, 0.2);
+}
+
+.audio-player__ai-badge {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.28);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  letter-spacing: 0.02em;
 }
 
 .audio-player__play-btn {
@@ -2477,12 +2528,7 @@ h1, h2, h3 { margin: 0; }
   background: rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-  animation: storage-modal-fade-in 0.18s ease-out;
-}
-
-@keyframes storage-modal-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  animation: modal-overlay-fade-in 0.2s ease-out;
 }
 
 .storage-modal {
@@ -2493,12 +2539,7 @@ h1, h2, h3 { margin: 0; }
   max-height: calc(100vh - 80px);
   overflow-y: auto;
   padding: 28px 32px 24px;
-  animation: storage-modal-slide-up 0.22s ease-out;
-}
-
-@keyframes storage-modal-slide-up {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  animation: modal-content-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .storage-modal__header {
@@ -2509,25 +2550,32 @@ h1, h2, h3 { margin: 0; }
 }
 
 .storage-modal__title {
-  font-size: 1.15rem;
-  font-weight: 650;
+  font-size: 18px;
+  font-weight: 600;
   margin: 0;
+  color: var(--text);
 }
 
 .storage-modal__close {
-  background: none;
-  border: none;
-  font-size: 1.4rem;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 0 4px;
+  font-size: 20px;
   line-height: 1;
-  border-radius: var(--radius);
-  transition: color 0.15s;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .storage-modal__close:hover {
-  color: var(--text);
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.4);
+  color: #f87171;
 }
 
 .storage-modal__summary {
@@ -2591,6 +2639,29 @@ h1, h2, h3 { margin: 0; }
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--border-light, var(--border));
+}
+
+/* ================================================
+   UPDATE MODAL (release notes area)
+   ================================================ */
+
+.update-modal__notes {
+  margin-top: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  border-radius: var(--radius);
+  background: var(--bg-soft);
+  padding: 14px 16px;
+}
+
+.update-modal__notes-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.84rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  font-family: inherit;
 }
 
 /* ================================================

@@ -2,7 +2,7 @@ mod commands;
 mod sidecar;
 mod state;
 
-use commands::audio::{audio_file_exists, pick_audio_file, read_audio_base64, save_audio_as};
+use commands::audio::{audio_file_exists, pick_audio_file, pick_directory, read_audio_base64, save_audio_as};
 use commands::bootstrap::{
     clear_cache, complete_onboarding, export_logs, get_bootstrap_state, get_quick_bootstrap_state,
     get_service_info, get_setup_diagnostics, get_sidecar_status, open_external_url,
@@ -10,6 +10,7 @@ use commands::bootstrap::{
 };
 use commands::models::{get_model_catalog, get_provider_recommendation, prepare_model, start_model_download};
 use commands::tasks::{create_asr_task, create_generate_task, get_task, list_tasks};
+use commands::updater::check_for_update;
 use commands::voices::{create_voice, delete_voice, get_voice, list_voices, update_voice};
 use state::AppState;
 use tauri::Manager;
@@ -30,10 +31,12 @@ pub fn run() {
             export_logs,
             open_storage_directory,
             open_external_url,
+            check_for_update,
             audio_file_exists,
             read_audio_base64,
             save_audio_as,
             pick_audio_file,
+            pick_directory,
             get_model_catalog,
             get_provider_recommendation,
             prepare_model,

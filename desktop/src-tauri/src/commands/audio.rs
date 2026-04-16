@@ -88,6 +88,7 @@ pub async fn save_audio_as(
 
     if let Some(dir) = default_directory {
         let dir_path = PathBuf::from(shellexpand::tilde(&dir).into_owned());
+        let _ = fs::create_dir_all(&dir_path);
         if dir_path.is_dir() {
             dialog = dialog.set_directory(&dir_path);
         }
@@ -101,6 +102,18 @@ pub async fn save_audio_as(
 
     std::fs::copy(source_path, &destination_path).map_err(|error| error.to_string())?;
     Ok(true)
+}
+
+#[tauri::command]
+pub async fn pick_directory(default_path: Option<String>) -> Result<Option<String>, String> {
+    let mut dialog = FileDialog::new();
+    if let Some(dir) = default_path {
+        let expanded = PathBuf::from(shellexpand::tilde(&dir).into_owned());
+        if expanded.is_dir() {
+            dialog = dialog.set_directory(&expanded);
+        }
+    }
+    Ok(dialog.pick_folder().map(|p| p.display().to_string()))
 }
 
 #[tauri::command]

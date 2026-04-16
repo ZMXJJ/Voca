@@ -21,6 +21,7 @@ function formatBytes(bytes?: number | null) {
 type StorageModalProps = {
   serviceInfo: ServiceInfo | null;
   cacheBytes: number;
+  closing?: boolean;
   onCacheCleared: (
     serviceInfo: ServiceInfo | null,
     removedTaskIds: string[],
@@ -33,6 +34,7 @@ type StorageModalProps = {
 export function StorageModal({
   serviceInfo,
   cacheBytes,
+  closing = false,
   onCacheCleared,
   onClose,
 }: StorageModalProps) {
@@ -68,8 +70,8 @@ export function StorageModal({
   ];
 
   return (
-    <div className="storage-modal-overlay" onClick={onClose}>
-      <div className="storage-modal" onClick={(e) => e.stopPropagation()}>
+    <div className={`storage-modal-overlay${closing ? " modal-closing-overlay" : ""}`} onClick={onClose}>
+      <div className={`storage-modal${closing ? " modal-closing-content" : ""}`} onClick={(e) => e.stopPropagation()}>
         <div className="storage-modal__header">
           <h2 className="storage-modal__title">{t("settings.logs.storageOverview")}</h2>
           <button className="storage-modal__close" onClick={onClose} type="button">

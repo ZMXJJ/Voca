@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Voca Logo" width="128" />
+  <img src="assets/voca-logo.png" alt="Voca Logo" width="256" />
 </p>
 
 <h1 align="center">Voca</h1>
@@ -7,7 +7,7 @@
 <p align="center"><em>Your Local Voice Clone Assistant</em></p>
 
 <p align="center">
-  一款运行在本地的语音克隆桌面应用，基于 VoxCPM 推理引擎，无需联网即可完成语音合成与声音克隆。
+  一款运行在本地的语音克隆桌面应用，无需联网即可完成语音合成与声音克隆。
 </p>
 
 ---
@@ -56,6 +56,10 @@
 | 推理服务 | Python (FastAPI + Uvicorn) |
 | 语音引擎 | VoxCPM |
 | 平台 | macOS 14.0+ |
+
+## 应用内更新检查
+
+设置中的「检查更新」会请求 GitHub Releases 的 `latest` 接口。开源后请在 [`desktop/src-tauri/src/commands/updater.rs`](desktop/src-tauri/src/commands/updater.rs) 顶部将 `GITHUB_REPO` 改为你的 `owner/repo`；有新版本时会打开浏览器跳转到对应 Release 页面下载。
 
 ## 许可证
 

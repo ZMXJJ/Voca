@@ -11,10 +11,39 @@ import type {
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import i18n from "../i18n";
-import { exportLogs, getTask, openExternalUrl, openStorageDirectory, startModelDownload } from "../lib/tauri";
+import { useModalTransition } from "../lib/useModalTransition";
+import {
+  checkForUpdate,
+  exportLogs,
+  getTask,
+  openExternalUrl,
+  openStorageDirectory,
+  pickDirectory,
+  startModelDownload,
+  type UpdateCheckResult,
+} from "../lib/tauri";
 import { IconCheck, IconChevronDown, IconDownload, IconHeart } from "./Icons";
 import { CustomSelect } from "./CustomSelect";
 import { StorageModal } from "./StorageModal";
+
+const DEFAULT_AUDIO_DOWNLOAD_PATH = "~/Downloads/Voca";
+const AUDIO_DOWNLOAD_PATH_KEY = "voca.audioDownloadPath";
+
+export function getAudioDownloadPath(): string {
+  return localStorage.getItem(AUDIO_DOWNLOAD_PATH_KEY) || DEFAULT_AUDIO_DOWNLOAD_PATH;
+}
+
+function abbreviateHomePath(fullPath: string): string {
+  const home = "/Users/";
+  if (fullPath.startsWith(home)) {
+    const rest = fullPath.slice(home.length);
+    const slashIdx = rest.indexOf("/");
+    if (slashIdx !== -1) {
+      return "~" + rest.slice(slashIdx);
+    }
+  }
+  return fullPath;
+}
 
 const ASSET_ROLE_I18N_KEY: Record<string, string> = {
   asr: "settings.modelManagement.roleAsr",
@@ -153,8 +182,16 @@ export function SettingsWorkspace({
   const [auxExpanded, setAuxExpanded] = useState(false);
   const [downloadingTasks, setDownloadingTasks] = useState<Record<string, TaskRecord>>({});
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateCheckPhase, setUpdateCheckPhase] = useState<"idle" | "checking" | "result" | "error">("idle");
+  const [updateCheckResult, setUpdateCheckResult] = useState<UpdateCheckResult | null>(null);
+  const [updateToast, setUpdateToast] = useState<string | null>(null);
+  const updateToastTimer = useRef<number | null>(null);
+  const storageModal = useModalTransition(storageModalOpen);
+  const updateModalOpen = updateCheckPhase === "result" && (updateCheckResult?.updateAvailable ?? false);
+  const updateModal = useModalTransition(updateModalOpen);
   const [downloadSpeeds, setDownloadSpeeds] = useState<Record<string, number | null>>({});
   const speedSamplesRef = useRef<Record<string, { bytes: number; atMs: number }>>({});
+  const [audioDownloadPath, setAudioDownloadPath] = useState(() => getAudioDownloadPath());
   const completedTasks = taskHistory.filter((t) => t.status === "succeeded").length;
   const pollTimerRef = useRef<number | null>(null);
 
@@ -165,6 +202,37 @@ export function SettingsWorkspace({
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
   }, []);
+
+  const showUpdateToast = useCallback((message: string) => {
+    setUpdateToast(message);
+    if (updateToastTimer.current) window.clearTimeout(updateToastTimer.current);
+    updateToastTimer.current = window.setTimeout(() => setUpdateToast(null), 3000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (updateToastTimer.current) window.clearTimeout(updateToastTimer.current);
+    };
+  }, []);
+
+  const handleCheckUpdate = useCallback(async () => {
+    setUpdateCheckPhase("checking");
+    setUpdateToast(null);
+    try {
+      const data = await checkForUpdate();
+      setUpdateCheckResult(data);
+      if (data.updateAvailable) {
+        setUpdateCheckPhase("result");
+      } else {
+        setUpdateCheckPhase("idle");
+        showUpdateToast(t("settings.general.updateUpToDate"));
+      }
+    } catch {
+      setUpdateCheckResult(null);
+      setUpdateCheckPhase("idle");
+      showUpdateToast(t("settings.general.updateCheckFailedNetwork"));
+    }
+  }, [t, showUpdateToast]);
 
   const handleModelDownload = useCallback(async (modelKey: string) => {
     const task = await startModelDownload(modelKey, providerPreference);
@@ -246,6 +314,14 @@ export function SettingsWorkspace({
       setOpeningStorageDir(false);
     }
   };
+
+  const handlePickAudioDownloadPath = useCallback(async () => {
+    const selected = await pickDirectory(audioDownloadPath);
+    if (selected) {
+      localStorage.setItem(AUDIO_DOWNLOAD_PATH_KEY, selected);
+      setAudioDownloadPath(selected);
+    }
+  }, [audioDownloadPath]);
 
   const handleStorageCacheCleared = (
     updatedServiceInfo: ServiceInfo | null,
@@ -519,8 +595,12 @@ export function SettingsWorkspace({
           <div className="audio-path-row">
             <div className="audio-path-row__label">{t("settings.general.audioPath")}</div>
             <div className="audio-path-row__control">
-              <span className="audio-path-row__path">~/Downloads/Voca</span>
-              <button className="btn btn--small btn--ghost" disabled type="button">
+              <span className="audio-path-row__path">{abbreviateHomePath(audioDownloadPath)}</span>
+              <button
+                className="btn btn--small btn--ghost"
+                type="button"
+                onClick={() => void handlePickAudioDownloadPath()}
+              >
                 {t("settings.general.changePath")}
               </button>
             </div>
@@ -530,21 +610,93 @@ export function SettingsWorkspace({
             <span className="version-row__left">{t("settings.general.version")}</span>
             <div className="version-row__right">
               <span className="version-row__value">Voca {appVersion ?? serviceInfo?.version}</span>
-              <button className="btn btn--small btn--ghost" disabled type="button">
-                {t("settings.general.checkUpdate")}
+              <button
+                className="btn btn--small btn--ghost"
+                disabled={updateCheckPhase === "checking"}
+                type="button"
+                onClick={() => void handleCheckUpdate()}
+              >
+                {updateCheckPhase === "checking"
+                  ? t("settings.general.updateChecking")
+                  : t("settings.general.checkUpdate")}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {storageModalOpen && (
+      {storageModal.mounted && (
         <StorageModal
           serviceInfo={serviceInfo}
           cacheBytes={cacheBytes}
+          closing={storageModal.closing}
           onCacheCleared={handleStorageCacheCleared}
-          onClose={() => setStorageModalOpen(false)}
+          onClose={() => storageModal.requestClose(() => setStorageModalOpen(false))}
         />
+      )}
+
+      {updateModal.mounted && updateCheckResult?.updateAvailable && (
+        <div
+          className={`storage-modal-overlay${updateModal.closing ? " modal-closing-overlay" : ""}`}
+          onClick={() => updateModal.requestClose(() => setUpdateCheckPhase("idle"))}
+        >
+          <div className={`storage-modal${updateModal.closing ? " modal-closing-content" : ""}`} onClick={(e) => e.stopPropagation()}>
+            <div className="storage-modal__header">
+              <h2 className="storage-modal__title">
+                {t("settings.general.updateAvailable", { version: updateCheckResult.latestVersion })}
+              </h2>
+              <button
+                className="storage-modal__close"
+                onClick={() => updateModal.requestClose(() => setUpdateCheckPhase("idle"))}
+                type="button"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="storage-modal__summary">
+              <span className="storage-modal__summary-label">
+                {t("settings.general.updateCompareHint", {
+                  current: updateCheckResult.currentVersion,
+                  latest: updateCheckResult.latestVersion,
+                })}
+              </span>
+            </div>
+
+            {updateCheckResult.releaseNotes ? (
+              <div className="update-modal__notes">
+                <pre className="update-modal__notes-content">
+                  {updateCheckResult.releaseNotes}
+                </pre>
+              </div>
+            ) : null}
+
+            <div className="storage-modal__footer">
+              <button
+                className="btn btn--secondary"
+                style={{ flex: 1 }}
+                type="button"
+                onClick={() => updateModal.requestClose(() => setUpdateCheckPhase("idle"))}
+              >
+                {t("settings.general.updateDismiss")}
+              </button>
+              <button
+                className="btn btn--primary"
+                style={{ flex: 1 }}
+                type="button"
+                onClick={() => void openExternalUrl(updateCheckResult.releaseUrl)}
+              >
+                {t("settings.general.updateGoToDownload")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {updateToast && (
+        <div className="download-toast" onClick={() => setUpdateToast(null)}>
+          {updateToast}
+        </div>
       )}
     </>
   );

@@ -11,6 +11,7 @@ import {
   pickAudioFile,
   updateVoice,
 } from "../lib/tauri";
+import { useModalTransition } from "../lib/useModalTransition";
 import { IconUpload } from "./Icons";
 
 type VoiceLibraryProps = {
@@ -98,6 +99,9 @@ export function VoiceLibrary({
   const [savingDetail, setSavingDetail] = useState(false);
   const [deletingDetail, setDeletingDetail] = useState(false);
   const [detailDeleteConfirm, setDetailDeleteConfirm] = useState(false);
+
+  const createModal = useModalTransition(createOpen);
+  const detailModal = useModalTransition(detailVoiceId !== null);
 
   const rows = chunkPairs(voices);
   const detailVoice = useMemo(
@@ -351,17 +355,19 @@ export function VoiceLibrary({
         </div>
       </div>
 
-      {createOpen ? (
-        <div className="voice-modal__overlay">
-          <div className="voice-modal" onClick={(event) => event.stopPropagation()}>
+      {createModal.mounted ? (
+        <div className={`voice-modal__overlay${createModal.closing ? " modal-closing-overlay" : ""}`}>
+          <div className={`voice-modal${createModal.closing ? " modal-closing-content" : ""}`} onClick={(event) => event.stopPropagation()}>
             <div className="voice-modal__header">
               <h3 className="voice-modal__title">{t("studio.voiceLibrary.uploadTitle")}</h3>
               <button
                 type="button"
                 className="voice-modal__close"
                 onClick={() => {
-                  setCreateTranscriptError(null);
-                  setCreateOpen(false);
+                  createModal.requestClose(() => {
+                    setCreateTranscriptError(null);
+                    setCreateOpen(false);
+                  });
                 }}
                 aria-label={t("studio.voiceLibrary.close")}
               >
@@ -498,17 +504,19 @@ export function VoiceLibrary({
         </div>
       ) : null}
 
-      {detailVoice ? (
-        <div className="voice-modal__overlay">
-          <div className="voice-modal" onClick={(event) => event.stopPropagation()}>
+      {detailModal.mounted && detailVoice ? (
+        <div className={`voice-modal__overlay${detailModal.closing ? " modal-closing-overlay" : ""}`}>
+          <div className={`voice-modal${detailModal.closing ? " modal-closing-content" : ""}`} onClick={(event) => event.stopPropagation()}>
             <div className="voice-modal__header">
               <h3 className="voice-modal__title">{t("studio.voiceLibrary.detailTitle")}</h3>
               <button
                 type="button"
                 className="voice-modal__close"
                 onClick={() => {
-                  setDetailDeleteConfirm(false);
-                  setDetailVoiceId(null);
+                  detailModal.requestClose(() => {
+                    setDetailDeleteConfirm(false);
+                    setDetailVoiceId(null);
+                  });
                 }}
                 aria-label={t("studio.voiceLibrary.close")}
               >
@@ -629,8 +637,10 @@ export function VoiceLibrary({
                 type="button"
                 className="btn btn--secondary btn--small"
                 onClick={() => {
-                  setDetailDeleteConfirm(false);
-                  setDetailVoiceId(null);
+                  detailModal.requestClose(() => {
+                    setDetailDeleteConfirm(false);
+                    setDetailVoiceId(null);
+                  });
                 }}
               >
                 {t("studio.voiceLibrary.close")}
