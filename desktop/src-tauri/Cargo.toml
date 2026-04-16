@@ -17,5 +17,11 @@ tauri = { version = "2", features = [] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
+[profile.release]
+strip = true
+lto = true
+opt-level = "s"
+codegen-units = 1
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

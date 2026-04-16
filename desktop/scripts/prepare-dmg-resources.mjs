@@ -851,6 +851,100 @@ async function signEmbeddedMachOBinaries() {
   await runWithConcurrency(concurrency, tasks);
 }
 
+function stripBundleForRelease() {
+  const sitePackages = detectSitePackagesRoot(stageVenvRoot);
+  let totalFreed = 0;
+
+  function removePath(targetPath, label) {
+    if (!existsSync(targetPath)) {
+      return;
+    }
+    const sizeBefore = Number.parseInt(
+      spawnSync("du", ["-sk", targetPath], { encoding: "utf8" }).stdout.split("\t")[0] || "0",
+      10,
+    );
+    rmSync(targetPath, { recursive: true, force: true });
+    totalFreed += sizeBefore;
+    console.log(`  stripped ${label} (${(sizeBefore / 1024).toFixed(1)} MB)`);
+  }
+
+  function removeByPattern(rootPath, pattern, label) {
+    const stack = [rootPath];
+    const targets = [];
+    while (stack.length > 0) {
+      const currentPath = stack.pop();
+      let entries;
+      try {
+        entries = readdirSync(currentPath, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const fullPath = path.join(currentPath, entry.name);
+        if (entry.isDirectory()) {
+          if (pattern.test(entry.name)) {
+            targets.push(fullPath);
+          } else {
+            stack.push(fullPath);
+          }
+        }
+      }
+    }
+    for (const targetPath of targets) {
+      removePath(targetPath, `${label}: ${path.relative(stageRoot, targetPath)}`);
+    }
+  }
+
+  console.log("Stripping staged bundle for release...");
+
+  // --- site-packages: remove development/test artifacts ---
+  removeByPattern(sitePackages, /^__pycache__$/, "__pycache__");
+  removeByPattern(sitePackages, /^tests?$/, "test dirs");
+  removeByPattern(sitePackages, /\.dist-info$/, ".dist-info");
+
+  // --- torch: remove build-time-only directories ---
+  removePath(path.join(sitePackages, "torch", "include"), "torch/include (C++ headers)");
+  const torchBinDir = path.join(sitePackages, "torch", "bin");
+  if (existsSync(torchBinDir)) {
+    for (const entry of readdirSync(torchBinDir)) {
+      if (entry === "torch_shm_manager") continue;
+      removePath(path.join(torchBinDir, entry), `torch/bin/${entry}`);
+    }
+  }
+  removePath(path.join(sitePackages, "torch", "testing"), "torch/testing");
+
+  // --- packages not needed at runtime ---
+  removePath(path.join(sitePackages, "torchgen"), "torchgen (codegen)");
+  removePath(path.join(sitePackages, "setuptools"), "setuptools");
+  removePath(path.join(sitePackages, "pygments"), "pygments");
+  removePath(path.join(sitePackages, "pkg_resources"), "pkg_resources");
+  removePath(path.join(sitePackages, "sympy"), "sympy (torch symbolic, not needed for inference)");
+  removePath(path.join(sitePackages, "networkx"), "networkx (torch optional graph lib)");
+  removePath(path.join(sitePackages, "mpmath"), "mpmath (sympy dependency)");
+
+  // --- python-runtime: remove GUI/dev modules not needed by headless service ---
+  const runtimeLibRoot = path.join(stageRoot, "python-runtime", "lib");
+  removePath(path.join(runtimeLibRoot, "tcl8.6"), "python-runtime tcl8.6");
+  removePath(path.join(runtimeLibRoot, "tk8.6"), "python-runtime tk8.6");
+  removePath(path.join(runtimeLibRoot, "itcl4.2.4"), "python-runtime itcl");
+  for (const entry of readdirSync(runtimeLibRoot)) {
+    if (/^lib(tcl|tk)\d/.test(entry)) {
+      removePath(path.join(runtimeLibRoot, entry), `python-runtime ${entry}`);
+    }
+  }
+  const stdlibRoot = readdirSync(runtimeLibRoot, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith("python"))
+    .map((e) => path.join(runtimeLibRoot, e.name))[0];
+  if (stdlibRoot) {
+    removePath(path.join(stdlibRoot, "idlelib"), "python-runtime idlelib");
+    removePath(path.join(stdlibRoot, "ensurepip"), "python-runtime ensurepip");
+    removePath(path.join(stdlibRoot, "lib2to3"), "python-runtime lib2to3");
+    removeByPattern(stdlibRoot, /^__pycache__$/, "python-runtime __pycache__");
+  }
+
+  console.log(`Bundle strip complete: freed ~${(totalFreed / 1024).toFixed(0)} MB`);
+}
+
 ensureExists(path.join(pythonServiceRoot, "app"), "Python service app directory");
 ensureExists(path.join(pythonServiceRoot, ".venv"), "Python service virtual environment");
 ensureExists(voxcpmSrcRoot, "VoxCPM src directory");
@@ -867,6 +961,8 @@ copyDirectory(runtimeRoot, path.join(stageRoot, "python-runtime"), { dereference
 materializeSymlinks(path.join(stageRoot, "python-runtime"));
 materializeSymlinks(stageVenvRoot);
 const bundledFfmpeg = bundleTorchcodecFfmpegLibraries();
+
+stripBundleForRelease();
 
 const runtimeBinDir = path.join(stageRoot, "python-runtime", "bin");
 const pythonBinary = ["python3.11", "python3", "python"]
