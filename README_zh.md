@@ -61,6 +61,18 @@
 2. 打开 DMG，将 Voca 拖入「应用程序」文件夹
 3. 首次打开时，按照引导完成模型下载即可开始使用
 
+> **关于 App 签名与公证**
+>
+> Voca 已通过 Apple Developer ID 签名，并已提交 Apple 公证（Notarization）审核通过，可在 macOS 上安全运行。
+>
+> 如果首次打开时仍然遇到 macOS Gatekeeper 拦截（例如提示「"Voca" 无法打开」「已损坏，无法打开」或「无法验证开发者」），通常是因为系统对从浏览器下载的文件添加了隔离属性（quarantine）。可在终端执行以下命令解除隔离：
+>
+> ```bash
+> sudo xattr -dr com.apple.quarantine /Applications/Voca.app
+> ```
+>
+> 执行后重新打开 Voca 即可。如果仍有问题，也可以在「系统设置 → 隐私与安全性」中点击「仍要打开」来放行。
+
 ### 首次启动
 
 Voca 内置了完整的初始化引导流程：
@@ -145,6 +157,7 @@ Voca 内置了完整的初始化引导流程：
 - [VoxCPM](https://github.com/OpenBMB/VoxCPM) — 语音合成引擎
 - [Tauri](https://tauri.app/) — 桌面应用框架
 - [SenseVoice](https://github.com/FunAudioLLM/SenseVoice) — 语音识别模型
+- Model: [Claude Opus 4.6](https://www.anthropic.com/) & [GPT-5.4](https://openai.com/)
 
 ## 许可证
 

@@ -61,6 +61,18 @@
 2. Open the DMG and drag Voca into the Applications folder
 3. On first launch, follow the guided setup to download models and start using the app
 
+> **About App Signing & Notarization**
+>
+> Voca is signed with an Apple Developer ID and has been successfully notarized by Apple, so it is safe to run on macOS.
+>
+> If you still hit a Gatekeeper warning on first launch (e.g. "Voca" cannot be opened, "Voca is damaged and can't be opened", or "cannot verify the developer"), it's usually because macOS has attached a quarantine attribute to files downloaded via the browser. You can remove the quarantine flag by running the following command in Terminal:
+>
+> ```bash
+> sudo xattr -dr com.apple.quarantine /Applications/Voca.app
+> ```
+>
+> Then reopen Voca. Alternatively, open **System Settings → Privacy & Security** and click **Open Anyway**.
+
 ### First Launch
 
 Voca includes a complete onboarding flow:
@@ -145,6 +157,7 @@ Ways to get involved:
 - [VoxCPM](https://github.com/OpenBMB/VoxCPM) — Speech synthesis engine
 - [Tauri](https://tauri.app/) — Desktop application framework
 - [SenseVoice](https://github.com/FunAudioLLM/SenseVoice) — Speech recognition model
+- Model: [Claude Opus 4.6](https://www.anthropic.com/) & [GPT-5.4](https://openai.com/)
 
 ## License
 

@@ -1,0 +1,799 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Voca Python Service",
+    "version": "0.1.0",
+    "description": "Voca 推理后端 API — 本地语音克隆桌面应用的 FastAPI sidecar 服务"
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "健康检查与诊断信息",
+        "tags": ["Health"],
+        "responses": {
+          "200": {
+            "description": "服务运行状态",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/catalog": {
+      "get": {
+        "operationId": "list_models",
+        "summary": "获取模型目录列表",
+        "tags": ["Models"],
+        "responses": {
+          "200": {
+            "description": "模型目录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/ModelCatalogEntry" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/recommendation": {
+      "get": {
+        "operationId": "get_provider_recommendation",
+        "summary": "获取下载源推荐",
+        "tags": ["Models"],
+        "parameters": [
+          {
+            "name": "preferred",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["auto", "huggingface", "modelscope"],
+              "default": "auto"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "推荐结果",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProviderRecommendation" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/prepare": {
+      "post": {
+        "operationId": "prepare_model",
+        "summary": "解析模型路径与准备状态",
+        "tags": ["Models"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ModelPrepareRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "模型准备结果",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModelPrepareResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/validate": {
+      "post": {
+        "operationId": "validate_model",
+        "summary": "校验模型路径有效性",
+        "tags": ["Models"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ModelValidateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "校验结果",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModelValidateResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/download": {
+      "post": {
+        "operationId": "create_download_task",
+        "summary": "创建模型下载任务",
+        "tags": ["Models"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ModelDownloadRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "下载任务已创建",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TaskRecord" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bootstrap/start": {
+      "post": {
+        "operationId": "create_bootstrap_bundle_task",
+        "summary": "启动引导批量下载",
+        "tags": ["Bootstrap"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ModelDownloadRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "引导任务已创建",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TaskRecord" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/generate": {
+      "post": {
+        "operationId": "create_generate_task",
+        "summary": "创建语音生成任务",
+        "tags": ["Tasks"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GenerationRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "生成任务已创建",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TaskRecord" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/asr": {
+      "post": {
+        "operationId": "create_asr_task",
+        "summary": "创建语音识别任务",
+        "tags": ["Tasks"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AudioTranscriptionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ASR 任务已创建",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TaskRecord" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks": {
+      "get": {
+        "operationId": "list_tasks",
+        "summary": "获取任务列表",
+        "tags": ["Tasks"],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 50 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 0 }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["queued", "running", "succeeded", "failed", "cancelled"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "任务列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/TaskRecord" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}": {
+      "get": {
+        "operationId": "get_task",
+        "summary": "获取任务详情",
+        "tags": ["Tasks"],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "任务详情",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TaskRecord" }
+              }
+            }
+          },
+          "404": {
+            "description": "任务不存在",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cache/clear": {
+      "post": {
+        "operationId": "clear_cache",
+        "summary": "清理缓存与已完成任务",
+        "tags": ["Cache"],
+        "responses": {
+          "200": {
+            "description": "清理结果",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CacheClearResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voices": {
+      "get": {
+        "operationId": "list_voices",
+        "summary": "获取声音列表",
+        "tags": ["Voices"],
+        "responses": {
+          "200": {
+            "description": "声音列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/VoiceEntry" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "create_voice",
+        "summary": "创建自定义声音",
+        "tags": ["Voices"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VoiceCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "声音已创建",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VoiceEntry" }
+              }
+            }
+          },
+          "400": {
+            "description": "参考音频文件不存在",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voices/{voice_id}": {
+      "get": {
+        "operationId": "get_voice",
+        "summary": "获取声音详情",
+        "tags": ["Voices"],
+        "parameters": [
+          {
+            "name": "voice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "声音详情",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VoiceEntry" }
+              }
+            }
+          },
+          "404": {
+            "description": "声音不存在",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "update_voice",
+        "summary": "更新声音信息",
+        "tags": ["Voices"],
+        "parameters": [
+          {
+            "name": "voice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VoiceUpdateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的声音",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VoiceEntry" }
+              }
+            }
+          },
+          "403": {
+            "description": "内置声音不可修改",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "404": {
+            "description": "声音不存在",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_voice",
+        "summary": "删除自定义声音",
+        "tags": ["Voices"],
+        "parameters": [
+          {
+            "name": "voice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "删除成功" },
+          "403": {
+            "description": "内置声音不可删除",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "404": {
+            "description": "声音不存在",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorDetail": {
+        "type": "object",
+        "properties": {
+          "detail": { "type": "string" }
+        },
+        "required": ["detail"]
+      },
+      "AppError": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string", "nullable": true },
+          "userMessageKey": { "type": "string" },
+          "severity": { "type": "string", "enum": ["info", "warning", "error", "blocking"] },
+          "recoverable": { "type": "boolean", "default": true },
+          "actions": { "type": "array", "items": { "type": "string" }, "default": [] }
+        },
+        "required": ["code", "userMessageKey", "severity"]
+      },
+      "BootstrapAssetStatus": {
+        "type": "object",
+        "properties": {
+          "modelKey": { "type": "string" },
+          "displayName": { "type": "string" },
+          "assetRole": { "type": "string", "enum": ["tts", "asr", "enhancer"], "default": "tts" },
+          "ready": { "type": "boolean", "default": false },
+          "bootstrapRequired": { "type": "boolean", "default": false },
+          "localDir": { "type": "string" },
+          "approxSizeLabel": { "type": "string", "nullable": true }
+        },
+        "required": ["modelKey", "displayName", "localDir"]
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "service": { "type": "string" },
+          "status": { "type": "string", "enum": ["ok"] },
+          "instanceId": { "type": "string", "nullable": true },
+          "startedAt": { "type": "string", "nullable": true },
+          "modelLoaded": { "type": "boolean" },
+          "asrLoaded": { "type": "boolean" },
+          "coreModelReady": { "type": "boolean", "default": false },
+          "asrModelReady": { "type": "boolean", "default": false },
+          "zipEnhancerReady": { "type": "boolean", "default": false },
+          "speechToolsReady": { "type": "boolean", "default": false },
+          "bootstrapAssetsReady": { "type": "boolean", "default": false },
+          "version": { "type": "string" },
+          "deviceName": { "type": "string", "nullable": true },
+          "deviceType": { "type": "string", "nullable": true },
+          "audioOutputDir": { "type": "string", "nullable": true },
+          "cacheBytes": { "type": "integer", "default": 0 },
+          "logLevel": { "type": "string", "nullable": true },
+          "logDir": { "type": "string", "nullable": true },
+          "logBytes": { "type": "integer", "default": 0 },
+          "storageDir": { "type": "string", "nullable": true },
+          "modelDir": { "type": "string", "nullable": true },
+          "modelBytes": { "type": "integer", "default": 0 },
+          "voicesDir": { "type": "string", "nullable": true },
+          "voiceLibraryBytes": { "type": "integer", "default": 0 },
+          "huggingfaceCacheDir": { "type": "string", "nullable": true },
+          "huggingfaceCacheBytes": { "type": "integer", "default": 0 },
+          "modelscopeCacheDir": { "type": "string", "nullable": true },
+          "modelscopeCacheBytes": { "type": "integer", "default": 0 },
+          "torchCacheDir": { "type": "string", "nullable": true },
+          "torchCacheBytes": { "type": "integer", "default": 0 },
+          "downloadCacheBytes": { "type": "integer", "default": 0 },
+          "managedStorageBytes": { "type": "integer", "default": 0 },
+          "bootstrapAssets": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BootstrapAssetStatus" },
+            "default": []
+          }
+        },
+        "required": ["service", "status", "modelLoaded", "asrLoaded", "version"]
+      },
+      "ProviderInfo": {
+        "type": "object",
+        "properties": {
+          "repoId": { "type": "string", "nullable": true },
+          "modelId": { "type": "string", "nullable": true }
+        }
+      },
+      "ModelCatalogEntry": {
+        "type": "object",
+        "properties": {
+          "modelKey": { "type": "string" },
+          "displayName": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "descriptionKey": { "type": "string", "nullable": true },
+          "tags": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "defaultProvider": { "type": "string", "enum": ["huggingface", "modelscope"] },
+          "localDir": { "type": "string" },
+          "assetRole": { "type": "string", "enum": ["tts", "asr", "enhancer"], "default": "tts" },
+          "bootstrapRequired": { "type": "boolean", "default": false },
+          "approxSizeLabel": { "type": "string", "nullable": true },
+          "providers": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/components/schemas/ProviderInfo" }
+          }
+        },
+        "required": ["modelKey", "displayName", "defaultProvider", "localDir", "providers"]
+      },
+      "ProviderRecommendation": {
+        "type": "object",
+        "properties": {
+          "publicIp": { "type": "string", "nullable": true },
+          "location": { "type": "string", "nullable": true },
+          "preferred": { "type": "string", "enum": ["auto", "huggingface", "modelscope"], "default": "auto" },
+          "recommended": { "type": "string", "enum": ["huggingface", "modelscope", "local"] },
+          "current": { "type": "string", "enum": ["huggingface", "modelscope", "local"] },
+          "reason": {
+            "type": "string",
+            "enum": ["ip_region_cn", "ip_region_global", "manual_override", "fallback_after_failure", "provider_health", "default_fallback"]
+          },
+          "userOverridden": { "type": "boolean", "default": false }
+        },
+        "required": ["recommended", "current", "reason"]
+      },
+      "ModelPrepareRequest": {
+        "type": "object",
+        "properties": {
+          "modelKey": { "type": "string", "default": "voxcpm2" },
+          "providerPreference": { "type": "string", "enum": ["auto", "huggingface", "modelscope"], "default": "auto" },
+          "ensureDownloaded": { "type": "boolean", "default": false }
+        }
+      },
+      "ModelPrepareResponse": {
+        "type": "object",
+        "properties": {
+          "modelKey": { "type": "string" },
+          "modelPath": { "type": "string" },
+          "provider": { "type": "string", "enum": ["huggingface", "modelscope", "local"] },
+          "existsLocally": { "type": "boolean" },
+          "configExists": { "type": "boolean" },
+          "recommendation": { "$ref": "#/components/schemas/ProviderRecommendation" }
+        },
+        "required": ["modelKey", "modelPath", "provider", "existsLocally", "configExists", "recommendation"]
+      },
+      "ModelValidateRequest": {
+        "type": "object",
+        "properties": {
+          "modelPath": { "type": "string" }
+        },
+        "required": ["modelPath"]
+      },
+      "ModelValidateResponse": {
+        "type": "object",
+        "properties": {
+          "valid": { "type": "boolean" },
+          "architecture": { "type": "string", "nullable": true },
+          "modelKey": { "type": "string", "nullable": true },
+          "version": { "type": "string", "nullable": true },
+          "error": { "$ref": "#/components/schemas/AppError", "nullable": true }
+        },
+        "required": ["valid"]
+      },
+      "ModelDownloadRequest": {
+        "type": "object",
+        "properties": {
+          "modelKey": { "type": "string", "default": "voxcpm2" },
+          "providerPreference": { "type": "string", "enum": ["auto", "huggingface", "modelscope"], "default": "auto" }
+        }
+      },
+      "GenerationRequest": {
+        "type": "object",
+        "properties": {
+          "mode": { "type": "string", "enum": ["quick_tts", "voice_design", "controllable_clone", "ultimate_clone"] },
+          "targetText": { "type": "string" },
+          "modelKey": { "type": "string", "default": "voxcpm2" },
+          "providerPreference": { "type": "string", "enum": ["auto", "huggingface", "modelscope"], "default": "auto" },
+          "controlInstruction": { "type": "string", "nullable": true },
+          "referenceAudioPath": { "type": "string", "nullable": true },
+          "promptText": { "type": "string", "nullable": true },
+          "extremeClone": { "type": "boolean", "default": false },
+          "cfgValue": { "type": "number", "nullable": true, "default": 2.0 },
+          "inferenceTimesteps": { "type": "integer", "nullable": true, "default": 10 },
+          "normalize": { "type": "boolean", "nullable": true, "default": true },
+          "denoise": { "type": "boolean", "nullable": true, "default": false },
+          "streaming": { "type": "boolean", "nullable": true, "default": false },
+          "seed": { "type": "integer", "nullable": true }
+        },
+        "required": ["mode", "targetText"]
+      },
+      "AudioTranscriptionRequest": {
+        "type": "object",
+        "properties": {
+          "audioPath": { "type": "string" },
+          "modelKey": { "type": "string", "default": "sensevoice_small" }
+        },
+        "required": ["audioPath"]
+      },
+      "DownloadProgress": {
+        "type": "object",
+        "properties": {
+          "phase": { "type": "string", "enum": ["listing", "downloading", "finalizing"], "default": "listing" },
+          "provider": { "type": "string", "enum": ["huggingface", "modelscope", "local"], "nullable": true },
+          "currentFile": { "type": "string", "nullable": true },
+          "downloadedBytes": { "type": "integer", "default": 0 },
+          "totalBytes": { "type": "integer", "nullable": true },
+          "totalBytesComplete": { "type": "boolean", "default": false },
+          "completedFiles": { "type": "integer", "default": 0 },
+          "totalFiles": { "type": "integer", "nullable": true }
+        }
+      },
+      "BootstrapAssetDownloadProgress": {
+        "type": "object",
+        "properties": {
+          "modelKey": { "type": "string" },
+          "displayName": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "running", "succeeded", "failed"], "default": "pending" },
+          "progress": { "type": "integer", "default": 0 },
+          "provider": { "type": "string", "enum": ["huggingface", "modelscope", "local"], "nullable": true },
+          "currentFile": { "type": "string", "nullable": true },
+          "downloadedBytes": { "type": "integer", "default": 0 },
+          "totalBytes": { "type": "integer", "nullable": true },
+          "totalBytesComplete": { "type": "boolean", "default": false }
+        },
+        "required": ["modelKey", "displayName"]
+      },
+      "TaskResult": {
+        "type": "object",
+        "properties": {
+          "audioPath": { "type": "string", "nullable": true },
+          "rawAudioPath": { "type": "string", "nullable": true },
+          "enhancedAudioPath": { "type": "string", "nullable": true },
+          "sampleRate": { "type": "integer", "nullable": true },
+          "durationMs": { "type": "integer", "nullable": true },
+          "transcript": { "type": "string", "nullable": true },
+          "transcriptLanguage": { "type": "string", "nullable": true },
+          "modelKey": { "type": "string", "nullable": true },
+          "modelPath": { "type": "string", "nullable": true },
+          "provider": { "type": "string", "enum": ["huggingface", "modelscope", "local"], "nullable": true },
+          "completedAssets": { "type": "array", "items": { "type": "string" }, "default": [] }
+        }
+      },
+      "TaskRecord": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string", "enum": ["bootstrap", "generate", "asr_transcribe"] },
+          "status": { "type": "string", "enum": ["queued", "running", "succeeded", "failed", "cancelled"] },
+          "createdAt": { "type": "string" },
+          "updatedAt": { "type": "string" },
+          "title": { "type": "string", "nullable": true },
+          "progress": { "type": "integer", "nullable": true },
+          "message": { "type": "string", "nullable": true },
+          "downloadProgress": { "$ref": "#/components/schemas/DownloadProgress", "nullable": true },
+          "bootstrapAssetProgress": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BootstrapAssetDownloadProgress" },
+            "default": []
+          },
+          "result": { "$ref": "#/components/schemas/TaskResult", "nullable": true },
+          "error": { "$ref": "#/components/schemas/AppError", "nullable": true }
+        },
+        "required": ["id", "type", "status", "createdAt", "updatedAt"]
+      },
+      "VoiceEntry": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "language": { "type": "string" },
+          "description": { "type": "string" },
+          "durationSeconds": { "type": "number", "nullable": true },
+          "referenceAudioPath": { "type": "string", "nullable": true },
+          "referenceTranscript": { "type": "string", "nullable": true },
+          "transcriptLanguage": { "type": "string", "nullable": true },
+          "sourceType": { "type": "string", "enum": ["builtin", "user"], "default": "user" },
+          "canRename": { "type": "boolean", "default": false },
+          "canDelete": { "type": "boolean", "default": false },
+          "presetKey": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string" },
+          "updatedAt": { "type": "string" }
+        },
+        "required": ["id", "name", "language", "description", "createdAt", "updatedAt"]
+      },
+      "VoiceCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "language": { "type": "string", "default": "zh" },
+          "description": { "type": "string" },
+          "referenceAudioPath": { "type": "string", "nullable": true },
+          "referenceTranscript": { "type": "string", "nullable": true },
+          "transcriptLanguage": { "type": "string", "nullable": true }
+        },
+        "required": ["name", "description"]
+      },
+      "VoiceUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "nullable": true },
+          "language": { "type": "string", "nullable": true },
+          "description": { "type": "string", "nullable": true },
+          "referenceTranscript": { "type": "string", "nullable": true },
+          "transcriptLanguage": { "type": "string", "nullable": true }
+        }
+      },
+      "CacheClearResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "clearedFiles": { "type": "integer" },
+          "clearedBytes": { "type": "integer" },
+          "remainingBytes": { "type": "integer" },
+          "removedTasks": { "type": "integer" },
+          "removedTaskIds": { "type": "array", "items": { "type": "string" } },
+          "clearedAudioDirs": { "type": "array", "items": { "type": "string" } },
+          "serviceInfo": { "$ref": "#/components/schemas/HealthResponse" }
+        },
+        "required": ["success", "clearedFiles", "clearedBytes", "remainingBytes", "removedTasks", "removedTaskIds", "clearedAudioDirs", "serviceInfo"]
+      }
+    }
+  }
+}

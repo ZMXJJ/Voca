@@ -11,8 +11,6 @@
 - [Voices — 声音库](api/voices.md)
 - [Cache — 缓存管理](api/cache.md)
 
-## Dev
+## Architecture
 
-早期开发阶段的内部参考文档（PRD、技术方案、前端设计稿等），仅供开发者参考。
-
-- [dev/](dev/)
+- [架构概览](architecture.md) — 项目整体架构、模块划分与数据流

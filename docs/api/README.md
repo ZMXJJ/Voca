@@ -26,6 +26,12 @@ Voca 的推理后端是一个 FastAPI sidecar 服务，由桌面端自动启动�
 | | DELETE | [`/api/v1/voices/{voice_id}`](voices.md#delete-apiv1voicesvoice_id) | 删除自定义声音 |
 | **缓存** | POST | [`/api/v1/cache/clear`](cache.md) | 清理缓存与已完成任务 |
 
+## OpenAPI 规范
+
+完整的 OpenAPI 3.1 规范文件：[`openapi.json`](openapi.json)
+
+可导入到 Swagger Editor、Postman、Insomnia 等工具中使用。开发模式下也可直接访问 `http://localhost:8765/docs` 查看 FastAPI 自动生成的 Swagger UI。
+
 ## 通用约定
 
 - **Content-Type**: 所有 POST/PATCH 请求体使用 `application/json`

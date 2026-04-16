@@ -911,15 +911,14 @@ function stripBundleForRelease() {
       removePath(path.join(torchBinDir, entry), `torch/bin/${entry}`);
     }
   }
-  removePath(path.join(sitePackages, "torch", "testing"), "torch/testing");
+  // NOTE: torch/testing/ cannot be removed — torch.autograd.gradcheck imports it at init time.
 
   // --- packages not needed at runtime ---
   removePath(path.join(sitePackages, "setuptools"), "setuptools");
   removePath(path.join(sitePackages, "pygments"), "pygments");
   removePath(path.join(sitePackages, "pkg_resources"), "pkg_resources");
-  removePath(path.join(sitePackages, "sympy"), "sympy (torch symbolic, not needed for inference)");
+  // NOTE: sympy/mpmath cannot be removed — torchcodec → torch._dynamo → sympy at import time.
   removePath(path.join(sitePackages, "networkx"), "networkx (torch optional graph lib)");
-  removePath(path.join(sitePackages, "mpmath"), "mpmath (sympy dependency)");
 
   // --- python-runtime: remove GUI/dev modules not needed by headless service ---
   const runtimeLibRoot = path.join(stageRoot, "python-runtime", "lib");
