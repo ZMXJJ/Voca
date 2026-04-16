@@ -332,6 +332,7 @@ class TaskManager:
                 ),
             )
         except Exception as exc:  # pragma: no cover - environment-specific runtime fallback
+            logger.exception("Generation task %s failed", task_id)
             self._update_task(
                 task_id,
                 status="failed",

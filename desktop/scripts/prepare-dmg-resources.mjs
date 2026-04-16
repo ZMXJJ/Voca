@@ -914,7 +914,6 @@ function stripBundleForRelease() {
   removePath(path.join(sitePackages, "torch", "testing"), "torch/testing");
 
   // --- packages not needed at runtime ---
-  removePath(path.join(sitePackages, "torchgen"), "torchgen (codegen)");
   removePath(path.join(sitePackages, "setuptools"), "setuptools");
   removePath(path.join(sitePackages, "pygments"), "pygments");
   removePath(path.join(sitePackages, "pkg_resources"), "pkg_resources");

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
@@ -8,6 +9,8 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator, Literal
+
+logger = logging.getLogger(__name__)
 
 from app.models.schemas import GenerationRequest, ModelPrepareResponse, ProviderRecommendation
 from app.services.audio_enhancer import AudioEnhancer
@@ -650,6 +653,7 @@ class VoxCPMBridge:
         try:
             import voxcpm  # type: ignore
         except Exception as exc:  # pragma: no cover - environment-specific dependency issue
+            logger.exception("Failed to import voxcpm (model_key=%s, model_path=%s)", model_key, model_path)
             raise RuntimeError(
                 "Failed to import local VoxCPM package. "
                 "Please install the local dependency into desktop/python-service/.venv first."
