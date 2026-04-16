@@ -1,5 +1,7 @@
 <p align="center">
+  <br />
   <img src="assets/voca-logo.png" alt="Voca Logo" width="280" />
+  <br /><br />
 </p>
 
 <h1 align="center">Voca — 本地语音克隆桌面助手</h1>
@@ -12,6 +14,7 @@
   <a href="https://github.com/ZMXJJ/Voca/releases"><img src="https://img.shields.io/github/v/release/ZMXJJ/Voca?style=flat-square&label=Download" alt="Release" /></a>
   <a href="https://github.com/ZMXJJ/Voca/stargazers"><img src="https://img.shields.io/github/stars/ZMXJJ/Voca?style=flat-square" alt="Stars" /></a>
   <a href="https://github.com/ZMXJJ/Voca/issues"><img src="https://img.shields.io/github/issues/ZMXJJ/Voca?style=flat-square" alt="Issues" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square" alt="License" /></a>
 </p>
 
 <p align="center">
@@ -50,7 +53,7 @@
 |------|------|
 | 操作系统 | macOS 14.0 (Sonoma) 及以上 |
 | 芯片 | Apple Silicon (M1/M2/M3/M4) |
-| 磁盘空间 | 约 3 GB（应用 + 模型） |
+| 磁盘空间 | 约 6 GB（应用 + 模型） |
 
 ### 安装
 
@@ -145,7 +148,7 @@ Voca 内置了完整的初始化引导流程：
 
 ## 许可证
 
-本项目仅供个人学习与研究使用。语音引擎 VoxCPM 使用 [Apache-2.0](VoxCPM/LICENSE) 许可证。
+本项目基于 [Apache License 2.0](LICENSE) 开源。
 
 ---
 

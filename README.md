@@ -1,5 +1,7 @@
 <p align="center">
+  <br />
   <img src="assets/voca-logo.png" alt="Voca Logo" width="280" />
+  <br /><br />
 </p>
 
 <h1 align="center">Voca — Your Local Voice Clone Assistant</h1>
@@ -12,6 +14,7 @@
   <a href="https://github.com/ZMXJJ/Voca/releases"><img src="https://img.shields.io/github/v/release/ZMXJJ/Voca?style=flat-square&label=Download" alt="Release" /></a>
   <a href="https://github.com/ZMXJJ/Voca/stargazers"><img src="https://img.shields.io/github/stars/ZMXJJ/Voca?style=flat-square" alt="Stars" /></a>
   <a href="https://github.com/ZMXJJ/Voca/issues"><img src="https://img.shields.io/github/issues/ZMXJJ/Voca?style=flat-square" alt="Issues" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square" alt="License" /></a>
 </p>
 
 <p align="center">
@@ -50,7 +53,7 @@
 |------|-------------|
 | OS | macOS 14.0 (Sonoma) or later |
 | Chip | Apple Silicon (M1/M2/M3/M4) |
-| Disk Space | ~3 GB (app + models) |
+| Disk Space | ~6 GB (app + models) |
 
 ### Installation
 
@@ -145,7 +148,7 @@ Ways to get involved:
 
 ## License
 
-This project is for personal learning and research use only. The VoxCPM speech engine is licensed under [Apache-2.0](VoxCPM/LICENSE).
+This project is licensed under the [Apache License 2.0](LICENSE).
 
 ---
 
