@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import sqlite3
 import threading
+import time
 import uuid
 import wave
 from datetime import UTC, datetime
@@ -14,9 +16,11 @@ from app.services.storage_paths import app_support_dir, database_path, voices_di
 
 _VOICES_DIR = voices_dir()
 _DB_PATH = database_path()
+_DB_BACKUP_PATH = _DB_PATH.with_name(_DB_PATH.name + ".bak")
 _LEGACY_MANIFEST_PATH = _VOICES_DIR / "manifest.json"
 _INIT_LOCK = threading.Lock()
 _INITIALIZED = False
+_logger = logging.getLogger(__name__)
 
 DEFAULT_VOICES: tuple[dict[str, str], ...] = (
     {
@@ -52,6 +56,117 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+def _database_is_healthy(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    try:
+        connection = sqlite3.connect(path)
+    except sqlite3.DatabaseError:
+        return False
+    try:
+        result = connection.execute("PRAGMA integrity_check").fetchone()
+    except sqlite3.DatabaseError:
+        return False
+    finally:
+        connection.close()
+    return bool(result) and str(result[0]).lower() == "ok"
+
+
+def _quarantine_corrupt_database(path: Path) -> Path | None:
+    if not path.exists():
+        return None
+    quarantine = path.with_name(f"{path.name}.corrupt-{int(time.time())}")
+    try:
+        path.rename(quarantine)
+        _logger.warning(
+            "Voice database failed integrity check; quarantined to %s", quarantine
+        )
+        return quarantine
+    except OSError as exc:
+        _logger.warning("Failed to quarantine corrupt voice database: %s", exc)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            return None
+        return None
+
+
+def _verify_or_restore_database() -> None:
+    """Ensure voca.db is healthy; restore from backup or quarantine if not."""
+    app_support_dir().mkdir(parents=True, exist_ok=True)
+
+    if _database_is_healthy(_DB_PATH):
+        return
+
+    if _DB_PATH.exists():
+        # Existing file is corrupt; try backup restore first.
+        if _DB_BACKUP_PATH.exists() and _database_is_healthy(_DB_BACKUP_PATH):
+            _quarantine_corrupt_database(_DB_PATH)
+            try:
+                shutil.copy2(_DB_BACKUP_PATH, _DB_PATH)
+                _logger.info("Voice database restored from backup: %s", _DB_BACKUP_PATH)
+                return
+            except OSError as exc:
+                _logger.warning("Failed to restore voice database from backup: %s", exc)
+        _quarantine_corrupt_database(_DB_PATH)
+        return
+
+    # DB missing entirely — try backup as last-resort seed.
+    if _DB_BACKUP_PATH.exists() and _database_is_healthy(_DB_BACKUP_PATH):
+        try:
+            shutil.copy2(_DB_BACKUP_PATH, _DB_PATH)
+            _logger.info(
+                "Voice database was missing; restored from backup: %s", _DB_BACKUP_PATH
+            )
+        except OSError as exc:
+            _logger.warning("Failed to seed voice database from backup: %s", exc)
+
+
+def _write_backup() -> None:
+    if not _DB_PATH.exists():
+        return
+    try:
+        with sqlite3.connect(_DB_PATH) as source, sqlite3.connect(_DB_BACKUP_PATH) as target:
+            source.backup(target)
+    except sqlite3.DatabaseError as exc:
+        _logger.warning("Voice database backup failed: %s", exc)
+
+
+def _reconcile_voice_audio(connection: sqlite3.Connection) -> None:
+    """Drop user voice records whose reference audio file no longer exists."""
+    rows = connection.execute(
+        """
+        SELECT id, reference_audio_path, name
+        FROM voices
+        WHERE source_type = 'user' AND reference_audio_path IS NOT NULL
+        """
+    ).fetchall()
+    missing: list[tuple[str, str, str]] = []
+    for row in rows:
+        audio_path_value = row["reference_audio_path"]
+        if not audio_path_value:
+            continue
+        audio_path = Path(str(audio_path_value))
+        if not audio_path.exists():
+            missing.append((str(row["id"]), str(row["name"]), str(audio_path)))
+
+    if not missing:
+        return
+
+    placeholders = ",".join("?" for _ in missing)
+    connection.execute(
+        f"DELETE FROM voices WHERE id IN ({placeholders})",
+        [item[0] for item in missing],
+    )
+    for voice_id, voice_name, audio_path_str in missing:
+        _logger.warning(
+            "Removed voice %s (%s) because reference audio is missing: %s",
+            voice_id,
+            voice_name,
+            audio_path_str,
+        )
+
+
 def _ensure_initialized() -> None:
     global _INITIALIZED
     if _INITIALIZED:
@@ -60,6 +175,8 @@ def _ensure_initialized() -> None:
     with _INIT_LOCK:
         if _INITIALIZED:
             return
+
+        _verify_or_restore_database()
 
         with _connect() as connection:
             connection.execute(
@@ -83,8 +200,10 @@ def _ensure_initialized() -> None:
             _ensure_voice_columns(connection)
             _seed_default_voices(connection)
             _migrate_legacy_manifest(connection)
+            _reconcile_voice_audio(connection)
             connection.commit()
 
+        _write_backup()
         _INITIALIZED = True
 
 
@@ -306,6 +425,7 @@ def create_voice(
     created = get_voice(voice_id)
     if created is None:  # pragma: no cover - defensive guard
         raise RuntimeError("Failed to create voice")
+    _write_backup()
     return created
 
 
@@ -360,6 +480,7 @@ def update_voice(
         )
         connection.commit()
 
+    _write_backup()
     return get_voice(voice_id)
 
 
@@ -379,4 +500,5 @@ def delete_voice(voice_id: str) -> bool:
     with _connect() as connection:
         connection.execute("DELETE FROM voices WHERE id = ?", (voice_id,))
         connection.commit()
+    _write_backup()
     return True

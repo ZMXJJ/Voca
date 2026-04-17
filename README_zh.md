@@ -23,6 +23,14 @@
 
 ---
 
+## 应用截图
+
+<p align="center">
+  <img src="assets/screenshot-workspace-zh.png" alt="语音创作工作台" width="48%" />
+  &nbsp;
+  <img src="assets/screenshot-settings-zh.png" alt="设置页" width="48%" />
+</p>
+
 ## Highlights
 
 - **完全离线** — 模型下载完成后，所有推理在本地完成，无需联网，无隐私顾虑

@@ -20,6 +20,11 @@ const zhCN = {
       check_disk: "检查磁盘",
       contact_support: "联系支持",
     },
+    language: {
+      label: "切换语言",
+      en: "EN",
+      zhCN: "中",
+    },
   },
   loading: {
     eyebrow: "正在加载",

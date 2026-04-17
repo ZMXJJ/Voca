@@ -23,6 +23,14 @@
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshot-workspace-en.png" alt="Voice Studio" width="48%" />
+  &nbsp;
+  <img src="assets/screenshot-settings-en.png" alt="Settings" width="48%" />
+</p>
+
 ## Highlights
 
 - **Fully Offline** — After model download, all inference runs locally with no network required and no privacy concerns

@@ -20,6 +20,11 @@ const en = {
       check_disk: "Check disk",
       contact_support: "Contact support",
     },
+    language: {
+      label: "Language",
+      en: "EN",
+      zhCN: "中",
+    },
   },
   loading: {
     eyebrow: "Loading",

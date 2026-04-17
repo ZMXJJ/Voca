@@ -900,7 +900,9 @@ function stripBundleForRelease() {
   // --- site-packages: remove development/test artifacts ---
   removeByPattern(sitePackages, /^__pycache__$/, "__pycache__");
   removeByPattern(sitePackages, /^tests?$/, "test dirs");
-  removeByPattern(sitePackages, /\.dist-info$/, ".dist-info");
+  // NOTE: do NOT remove .dist-info/ directories — transformers reads them at
+  // import time via importlib.metadata.version() for dependency_versions_check,
+  // and deleting them breaks `import transformers` with PackageNotFoundError.
 
   // --- torch: remove build-time-only directories ---
   removePath(path.join(sitePackages, "torch", "include"), "torch/include (C++ headers)");

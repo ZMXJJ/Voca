@@ -16,6 +16,13 @@ from app.models.schemas import GenerationRequest, ModelPrepareResponse, Provider
 from app.services.audio_enhancer import AudioEnhancer
 from app.services.bootstrap_assets import is_asset_ready
 from app.services.model_catalog import get_model_entry, list_model_entries
+from app.services.model_integrity import (
+    compute_manifest,
+    promote_staging_to_final,
+    stage_dir,
+    verify_quick,
+    write_manifest,
+)
 from app.services.provider_router import recommend_provider
 from app.services.storage_paths import audio_output_dir
 
@@ -516,13 +523,25 @@ class VoxCPMBridge:
         local_dir = Path(model_entry.localDir)
         asset_ready = is_asset_ready(model_entry)
         if not asset_ready and ensure_downloaded:
-            local_dir.mkdir(parents=True, exist_ok=True)
+            staging = stage_dir(model_key)
+            staging.mkdir(parents=True, exist_ok=True)
             self._download_model(
                 model_key=model_key,
                 provider=provider,
-                local_dir=local_dir,
+                local_dir=staging,
                 on_download_progress=on_download_progress,
             )
+            manifest = compute_manifest(
+                staging, model_key=model_key, provider=provider
+            )
+            write_manifest(staging, manifest)
+            verdict = verify_quick(staging)
+            if not verdict.ok:
+                raise RuntimeError(
+                    "Downloaded asset failed integrity check: "
+                    f"{verdict.reason} (model_key={model_key} staging={staging})"
+                )
+            promote_staging_to_final(staging, local_dir)
             asset_ready = is_asset_ready(model_entry)
             if not asset_ready:
                 raise RuntimeError(

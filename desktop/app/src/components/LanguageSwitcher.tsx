@@ -6,7 +6,12 @@ export function LanguageSwitcher() {
   const currentLanguage = i18n.resolvedLanguage === "zh-CN" ? "zh-CN" : "en";
 
   return (
-    <div className="language-switcher" aria-label={t("common.language.label")}>
+    <div
+      className="language-switcher"
+      data-active={currentLanguage}
+      aria-label={t("common.language.label")}
+    >
+      <span className="language-switcher__thumb" aria-hidden />
       <button
         className={`language-switcher__option ${
           currentLanguage === "en" ? "language-switcher__option--active" : ""

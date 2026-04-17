@@ -50,6 +50,7 @@ const fallbackBootstrapState: BootstrapState = {
   sidecarReady: false,
   currentDownloadJobId: null,
   lastError: null,
+  needsRepair: false,
 };
 
 const fallbackProviderRecommendation: ProviderRecommendation = {
@@ -563,12 +564,40 @@ function App() {
   }, [bootstrapDownloadTask, finalizedBootstrapTaskId]);
 
   useEffect(() => {
+    if (!bootstrapState?.needsRepair) {
+      return;
+    }
+    const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState.modelReady;
+    if (modelReady) {
+      return;
+    }
+    if (!sidecarStatus.healthy) {
+      return;
+    }
+    if (bootstrapStartRequested) {
+      return;
+    }
+    if (bootstrapDownloadTask && !isTaskTerminal(bootstrapDownloadTask)) {
+      return;
+    }
+    setBootstrapStartRequested(true);
+  }, [
+    bootstrapDownloadTask,
+    bootstrapStartRequested,
+    bootstrapState?.modelReady,
+    bootstrapState?.needsRepair,
+    serviceInfo?.bootstrapAssetsReady,
+    sidecarStatus.healthy,
+  ]);
+
+  useEffect(() => {
     if (!bootstrapStartRequested) {
       return;
     }
 
     const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState?.modelReady ?? false;
-    if (modelReady || !bootstrapState?.isFirstLaunch) {
+    const repairRequested = Boolean(bootstrapState?.needsRepair);
+    if (modelReady || (!bootstrapState?.isFirstLaunch && !repairRequested)) {
       setBootstrapStartRequested(false);
       return;
     }
@@ -785,11 +814,13 @@ function App() {
   }
 
   const activeView: AppView = (() => {
-    if (!bootstrapState.isFirstLaunch) {
+    const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState.modelReady;
+    const inRepairMode = Boolean(bootstrapState.needsRepair) && !modelReady;
+
+    if (!bootstrapState.isFirstLaunch && !inRepairMode) {
       return "workspace";
     }
 
-    const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState.modelReady;
     const bootstrapTaskStatus = bootstrapDownloadTask?.status;
 
     if (bootstrapStartRequested && !modelReady) {

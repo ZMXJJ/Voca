@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.models.schemas import BootstrapAssetStatus, ModelCatalogEntry
 from app.services.model_catalog import get_model_entry, list_model_entries
+from app.services.model_integrity import load_manifest, verify_quick
 
 BOOTSTRAP_MODEL_KEYS: tuple[str, ...] = ("voxcpm2", "sensevoice_small", "zipenhancer_16k")
 _VOXCPM_REQUIRED_FILES: tuple[str, ...] = ("config.json", "tokenizer.json", "tokenizer_config.json")
@@ -44,6 +45,9 @@ def is_asset_ready(entry: ModelCatalogEntry) -> bool:
     local_dir = _resolve_asset_dir(entry)
     if not local_dir.exists():
         return False
+
+    if load_manifest(local_dir) is not None:
+        return verify_quick(local_dir).ok
 
     if entry.assetRole == "tts":
         return _is_voxcpm_ready(local_dir)

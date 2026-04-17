@@ -43,6 +43,113 @@ fn is_onboarding_complete() -> bool {
         .unwrap_or(false)
 }
 
+fn models_root_dir() -> Option<PathBuf> {
+    if let Ok(raw) = std::env::var("VOCA_MODEL_DIR") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed));
+        }
+    }
+    app_support_dir_path().ok().map(|dir| dir.join("models"))
+}
+
+const BOOTSTRAP_MODEL_KEYS: [&str; 3] = ["voxcpm2", "sensevoice_small", "zipenhancer_16k"];
+const VOXCPM_REQUIRED_FILES: [&str; 3] = ["config.json", "tokenizer.json", "tokenizer_config.json"];
+const VOXCPM_AUDIO_VAE_FILES: [&str; 2] = ["audiovae.safetensors", "audiovae.pth"];
+const VOXCPM_MODEL_WEIGHT_FILES: [&str; 3] =
+    ["model.safetensors", "pytorch_model.bin", "model.bin"];
+const AUX_ASSET_MARKER_FILES: [&str; 5] = [
+    "config.json",
+    "configuration.json",
+    "model.pt",
+    "model.bin",
+    "model.safetensors",
+];
+
+fn dir_has_any_file(dir: &Path, candidates: &[&str]) -> bool {
+    candidates
+        .iter()
+        .any(|candidate| dir.join(candidate).exists())
+}
+
+fn dir_has_any_regular_file(dir: &Path) -> bool {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return false,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            return true;
+        }
+        if path.is_dir() && dir_has_any_regular_file(&path) {
+            return true;
+        }
+    }
+    false
+}
+
+fn voxcpm_asset_ready(local_dir: &Path) -> bool {
+    if !local_dir.is_dir() {
+        return false;
+    }
+    if !VOXCPM_REQUIRED_FILES
+        .iter()
+        .all(|name| local_dir.join(name).exists())
+    {
+        return false;
+    }
+    if !dir_has_any_file(local_dir, &VOXCPM_AUDIO_VAE_FILES) {
+        return false;
+    }
+    if !dir_has_any_file(local_dir, &VOXCPM_MODEL_WEIGHT_FILES) {
+        return false;
+    }
+    true
+}
+
+fn voxcpm_ready_with_override() -> bool {
+    if let Ok(raw) = std::env::var("VOXCPM_MODEL_DIR") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let candidate = PathBuf::from(trimmed);
+            if candidate.is_dir() && voxcpm_asset_ready(&candidate) {
+                return true;
+            }
+        }
+    }
+    match models_root_dir() {
+        Some(root) => voxcpm_asset_ready(&root.join("voxcpm2")),
+        None => false,
+    }
+}
+
+fn aux_asset_ready(local_dir: &Path) -> bool {
+    if !local_dir.is_dir() {
+        return false;
+    }
+    if dir_has_any_file(local_dir, &AUX_ASSET_MARKER_FILES) {
+        return true;
+    }
+    dir_has_any_regular_file(local_dir)
+}
+
+fn local_bootstrap_asset_ready(model_key: &str) -> bool {
+    match model_key {
+        "voxcpm2" => voxcpm_ready_with_override(),
+        _ => match models_root_dir() {
+            Some(root) => aux_asset_ready(&root.join(model_key)),
+            None => false,
+        },
+    }
+}
+
+fn local_bootstrap_assets_ready() -> bool {
+    BOOTSTRAP_MODEL_KEYS
+        .iter()
+        .all(|key| local_bootstrap_asset_ready(key))
+}
+
 fn app_support_dir_path() -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME").ok_or_else(|| "HOME is not set".to_string())?;
     let base = if cfg!(target_os = "macos") {
@@ -258,8 +365,14 @@ fn latest_failed_bootstrap_task(tasks: &[TaskRecord]) -> Option<&TaskRecord> {
 
 #[tauri::command]
 pub async fn get_quick_bootstrap_state() -> Result<BootstrapState, String> {
-    let is_first_launch = !is_onboarding_complete();
-    let (phase, status, model_ready) = if is_first_launch {
+    let onboarding_complete = is_onboarding_complete();
+    let assets_ready = local_bootstrap_assets_ready();
+    let needs_repair = onboarding_complete && !assets_ready;
+
+    let is_first_launch = !onboarding_complete;
+    let (phase, status, model_ready) = if needs_repair {
+        ("model_download", "idle", false)
+    } else if is_first_launch {
         ("welcome", "idle", false)
     } else {
         ("ready", "idle", true)
@@ -274,6 +387,7 @@ pub async fn get_quick_bootstrap_state() -> Result<BootstrapState, String> {
         sidecar_ready: false,
         current_download_job_id: None,
         last_error: None,
+        needs_repair,
     })
 }
 
@@ -282,7 +396,8 @@ pub async fn get_bootstrap_state(
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<BootstrapState, String> {
-    let is_first_launch = !is_onboarding_complete();
+    let onboarding_complete = is_onboarding_complete();
+    let is_first_launch = !onboarding_complete;
     let sidecar = ensure_sidecar_running(&app_handle, state.inner())
         .await
         .unwrap_or(SidecarStatus {
@@ -293,8 +408,9 @@ pub async fn get_bootstrap_state(
     let bundle_ready = if sidecar.healthy {
         is_bootstrap_bundle_ready(state.inner()).await
     } else {
-        false
+        local_bootstrap_assets_ready()
     };
+    let needs_repair = onboarding_complete && !bundle_ready;
     let tasks = if sidecar.healthy {
         list_recent_tasks(state.inner()).await
     } else {
@@ -306,6 +422,8 @@ pub async fn get_bootstrap_state(
     let (phase, status, current_download_job_id) = if !sidecar.healthy {
         if sidecar.running {
             ("runtime_download", "running", None)
+        } else if needs_repair {
+            ("model_download", "idle", None)
         } else {
             ("welcome", "idle", None)
         }
@@ -330,6 +448,7 @@ pub async fn get_bootstrap_state(
         sidecar_ready: sidecar.healthy,
         current_download_job_id,
         last_error,
+        needs_repair,
     })
 }
 

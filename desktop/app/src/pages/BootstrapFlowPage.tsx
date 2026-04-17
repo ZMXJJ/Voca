@@ -13,6 +13,7 @@ import type {
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import { IconAlert, IconArrowRight, IconCheck, IconVocaLogo } from "../components/Icons";
+import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { StepIndicator } from "../components/StepIndicator";
 
 type BootstrapFlowView = "welcome" | "download" | "initialize" | "complete";
@@ -420,6 +421,9 @@ export function BootstrapFlowPage({
   if (view === "welcome") {
     return (
       <main className="welcome-page">
+        <div className="welcome-page__language">
+          <LanguageSwitcher />
+        </div>
         <div className="welcome-page__logo"><IconVocaLogo height={40} /></div>
         <h1 className="welcome-page__title">{t("bootstrap.welcome.headline")}</h1>
         <p className="welcome-page__subtitle">{t("bootstrap.welcome.subtitle")}</p>
@@ -442,6 +446,9 @@ export function BootstrapFlowPage({
         <div className="bootstrap-page__logo"><IconVocaLogo height={24} /></div>
         <div className="bootstrap-page__steps">
           <StepIndicator steps={steps} />
+        </div>
+        <div className="bootstrap-page__language">
+          <LanguageSwitcher />
         </div>
       </header>
 

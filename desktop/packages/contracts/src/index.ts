@@ -17,6 +17,7 @@ export type BootstrapState = {
   sidecarReady: boolean;
   currentDownloadJobId?: string | null;
   lastError?: AppError | null;
+  needsRepair?: boolean;
 };
 
 export type ErrorSeverity = "info" | "warning" | "error" | "blocking";

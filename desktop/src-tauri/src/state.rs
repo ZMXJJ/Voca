@@ -24,6 +24,7 @@ pub struct BootstrapState {
     pub sidecar_ready: bool,
     pub current_download_job_id: Option<String>,
     pub last_error: Option<AppError>,
+    pub needs_repair: bool,
 }
 
 #[derive(Clone, Serialize)]

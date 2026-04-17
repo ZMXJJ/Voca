@@ -28,7 +28,9 @@ from app.models.schemas import (
 )
 from app.services.task_manager import TaskManager
 from app.services import voice_library
-from app.services.bootstrap_assets import bootstrap_asset_statuses
+from app.services.bootstrap_assets import bootstrap_asset_statuses, bootstrap_entries
+from app.services.download_pings import start_download_ping_dispatcher
+from app.services.model_integrity import cleanup_orphans, verify_full
 from app.services.storage_paths import (
     app_support_dir,
     audio_output_dir,
@@ -41,7 +43,7 @@ from app.services.storage_paths import (
     voices_dir,
 )
 
-app = FastAPI(title="Voca Python Service", version="0.1.0")
+app = FastAPI(title="Voca Python Service", version="0.3.0")
 task_manager = TaskManager()
 SERVICE_LOG_LEVEL = "warning"
 SERVICE_INSTANCE_ID = str(uuid.uuid4())
@@ -181,7 +183,7 @@ def _build_health_response() -> HealthResponse:
         zipEnhancerReady=asset_ready_map.get("zipenhancer_16k", False),
         speechToolsReady=all(asset_ready_map.get(key, False) for key in ("sensevoice_small", "zipenhancer_16k")),
         bootstrapAssetsReady=all(item.ready for item in asset_statuses),
-        version="0.1.0",
+        version="0.3.0",
         deviceName=device_name,
         deviceType=device_type,
         audioOutputDir=str(output_dir),
@@ -228,9 +230,41 @@ def _clear_directory_files(path: Path) -> tuple[int, int]:
     return cleared_files, cleared_bytes
 
 
+@app.on_event("startup")
+def _on_startup_cleanup() -> None:
+    try:
+        cleanup_orphans()
+    except Exception:  # pragma: no cover - best-effort housekeeping
+        pass
+    try:
+        start_download_ping_dispatcher()
+    except Exception:  # pragma: no cover - download pings must never break boot
+        pass
+
+
 @app.get("/api/v1/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return _build_health_response()
+
+
+@app.post("/api/v1/bootstrap/verify")
+def verify_bootstrap_assets() -> dict[str, object]:
+    results: list[dict[str, object]] = []
+    for entry in bootstrap_entries():
+        outcome = verify_full(Path(entry.localDir))
+        results.append(
+            {
+                "modelKey": entry.modelKey,
+                "displayName": entry.displayName,
+                "localDir": entry.localDir,
+                "ok": outcome.ok,
+                "reason": outcome.reason,
+            }
+        )
+    return {
+        "allOk": all(bool(item["ok"]) for item in results),
+        "results": results,
+    }
 
 
 @app.get("/api/v1/models/catalog", response_model=list[ModelCatalogEntry])
