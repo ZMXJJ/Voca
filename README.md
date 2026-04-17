@@ -7,7 +7,7 @@
 <h1 align="center">Voca — Your Local Voice Clone Assistant</h1>
 
 <p align="center">
-  <a href="README_zh.md">中文</a> | English
+  English | <a href="README_zh.md">简体中文</a> | <a href="README_zh-TW.md">繁體中文</a>
 </p>
 
 <p align="center">
@@ -40,7 +40,7 @@
 - **Extreme Clone Mode** — Uses reference audio transcription to further improve voice fidelity
 - **Built-in ASR** — Automatically transcribes reference audio with the SenseVoice ASR engine, with manual editing support
 - **Dual Model Sources** — Download models from Hugging Face or ModelScope, with automatic source recommendation
-- **Bilingual UI** — Chinese and English interface
+- **Trilingual UI** — Traditional Chinese, Simplified Chinese, and English interface
 
 ## Table of Contents
 

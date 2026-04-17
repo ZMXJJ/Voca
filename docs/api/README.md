@@ -1,5 +1,7 @@
 # Voca Python Service API Reference
 
+简体中文 | [繁體中文](../zh-TW/api/README.md)
+
 Voca 的推理后端是一个 FastAPI sidecar 服务，由桌面端自动启动和管理。所有接口前缀为 `/api/v1`。
 
 > 开发模式下，服务启动后可通过 `http://localhost:<port>/docs` 访问 Swagger UI 交互式文档。

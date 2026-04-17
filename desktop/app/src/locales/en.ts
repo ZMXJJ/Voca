@@ -23,7 +23,11 @@ const en = {
     language: {
       label: "Language",
       en: "EN",
-      zhCN: "中",
+      zhCN: "SC",
+      zhTW: "TC",
+      english: "English",
+      simplifiedChinese: "简体中文",
+      traditionalChinese: "繁體中文",
     },
   },
   loading: {
@@ -145,6 +149,7 @@ const en = {
       detailTitle: "Voice Details",
       name: "Audio Title",
       language: "Language",
+      defaultLanguage: "Chinese",
       description: "Voice Description",
       descriptionPlaceholder:
         "For example: a warm, clear Chinese female voice with a natural pace for narration and companion-style content.",
@@ -191,6 +196,8 @@ const en = {
       count: "{{count}} records",
       empty: "No generation records yet",
       untitled: "Untitled task",
+      todayAt: "Today {{time}}",
+      yesterdayAt: "Yesterday {{time}}",
       status: {
         queued: "Queued",
         running: "Generating",

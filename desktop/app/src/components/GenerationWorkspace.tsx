@@ -31,7 +31,11 @@ type GenerationWorkspaceProps = {
   onSubmit: (payload: GenerationParams) => Promise<void>;
 };
 
-function formatHistoryTime(value: string) {
+function formatHistoryTime(
+  value: string,
+  language: string,
+  t: (key: string, options?: Record<string, string>) => string,
+) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   const now = new Date();
@@ -46,10 +50,10 @@ function formatHistoryTime(value: string) {
     date.getMonth() === yesterday.getMonth() &&
     date.getFullYear() === yesterday.getFullYear();
 
-  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  if (isToday) return `今天 ${time}`;
-  if (isYesterday) return `昨天 ${time}`;
-  return `${date.getMonth() + 1}月${date.getDate()}日`;
+  const time = date.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" });
+  if (isToday) return t("studio.generationHistory.todayAt", { time });
+  if (isYesterday) return t("studio.generationHistory.yesterdayAt", { time });
+  return new Intl.DateTimeFormat(language, { month: "numeric", day: "numeric" }).format(date);
 }
 
 function formatDuration(ms?: number) {
@@ -75,7 +79,7 @@ export function GenerationWorkspace({
   taskHistory,
   onSubmit,
 }: GenerationWorkspaceProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [targetText, setTargetText] = useState("");
   const [modelKey, setModelKey] = useState("voxcpm2");
   const [providerPreference] = useState<"auto" | "huggingface" | "modelscope">("auto");
@@ -467,7 +471,7 @@ export function GenerationWorkspace({
                             {task.title || task.message || task.result?.audioPath || t("studio.generationHistory.untitled")}
                           </div>
                           <div className="history-item__meta">
-                            {formatHistoryTime(task.createdAt)}
+                            {formatHistoryTime(task.createdAt, i18n.resolvedLanguage ?? i18n.language, t)}
                             {isPlayable ? ` · ${formatDuration(task.result?.durationMs)}` : ""}
                           </div>
                         </div>

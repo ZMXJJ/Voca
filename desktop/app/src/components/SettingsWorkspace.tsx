@@ -10,7 +10,7 @@ import type {
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
-import i18n from "../i18n";
+import i18n, { resolveAppLanguage, setAppLanguage } from "../i18n";
 import { useModalTransition } from "../lib/useModalTransition";
 import {
   checkForUpdate,
@@ -172,6 +172,12 @@ export function SettingsWorkspace({
   onCacheCleared,
 }: SettingsWorkspaceProps) {
   const { t } = useTranslation();
+  const currentLanguage = resolveAppLanguage(i18n.resolvedLanguage ?? i18n.language);
+  const languageOptions = [
+    { value: "zh-CN", label: t("common.language.simplifiedChinese") },
+    { value: "zh-TW", label: t("common.language.traditionalChinese") },
+    { value: "en", label: t("common.language.english") },
+  ];
   const [providerPreference, setProviderPreference] = useState<"auto" | "huggingface" | "modelscope">(
     providerRecommendation?.preferred ?? "auto",
   );
@@ -581,15 +587,11 @@ export function SettingsWorkspace({
           <div className="kv-row">
             <span className="kv-row__key">{t("settings.general.language")}</span>
             <CustomSelect
-              value={i18n.language}
+              value={currentLanguage}
               onChange={(lang) => {
-                void i18n.changeLanguage(lang);
-                localStorage.setItem("voca.locale", lang);
+                void setAppLanguage(resolveAppLanguage(lang));
               }}
-              options={[
-                { value: "zh-CN", label: "中文" },
-                { value: "en", label: "English" },
-              ]}
+              options={languageOptions}
             />
           </div>
           <div className="audio-path-row">

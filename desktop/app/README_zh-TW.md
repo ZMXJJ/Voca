@@ -1,21 +1,21 @@
 # React + TypeScript + Vite
 
-English | [繁體中文](README_zh-TW.md)
+[English](README.md) | 繁體中文
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+這個範本提供一個最小設定，讓 React 能在 Vite 中搭配 HMR 與部分 ESLint 規則運作。
 
-Currently, two official plugins are available:
+目前可用的兩個官方外掛如下：
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) 使用 [Oxc](https://oxc.rs)
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) 使用 [SWC](https://swc.rs/)
 
 ## React Compiler
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+此範本預設未啟用 React Compiler，因為它會影響開發與建置效能。若要加入，請參考[官方文件](https://react.dev/learn/react-compiler/installation)。
 
-## Expanding the ESLint configuration
+## 擴充 ESLint 設定
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+如果你正在開發正式上線的應用程式，建議更新設定，啟用具備型別感知能力的 lint 規則：
 
 ```js
 export default defineConfig([
@@ -45,7 +45,7 @@ export default defineConfig([
 ])
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+你也可以安裝 [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) 與 [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom)，以取得 React 專屬的 lint 規則：
 
 ```js
 // eslint.config.js

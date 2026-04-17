@@ -7,7 +7,7 @@
 <h1 align="center">Voca — 本地语音克隆桌面助手</h1>
 
 <p align="center">
-  中文 | <a href="README.md">English</a>
+  <a href="README.md">English</a> | 简体中文 | <a href="README_zh-TW.md">繁體中文</a>
 </p>
 
 <p align="center">
@@ -40,7 +40,7 @@
 - **极致克隆模式** — 使用参考音频的转录文本进一步提升声音还原度
 - **内置 ASR** — 上传参考音频后自动转录文本，支持手动编辑校正
 - **双源模型下载** — 支持从 Hugging Face 或 ModelScope 下载模型，自动推荐最优源
-- **中英双语界面** — 支持中文和英文
+- **三语界面** — 支持简体中文、繁体中文和英文
 
 ## 目录
 
