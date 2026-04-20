@@ -161,6 +161,8 @@ const zhTW = {
       savingRecording: "正在儲存錄音…",
       recordMaxHint: "最長 60 秒，點擊停止以完成錄製。",
       microphonePermissionDenied: "未取得麥克風權限，請在系統設定中允許 Voca 使用麥克風後再試。",
+      microphonePermissionHint: "路徑：系統設定 → 隱私權與安全性 → 麥克風 → 勾選 Voca。",
+      openSystemSettings: "開啟系統設定",
       microphoneUnavailable: "未偵測到可用的麥克風裝置，請檢查裝置連線後再試。",
       recordingTooShort: "錄音時長過短，請至少錄製 1 秒。",
       recordingFailed: "錄音失敗，請重試。",
@@ -193,6 +195,18 @@ const zhTW = {
       validationName: "請填寫音訊標題。",
       validationLanguage: "請填寫語言。",
       validationDescription: "請填寫音色描述。",
+      builtinVoices: {
+        "builtin-female-default": {
+          name: "預設女聲",
+          language: "中文",
+          description: "溫柔清晰的中文女聲，語氣自然、明亮，適合講述、說明和陪伴類內容。",
+        },
+        "builtin-male-default": {
+          name: "預設男聲",
+          language: "中文",
+          description: "沉穩自然的中文男聲，咬字清楚、節奏平穩，適合解說、播報和知識類內容。",
+        },
+      },
     },
     generationHistory: {
       title: "生成歷史",

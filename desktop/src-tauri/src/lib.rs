@@ -9,7 +9,7 @@ use commands::audio::{
 use commands::bootstrap::{
     clear_cache, complete_onboarding, export_logs, get_bootstrap_state, get_quick_bootstrap_state,
     get_service_info, get_setup_diagnostics, get_sidecar_status, open_external_url,
-    open_storage_directory, start_bootstrap_download,
+    open_microphone_settings, open_storage_directory, start_bootstrap_download,
 };
 use commands::models::{get_model_catalog, get_provider_recommendation, prepare_model, start_model_download};
 use commands::tasks::{create_asr_task, create_generate_task, get_task, list_tasks};
@@ -34,6 +34,7 @@ pub fn run() {
             export_logs,
             open_storage_directory,
             open_external_url,
+            open_microphone_settings,
             check_for_update,
             audio_file_exists,
             read_audio_base64,

@@ -45,13 +45,28 @@ function createEmptyVoiceForm(defaultLanguage: string): VoiceCreatePayload {
   };
 }
 
+function resolveBuiltinField(
+  voiceId: string,
+  field: "name" | "language" | "description",
+  fallback: string,
+  t: (key: string) => string,
+): string {
+  const key = `studio.voiceLibrary.builtinVoices.${voiceId}.${field}`;
+  const translated = t(key);
+  return translated !== key ? translated : fallback;
+}
+
 function voiceMetaLabel(voice: VoiceEntry, t: (key: string) => string) {
   const sourceLabel =
     voice.sourceType === "builtin"
       ? t("studio.voiceLibrary.builtin")
       : t("studio.voiceLibrary.custom");
+  const language =
+    voice.sourceType === "builtin"
+      ? resolveBuiltinField(voice.id, "language", voice.language, t)
+      : voice.language;
   const durationText = voice.durationSeconds != null ? ` · ${voice.durationSeconds.toFixed(1)}s` : "";
-  return `${voice.language} · ${sourceLabel}${durationText}`;
+  return `${language} · ${sourceLabel}${durationText}`;
 }
 
 function displayAudioName(path?: string) {
@@ -126,14 +141,23 @@ export function VoiceLibrary({
       return;
     }
     setDetailForm({
-      name: detailVoice.name,
-      language: detailVoice.language,
-      description: detailVoice.description,
+      name:
+        detailVoice.sourceType === "builtin"
+          ? resolveBuiltinField(detailVoice.id, "name", detailVoice.name, t)
+          : detailVoice.name,
+      language:
+        detailVoice.sourceType === "builtin"
+          ? resolveBuiltinField(detailVoice.id, "language", detailVoice.language, t)
+          : detailVoice.language,
+      description:
+        detailVoice.sourceType === "builtin"
+          ? resolveBuiltinField(detailVoice.id, "description", detailVoice.description, t)
+          : detailVoice.description,
       referenceTranscript: detailVoice.referenceTranscript ?? "",
       transcriptLanguage: detailVoice.transcriptLanguage ?? "",
     });
     setDetailError(null);
-  }, [detailVoice, detailVoiceId]);
+  }, [detailVoice, detailVoiceId, t]);
 
   useEffect(() => {
     setDetailDeleteConfirm(false);
@@ -285,6 +309,8 @@ export function VoiceLibrary({
     saving: t("studio.voiceLibrary.savingRecording"),
     maxHint: t("studio.voiceLibrary.recordMaxHint"),
     permissionDenied: t("studio.voiceLibrary.microphonePermissionDenied"),
+    permissionHint: t("studio.voiceLibrary.microphonePermissionHint"),
+    openSystemSettings: t("studio.voiceLibrary.openSystemSettings"),
     microphoneUnavailable: t("studio.voiceLibrary.microphoneUnavailable"),
     recordingTooShort: t("studio.voiceLibrary.recordingTooShort"),
     recordingFailed: t("studio.voiceLibrary.recordingFailed"),
@@ -311,8 +337,10 @@ export function VoiceLibrary({
 
       await onReloadVoices();
       onSelectVoice(created.id);
-      setCreateOpen(false);
-      setCreateForm(createEmptyVoiceForm(defaultVoiceLanguage));
+      createModal.requestClose(() => {
+        setCreateOpen(false);
+        setCreateForm(createEmptyVoiceForm(defaultVoiceLanguage));
+      });
     } catch (error) {
       setCreateError(formatActionError(t("studio.voiceLibrary.createFailed"), error));
     } finally {
@@ -406,7 +434,11 @@ export function VoiceLibrary({
                       />
                       <div className="voice-item__content">
                         <div className="voice-item__name-row">
-                          <div className="voice-item__name">{voice.name}</div>
+                          <div className="voice-item__name">
+                            {voice.sourceType === "builtin"
+                              ? resolveBuiltinField(voice.id, "name", voice.name, t)
+                              : voice.name}
+                          </div>
                           <button
                             type="button"
                             className="voice-item__detail"
@@ -589,10 +621,12 @@ export function VoiceLibrary({
                 type="button"
                 className="btn btn--secondary btn--small"
                 onClick={() => {
-                  setCreateTranscriptError(null);
-                  setRecorderActive(false);
-                  setSavingRecording(false);
-                  setCreateOpen(false);
+                  createModal.requestClose(() => {
+                    setCreateTranscriptError(null);
+                    setRecorderActive(false);
+                    setSavingRecording(false);
+                    setCreateOpen(false);
+                  });
                 }}
               >
                 {t("studio.voiceLibrary.cancel")}
@@ -695,7 +729,12 @@ export function VoiceLibrary({
 
               {detailVoice.canDelete && detailDeleteConfirm ? (
                 <div className="voice-delete-confirm-banner" role="status">
-                  {t("studio.voiceLibrary.deleteConfirm", { name: detailVoice.name })}
+                  {t("studio.voiceLibrary.deleteConfirm", {
+                    name:
+                      detailVoice.sourceType === "builtin"
+                        ? resolveBuiltinField(detailVoice.id, "name", detailVoice.name, t)
+                        : detailVoice.name,
+                  })}
                 </div>
               ) : null}
 

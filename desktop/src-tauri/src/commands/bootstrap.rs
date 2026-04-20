@@ -604,3 +604,27 @@ pub async fn open_external_url(url: String) -> Result<bool, String> {
     command.arg(&url).status().map_err(|e| e.to_string())?;
     Ok(true)
 }
+
+#[tauri::command]
+pub async fn open_microphone_settings() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+            .status()
+            .map_err(|e| e.to_string())?;
+        return Ok(status.success());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let status = Command::new("explorer")
+            .arg("ms-settings:privacy-microphone")
+            .status()
+            .map_err(|e| e.to_string())?;
+        return Ok(status.success());
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        Err("Opening microphone settings is not supported on this platform".into())
+    }
+}

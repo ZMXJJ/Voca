@@ -307,6 +307,14 @@ export async function openExternalUrl(url: string): Promise<boolean> {
   }
 }
 
+export async function openMicrophoneSettings(): Promise<boolean> {
+  try {
+    return await invoke<boolean>("open_microphone_settings");
+  } catch {
+    return false;
+  }
+}
+
 export async function checkForUpdate(): Promise<UpdateCheckResult> {
   return await invoke<UpdateCheckResult>("check_for_update");
 }

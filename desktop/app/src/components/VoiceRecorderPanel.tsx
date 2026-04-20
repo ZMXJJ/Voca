@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { encodeAudioBufferToWav } from "../lib/wavEncoder";
+import { openMicrophoneSettings } from "../lib/tauri";
 import { IconPause, IconPlay } from "./Icons";
 
 const BAR_COUNT = 24;
@@ -15,10 +16,14 @@ export type VoiceRecorderLabels = {
   saving: string;
   maxHint: string;
   permissionDenied: string;
+  permissionHint: string;
+  openSystemSettings: string;
   microphoneUnavailable: string;
   recordingTooShort: string;
   recordingFailed: string;
 };
+
+type ErrorKind = "generic" | "permission";
 
 type VoiceRecorderPanelProps = {
   labels: VoiceRecorderLabels;
@@ -70,6 +75,7 @@ export function VoiceRecorderPanel({
 }: VoiceRecorderPanelProps) {
   const [subPhase, setSubPhase] = useState<SubPhase>("starting");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<ErrorKind>("generic");
   const [elapsedMs, setElapsedMs] = useState(0);
   const [barHeights, setBarHeights] = useState<number[]>(() =>
     new Array(BAR_COUNT).fill(0.12),
@@ -233,6 +239,7 @@ export function VoiceRecorderPanel({
     const sessionId = ++sessionIdRef.current;
     chunksRef.current = [];
     setErrorMessage(null);
+    setErrorKind("generic");
     setElapsedMs(0);
     setBarHeights(new Array(BAR_COUNT).fill(0.12));
     setSubPhase("starting");
@@ -304,11 +311,13 @@ export function VoiceRecorderPanel({
     } catch (error) {
       const domError = error as DOMException | undefined;
       let message = labels.recordingFailed;
+      let kind: ErrorKind = "generic";
       if (
         domError?.name === "NotAllowedError" ||
         domError?.name === "SecurityError"
       ) {
         message = labels.permissionDenied;
+        kind = "permission";
       } else if (
         domError?.name === "NotFoundError" ||
         domError?.name === "OverconstrainedError"
@@ -319,6 +328,7 @@ export function VoiceRecorderPanel({
       if (mountedRef.current) {
         setSubPhase("error");
         setErrorMessage(message);
+        setErrorKind(kind);
       }
     }
   };
@@ -367,9 +377,17 @@ export function VoiceRecorderPanel({
   }, []);
 
   if (subPhase === "error") {
+    const isPermissionError = errorKind === "permission";
     return (
       <div className="voice-recorder voice-recorder--error" role="alert">
-        <div className="voice-recorder__error-copy">{errorMessage}</div>
+        <div className="voice-recorder__error-copy">
+          <div>{errorMessage}</div>
+          {isPermissionError ? (
+            <div className="voice-recorder__error-hint">
+              {labels.permissionHint}
+            </div>
+          ) : null}
+        </div>
         <div className="voice-recorder__controls">
           <button
             type="button"
@@ -378,6 +396,15 @@ export function VoiceRecorderPanel({
           >
             {labels.cancel}
           </button>
+          {isPermissionError ? (
+            <button
+              type="button"
+              className="btn btn--secondary btn--small"
+              onClick={() => void openMicrophoneSettings()}
+            >
+              {labels.openSystemSettings}
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn--secondary btn--small"

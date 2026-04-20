@@ -161,6 +161,8 @@ const zhCN = {
       savingRecording: "正在保存录音…",
       recordMaxHint: "最长 60 秒，点击停止以完成录制。",
       microphonePermissionDenied: "未获取麦克风权限，请在系统设置中允许 Voca 使用麦克风后重试。",
+      microphonePermissionHint: "路径：系统设置 → 隐私与安全性 → 麦克风 → 勾选 Voca。",
+      openSystemSettings: "打开系统设置",
       microphoneUnavailable: "未检测到可用的麦克风设备，请检查设备连接后重试。",
       recordingTooShort: "录音时长过短，请至少录制 1 秒。",
       recordingFailed: "录音失败，请重试。",
@@ -193,6 +195,18 @@ const zhCN = {
       validationName: "请填写音频标题。",
       validationLanguage: "请填写语言。",
       validationDescription: "请填写音色描述。",
+      builtinVoices: {
+        "builtin-female-default": {
+          name: "默认女声",
+          language: "中文",
+          description: "温柔清晰的中文女声，语气自然、明亮，适合讲述、说明和陪伴类内容。",
+        },
+        "builtin-male-default": {
+          name: "默认男声",
+          language: "中文",
+          description: "沉稳自然的中文男声，吐字清楚、节奏平稳，适合解说、播报和知识类内容。",
+        },
+      },
     },
     generationHistory: {
       title: "生成历史",

@@ -164,6 +164,8 @@ const en = {
       savingRecording: "Saving recording...",
       recordMaxHint: "Up to 60 seconds. Tap stop to finish.",
       microphonePermissionDenied: "Microphone permission denied. Please allow Voca to use the microphone in system settings and try again.",
+      microphonePermissionHint: "Path: System Settings → Privacy & Security → Microphone → enable Voca.",
+      openSystemSettings: "Open System Settings",
       microphoneUnavailable: "No microphone detected. Please check the device connection and try again.",
       recordingTooShort: "Recording is too short. Please record for at least 1 second.",
       recordingFailed: "Recording failed. Please try again.",
@@ -202,6 +204,20 @@ const en = {
       validationName: "Please enter an audio title.",
       validationLanguage: "Please enter a language.",
       validationDescription: "Please enter a voice description.",
+      builtinVoices: {
+        "builtin-female-default": {
+          name: "Default Female",
+          language: "Chinese",
+          description:
+            "A warm, clear Chinese female voice with a natural and bright tone, ideal for narration, explanation, and companion-style content.",
+        },
+        "builtin-male-default": {
+          name: "Default Male",
+          language: "Chinese",
+          description:
+            "A steady, natural Chinese male voice with clear pronunciation and an even pace, ideal for commentary, broadcasting, and educational content.",
+        },
+      },
     },
     generationHistory: {
       title: "Generation History",

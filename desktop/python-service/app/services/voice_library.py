@@ -363,7 +363,8 @@ def list_voices() -> list[VoiceEntry]:
             FROM voices
             ORDER BY
                 CASE source_type WHEN 'builtin' THEN 0 ELSE 1 END,
-                created_at DESC
+                CASE WHEN source_type = 'builtin' THEN created_at END ASC,
+                CASE WHEN source_type != 'builtin' THEN created_at END DESC
             """
         ).fetchall()
     return [_row_to_voice(row) for row in rows]
