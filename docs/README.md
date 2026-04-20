@@ -1,5 +1,7 @@
 # Voca Documentation
 
+简体中文 | [繁體中文](zh-TW/README.md)
+
 ## API Reference
 
 后端推理服务（Python sidecar）的完整接口文档。

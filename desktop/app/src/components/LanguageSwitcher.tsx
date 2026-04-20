@@ -1,37 +1,50 @@
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { setAppLanguage } from "../i18n";
+import {
+  resolveAppLanguage,
+  setAppLanguage,
+  SUPPORTED_LANGUAGES,
+  type SupportedLanguage,
+} from "../i18n";
+
+const LANGUAGE_LABEL_KEYS: Record<SupportedLanguage, string> = {
+  en: "common.language.en",
+  "zh-CN": "common.language.zhCN",
+  "zh-TW": "common.language.zhTW",
+};
 
 export function LanguageSwitcher() {
   const { i18n, t } = useTranslation();
-  const currentLanguage = i18n.resolvedLanguage === "zh-CN" ? "zh-CN" : "en";
+  const currentLanguage = resolveAppLanguage(i18n.resolvedLanguage);
+  const currentIndex = SUPPORTED_LANGUAGES.indexOf(currentLanguage);
 
   return (
     <div
       className="language-switcher"
       data-active={currentLanguage}
       aria-label={t("common.language.label")}
+      style={
+        {
+          "--language-switcher-count": SUPPORTED_LANGUAGES.length,
+          "--language-switcher-index": currentIndex,
+        } as CSSProperties
+      }
     >
       <span className="language-switcher__thumb" aria-hidden />
-      <button
-        className={`language-switcher__option ${
-          currentLanguage === "en" ? "language-switcher__option--active" : ""
-        }`}
-        onClick={() => {
-          void setAppLanguage("en");
-        }}
-      >
-        {t("common.language.en")}
-      </button>
-      <button
-        className={`language-switcher__option ${
-          currentLanguage === "zh-CN" ? "language-switcher__option--active" : ""
-        }`}
-        onClick={() => {
-          void setAppLanguage("zh-CN");
-        }}
-      >
-        {t("common.language.zhCN")}
-      </button>
+      {SUPPORTED_LANGUAGES.map((language) => (
+        <button
+          key={language}
+          className={`language-switcher__option ${
+            currentLanguage === language ? "language-switcher__option--active" : ""
+          }`}
+          onClick={() => {
+            void setAppLanguage(language);
+          }}
+          type="button"
+        >
+          {t(LANGUAGE_LABEL_KEYS[language])}
+        </button>
+      ))}
     </div>
   );
 }

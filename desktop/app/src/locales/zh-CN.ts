@@ -23,7 +23,11 @@ const zhCN = {
     language: {
       label: "切换语言",
       en: "EN",
-      zhCN: "中",
+      zhCN: "简",
+      zhTW: "繁",
+      english: "English",
+      simplifiedChinese: "简体中文",
+      traditionalChinese: "繁體中文",
     },
   },
   loading: {
@@ -143,6 +147,7 @@ const zhCN = {
       detailTitle: "音色详情",
       name: "音频标题",
       language: "语言",
+      defaultLanguage: "中文",
       description: "音色描述",
       descriptionPlaceholder: "例如：温柔清晰的中文女声，语速自然，适合陪伴与说明类内容。",
       referenceAudio: "参考音频（可选）",
@@ -182,6 +187,8 @@ const zhCN = {
       count: "{{count}} 条记录",
       empty: "暂无生成记录",
       untitled: "未命名任务",
+      todayAt: "今天 {{time}}",
+      yesterdayAt: "昨天 {{time}}",
       status: {
         queued: "排队中",
         running: "生成中",

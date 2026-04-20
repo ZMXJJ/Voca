@@ -31,14 +31,16 @@ function chunkPairs<T>(arr: T[]): T[][] {
 
 const AVATAR_COLORS = ["#6366f1", "#8b5cf6", "#a78bfa", "#c4b5fd", "#4f46e5", "#7c3aed"];
 
-const EMPTY_VOICE_FORM: VoiceCreatePayload = {
-  name: "",
-  language: "中文",
-  description: "",
-  referenceAudioPath: undefined,
-  referenceTranscript: "",
-  transcriptLanguage: undefined,
-};
+function createEmptyVoiceForm(defaultLanguage: string): VoiceCreatePayload {
+  return {
+    name: "",
+    language: defaultLanguage,
+    description: "",
+    referenceAudioPath: undefined,
+    referenceTranscript: "",
+    transcriptLanguage: undefined,
+  };
+}
 
 function voiceMetaLabel(voice: VoiceEntry, t: (key: string) => string) {
   const sourceLabel =
@@ -81,8 +83,11 @@ export function VoiceLibrary({
   onReloadVoices,
 }: VoiceLibraryProps) {
   const { t } = useTranslation();
+  const defaultVoiceLanguage = t("studio.voiceLibrary.defaultLanguage");
   const [createOpen, setCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState<VoiceCreatePayload>(EMPTY_VOICE_FORM);
+  const [createForm, setCreateForm] = useState<VoiceCreatePayload>(() =>
+    createEmptyVoiceForm(defaultVoiceLanguage),
+  );
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [transcribingCreateAudio, setTranscribingCreateAudio] = useState(false);
@@ -240,7 +245,7 @@ export function VoiceLibrary({
       await onReloadVoices();
       onSelectVoice(created.id);
       setCreateOpen(false);
-      setCreateForm(EMPTY_VOICE_FORM);
+      setCreateForm(createEmptyVoiceForm(defaultVoiceLanguage));
     } catch (error) {
       setCreateError(formatActionError(t("studio.voiceLibrary.createFailed"), error));
     } finally {
@@ -306,7 +311,7 @@ export function VoiceLibrary({
             onClick={() => {
               setCreateError(null);
               setCreateTranscriptError(null);
-              setCreateForm(EMPTY_VOICE_FORM);
+              setCreateForm(createEmptyVoiceForm(defaultVoiceLanguage));
               setCreateOpen(true);
             }}
           >
