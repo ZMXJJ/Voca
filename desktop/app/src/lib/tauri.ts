@@ -151,6 +151,7 @@ export async function createGenerateTask(payload: GenerationParams): Promise<Tas
       createdAt: now,
       updatedAt: now,
       title: payload.targetText.trim().slice(0, 80) || "Untitled task",
+      voiceName: payload.voiceName?.trim() || undefined,
       progress: 0,
       message: i18n.t("system.tauriFallbackTaskMessage"),
       result: null,
@@ -366,6 +367,17 @@ export async function pickAudioFile(): Promise<string | null> {
     return await invoke<string | null>("pick_audio_file");
   } catch {
     return null;
+  }
+}
+
+export async function saveRecordedAudio(
+  audioBase64: string,
+  extension: string,
+): Promise<string> {
+  try {
+    return await invoke<string>("save_recorded_audio", { audioBase64, extension });
+  } catch (error) {
+    throw new Error(getInvokeErrorMessage(error, "Failed to save recorded audio"));
   }
 }
 

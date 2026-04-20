@@ -76,6 +76,7 @@ export type TaskRecord = {
   createdAt: string;
   updatedAt: string;
   title?: string;
+  voiceName?: string;
   progress?: number;
   message?: string;
   downloadProgress?: DownloadProgress | null;
@@ -171,6 +172,7 @@ export type GenerationParams = {
   targetText: string;
   modelKey?: string;
   providerPreference?: ProviderPreference;
+  voiceName?: string;
   controlInstruction?: string;
   referenceAudioPath?: string;
   promptText?: string;

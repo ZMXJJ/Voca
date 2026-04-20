@@ -10,7 +10,7 @@ import type {
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
-import i18n, { resolveAppLanguage, setAppLanguage } from "../i18n";
+import i18n, { LANGUAGE_NATIVE_LABELS, resolveAppLanguage, setAppLanguage } from "../i18n";
 import { useModalTransition } from "../lib/useModalTransition";
 import {
   checkForUpdate,
@@ -174,9 +174,9 @@ export function SettingsWorkspace({
   const { t } = useTranslation();
   const currentLanguage = resolveAppLanguage(i18n.resolvedLanguage ?? i18n.language);
   const languageOptions = [
-    { value: "zh-CN", label: t("common.language.simplifiedChinese") },
-    { value: "zh-TW", label: t("common.language.traditionalChinese") },
-    { value: "en", label: t("common.language.english") },
+    { value: "zh-CN", label: LANGUAGE_NATIVE_LABELS["zh-CN"] },
+    { value: "zh-TW", label: LANGUAGE_NATIVE_LABELS["zh-TW"] },
+    { value: "en", label: LANGUAGE_NATIVE_LABELS.en },
   ];
   const [providerPreference, setProviderPreference] = useState<"auto" | "huggingface" | "modelscope">(
     providerRecommendation?.preferred ?? "auto",
@@ -551,6 +551,20 @@ export function SettingsWorkspace({
       <div className="settings-bottom-grid">
         <div className="settings-section" style={{ marginTop: 0 }}>
           <div className="settings-section__title">{t("settings.logs.title")}</div>
+          <div className="kv-row audio-path-row">
+            <span className="kv-row__key">{t("settings.general.audioPath")}</span>
+            <div className="audio-path-row__control">
+              <span className="audio-path-row__path">{abbreviateHomePath(audioDownloadPath)}</span>
+              <button
+                className="btn btn--small btn--ghost"
+                type="button"
+                onClick={() => void handlePickAudioDownloadPath()}
+              >
+                {t("settings.general.changePath")}
+              </button>
+            </div>
+          </div>
+          <div className="settings-divider" />
           <div className="kv-row">
             <span className="kv-row__key">{t("settings.logs.managedStorage")}</span>
             <span className="kv-row__value">{formatBytes(serviceInfo?.managedStorageBytes)}</span>
@@ -593,19 +607,6 @@ export function SettingsWorkspace({
               }}
               options={languageOptions}
             />
-          </div>
-          <div className="audio-path-row">
-            <div className="audio-path-row__label">{t("settings.general.audioPath")}</div>
-            <div className="audio-path-row__control">
-              <span className="audio-path-row__path">{abbreviateHomePath(audioDownloadPath)}</span>
-              <button
-                className="btn btn--small btn--ghost"
-                type="button"
-                onClick={() => void handlePickAudioDownloadPath()}
-              >
-                {t("settings.general.changePath")}
-              </button>
-            </div>
           </div>
           <div className="settings-divider" />
           <div className="version-row">

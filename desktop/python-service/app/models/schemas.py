@@ -128,6 +128,7 @@ class GenerationRequest(BaseModel):
     targetText: str
     modelKey: str = "voxcpm2"
     providerPreference: Literal["auto", "huggingface", "modelscope"] = "auto"
+    voiceName: str | None = None
     controlInstruction: str | None = None
     referenceAudioPath: str | None = None
     promptText: str | None = None
@@ -228,6 +229,7 @@ class TaskRecord(BaseModel):
     createdAt: str
     updatedAt: str
     title: str | None = None
+    voiceName: str | None = None
     progress: int | None = None
     message: str | None = None
     downloadProgress: DownloadProgress | None = None

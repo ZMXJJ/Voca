@@ -224,7 +224,7 @@ export function GenerationWorkspace({
   const downloadFileName = useMemo(() => {
     const task = selectedHistoryTask;
     if (!task) return undefined;
-    const voiceName = selectedVoice?.name ?? "";
+    const voiceName = task.voiceName?.trim() || selectedVoice?.name || "";
     const textSnippet = (task.title ?? "").slice(0, 10).trim();
     const parts = [voiceName, textSnippet].filter(Boolean);
     return parts.length > 0 ? `${parts.join("_")}.wav` : undefined;
@@ -239,6 +239,7 @@ export function GenerationWorkspace({
       targetText,
       modelKey,
       providerPreference,
+      voiceName: selectedVoice?.name?.trim() || undefined,
       controlInstruction: extremeClone ? undefined : (selectedVoice?.description?.trim() || ""),
       referenceAudioPath: selectedVoice?.referenceAudioPath,
       promptText: selectedVoice?.referenceTranscript?.trim() || undefined,
@@ -289,7 +290,7 @@ export function GenerationWorkspace({
             onClick={handleGenerate}
             type="button"
           >
-            <IconSparkle size={16} />
+            <IconSparkle size={18} style={{ transform: "translateY(-1.5px)" }} />
             {t("studio.generate")}
           </button>
           <div className="config-popover" ref={configRef}>
@@ -440,6 +441,12 @@ export function GenerationWorkspace({
                   const isFailed = isTaskFailed(task);
                   const statusLabel = (isPending || isFailed) ? t(`studio.generationHistory.status.${task.status}`) : null;
                   const statusTone = isFailed ? "status-badge--error" : task.status === "running" ? "status-badge--accent" : "status-badge--muted";
+                  const voiceLabel = task.voiceName?.trim() || null;
+                  const metaParts = [
+                    formatHistoryTime(task.createdAt, i18n.resolvedLanguage ?? i18n.language, t),
+                    isPlayable ? formatDuration(task.result?.durationMs) : null,
+                    voiceLabel,
+                  ].filter(Boolean);
 
                   return (
                     <div
@@ -470,13 +477,10 @@ export function GenerationWorkspace({
                           <div className="history-item__text">
                             {task.title || task.message || task.result?.audioPath || t("studio.generationHistory.untitled")}
                           </div>
-                          <div className="history-item__meta">
-                            {formatHistoryTime(task.createdAt, i18n.resolvedLanguage ?? i18n.language, t)}
-                            {isPlayable ? ` · ${formatDuration(task.result?.durationMs)}` : ""}
-                          </div>
+                          <div className="history-item__meta">{metaParts.join(" · ")}</div>
                         </div>
                         {statusLabel ? (
-                          <span className={`status-badge history-item__status ${statusTone}`}>
+                          <span className={`status-badge history-item__badge history-item__status ${statusTone}`}>
                             {statusLabel}
                           </span>
                         ) : null}

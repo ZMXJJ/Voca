@@ -9,10 +9,13 @@ import {
   getServiceInfo,
   getTaskStrict,
   pickAudioFile,
+  saveRecordedAudio,
   updateVoice,
 } from "../lib/tauri";
+import { blobToBase64 } from "../lib/wavEncoder";
 import { useModalTransition } from "../lib/useModalTransition";
-import { IconUpload } from "./Icons";
+import { IconPlus, IconUpload } from "./Icons";
+import { VoiceRecorderPanel, type VoiceRecorderLabels } from "./VoiceRecorderPanel";
 
 type VoiceLibraryProps = {
   voices: VoiceEntry[];
@@ -92,6 +95,8 @@ export function VoiceLibrary({
   const [creating, setCreating] = useState(false);
   const [transcribingCreateAudio, setTranscribingCreateAudio] = useState(false);
   const [createTranscriptError, setCreateTranscriptError] = useState<string | null>(null);
+  const [recorderActive, setRecorderActive] = useState(false);
+  const [savingRecording, setSavingRecording] = useState(false);
   const [detailVoiceId, setDetailVoiceId] = useState<string | null>(null);
   const [detailForm, setDetailForm] = useState({
     name: "",
@@ -182,24 +187,12 @@ export function VoiceLibrary({
     throw new Error(t("studio.voiceLibrary.transcribeTimedOut"));
   };
 
-  const handlePickReferenceAudio = async () => {
-    if (transcribingCreateAudio || creating) return;
-    const selectedPath = await pickAudioFile();
-    if (!selectedPath) return;
-    setCreateTranscriptError(null);
-    setCreateError(null);
-    setCreateForm((current) => ({
-      ...current,
-      referenceAudioPath: selectedPath,
-      referenceTranscript: "",
-      transcriptLanguage: undefined,
-    }));
-
+  const runTranscription = async (audioPath: string) => {
     setTranscribingCreateAudio(true);
     try {
       const serviceInfoBeforeTask = await getServiceInfo();
       const task = await createAsrTask({
-        audioPath: selectedPath,
+        audioPath,
         modelKey: "sensevoice_small",
       });
       const serviceInfoAfterTask = await getServiceInfo();
@@ -212,7 +205,7 @@ export function VoiceLibrary({
 
       setCreateForm((current) => ({
         ...current,
-        referenceAudioPath: selectedPath,
+        referenceAudioPath: audioPath,
         referenceTranscript: finishedTask.result?.transcript ?? "",
         transcriptLanguage: finishedTask.result?.transcriptLanguage ?? "auto",
       }));
@@ -221,6 +214,80 @@ export function VoiceLibrary({
     } finally {
       setTranscribingCreateAudio(false);
     }
+  };
+
+  const handlePickReferenceAudio = async () => {
+    if (transcribingCreateAudio || creating || recorderActive || savingRecording) return;
+    const selectedPath = await pickAudioFile();
+    if (!selectedPath) return;
+    setCreateTranscriptError(null);
+    setCreateError(null);
+    setCreateForm((current) => ({
+      ...current,
+      referenceAudioPath: selectedPath,
+      referenceTranscript: "",
+      transcriptLanguage: undefined,
+    }));
+    await runTranscription(selectedPath);
+  };
+
+  const handleStartRecording = () => {
+    if (
+      transcribingCreateAudio ||
+      creating ||
+      recorderActive ||
+      savingRecording ||
+      createForm.referenceAudioPath
+    ) {
+      return;
+    }
+    setCreateTranscriptError(null);
+    setCreateError(null);
+    setRecorderActive(true);
+  };
+
+  const handleRecorderCancel = () => {
+    if (savingRecording) return;
+    setRecorderActive(false);
+  };
+
+  const handleRecorderUse = async (wavBlob: Blob) => {
+    if (savingRecording) return;
+    setSavingRecording(true);
+    setCreateTranscriptError(null);
+    setCreateError(null);
+    try {
+      const base64 = await blobToBase64(wavBlob);
+      const audioPath = await saveRecordedAudio(base64, "wav");
+      setCreateForm((current) => ({
+        ...current,
+        referenceAudioPath: audioPath,
+        referenceTranscript: "",
+        transcriptLanguage: undefined,
+      }));
+      setRecorderActive(false);
+      await runTranscription(audioPath);
+    } catch (error) {
+      setCreateTranscriptError(
+        formatActionError(t("studio.voiceLibrary.recordingFailed"), error),
+      );
+    } finally {
+      setSavingRecording(false);
+    }
+  };
+
+  const recorderLabels: VoiceRecorderLabels = {
+    recording: t("studio.voiceLibrary.recording"),
+    stop: t("studio.voiceLibrary.stopRecording"),
+    reRecord: t("studio.voiceLibrary.reRecord"),
+    useRecording: t("studio.voiceLibrary.useRecording"),
+    cancel: t("studio.voiceLibrary.cancel"),
+    saving: t("studio.voiceLibrary.savingRecording"),
+    maxHint: t("studio.voiceLibrary.recordMaxHint"),
+    permissionDenied: t("studio.voiceLibrary.microphonePermissionDenied"),
+    microphoneUnavailable: t("studio.voiceLibrary.microphoneUnavailable"),
+    recordingTooShort: t("studio.voiceLibrary.recordingTooShort"),
+    recordingFailed: t("studio.voiceLibrary.recordingFailed"),
   };
 
   const handleCreateVoice = async () => {
@@ -311,11 +378,13 @@ export function VoiceLibrary({
             onClick={() => {
               setCreateError(null);
               setCreateTranscriptError(null);
+              setRecorderActive(false);
+              setSavingRecording(false);
               setCreateForm(createEmptyVoiceForm(defaultVoiceLanguage));
               setCreateOpen(true);
             }}
           >
-            <IconUpload size={10} /> {t("studio.voiceLibrary.upload")}
+            <IconPlus size={12} /> {t("studio.voiceLibrary.upload")}
           </button>
         </div>
         <div className="card__body">
@@ -371,6 +440,8 @@ export function VoiceLibrary({
                 onClick={() => {
                   createModal.requestClose(() => {
                     setCreateTranscriptError(null);
+                    setRecorderActive(false);
+                    setSavingRecording(false);
                     setCreateOpen(false);
                   });
                 }}
@@ -415,13 +486,41 @@ export function VoiceLibrary({
                 <div className="voice-form__upload-row">
                   <button
                     type="button"
-                    className="btn btn--ghost btn--small"
-                    onClick={() => void handlePickReferenceAudio()}
-                    disabled={transcribingCreateAudio || creating}
+                    className="btn btn--ghost btn--small voice-form__record-button"
+                    onClick={handleStartRecording}
+                    disabled={
+                      transcribingCreateAudio ||
+                      creating ||
+                      recorderActive ||
+                      savingRecording ||
+                      Boolean(createForm.referenceAudioPath)
+                    }
                   >
-                    {t("studio.voiceLibrary.chooseReferenceAudio")}
+                    <span className="voice-form__record-dot" aria-hidden="true" />
+                    {t("studio.voiceLibrary.recordReferenceAudio")}
                   </button>
-                  {createForm.referenceAudioPath ? (
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--small voice-form__upload-button"
+                    onClick={() => void handlePickReferenceAudio()}
+                    disabled={
+                      transcribingCreateAudio ||
+                      creating ||
+                      recorderActive ||
+                      savingRecording
+                    }
+                  >
+                    <IconUpload size={12} />
+                    {t("studio.voiceLibrary.uploadReferenceAudio")}
+                  </button>
+                  {recorderActive ? (
+                    <VoiceRecorderPanel
+                      labels={recorderLabels}
+                      saving={savingRecording}
+                      onUse={(blob) => void handleRecorderUse(blob)}
+                      onCancel={handleRecorderCancel}
+                    />
+                  ) : createForm.referenceAudioPath ? (
                     <>
                       <span className="voice-form__upload-filename">
                         {displayAudioName(createForm.referenceAudioPath)}
@@ -429,7 +528,7 @@ export function VoiceLibrary({
                       <button
                         type="button"
                         className="btn btn--ghost btn--small"
-                        disabled={transcribingCreateAudio || creating}
+                        disabled={transcribingCreateAudio || creating || savingRecording}
                         onClick={() =>
                           setCreateForm((current) => ({
                             ...current,
@@ -491,6 +590,8 @@ export function VoiceLibrary({
                 className="btn btn--secondary btn--small"
                 onClick={() => {
                   setCreateTranscriptError(null);
+                  setRecorderActive(false);
+                  setSavingRecording(false);
                   setCreateOpen(false);
                 }}
               >
@@ -500,7 +601,7 @@ export function VoiceLibrary({
                 type="button"
                 className="btn btn--primary btn--small"
                 onClick={() => void handleCreateVoice()}
-                disabled={creating || transcribingCreateAudio}
+                disabled={creating || transcribingCreateAudio || recorderActive || savingRecording}
               >
                 {t("studio.voiceLibrary.create")}
               </button>

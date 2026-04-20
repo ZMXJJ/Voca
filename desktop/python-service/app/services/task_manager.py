@@ -181,6 +181,7 @@ class TaskManager:
         task_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
         queue_depth = self._work_queue.qsize()
+        voice_name = payload.voiceName.strip() if payload.voiceName and payload.voiceName.strip() else None
         task = TaskRecord(
             id=task_id,
             type="generate",
@@ -188,6 +189,7 @@ class TaskManager:
             createdAt=now,
             updatedAt=now,
             title=self._task_title_from_text(payload.targetText),
+            voiceName=voice_name,
             progress=0,
             message=f"Queued (position {queue_depth + 1})" if queue_depth > 0 else "Task queued",
         )

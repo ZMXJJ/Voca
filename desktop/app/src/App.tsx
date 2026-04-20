@@ -22,6 +22,7 @@ import { PreviewGalleryPage } from "./pages/PreviewGalleryPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import { getPreviewModeFromSearch, type PreviewMode, type SinglePreviewScene } from "./preview";
 import { IconVocaLogo } from "./components/Icons";
+import i18n from "./i18n";
 import {
   completeOnboarding,
   createGenerateTask,
@@ -182,6 +183,7 @@ function createPreviewTask(task: TaskRecord | null): TaskRecord {
     createdAt: now,
     updatedAt: now,
     title: "preview task",
+    voiceName: i18n.t("preview.sceneTag"),
     progress: 100,
     message: "preview_task",
     error: null,

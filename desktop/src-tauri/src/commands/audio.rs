@@ -127,3 +127,33 @@ pub async fn pick_audio_file() -> Result<Option<String>, String> {
         None => Ok(None),
     }
 }
+
+#[tauri::command]
+pub async fn save_recorded_audio(
+    audio_base64: String,
+    extension: String,
+) -> Result<String, String> {
+    let trimmed_extension = extension.trim().trim_start_matches('.').to_lowercase();
+    if trimmed_extension.is_empty() {
+        return Err("Audio extension is required".to_string());
+    }
+    if !trimmed_extension
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric())
+    {
+        return Err(format!("Unsupported audio extension: {extension}"));
+    }
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(audio_base64.as_bytes())
+        .map_err(|error| format!("Invalid base64 payload: {error}"))?;
+    if bytes.is_empty() {
+        return Err("Recorded audio payload is empty".to_string());
+    }
+
+    let destination_dir = imported_audio_dir()?.join(Uuid::new_v4().to_string());
+    fs::create_dir_all(&destination_dir).map_err(|error| error.to_string())?;
+    let destination_path = destination_dir.join(format!("recorded.{trimmed_extension}"));
+    fs::write(&destination_path, &bytes).map_err(|error| error.to_string())?;
+    Ok(destination_path.display().to_string())
+}

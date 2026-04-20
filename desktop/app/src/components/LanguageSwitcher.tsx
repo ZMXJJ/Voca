@@ -1,17 +1,11 @@
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  LANGUAGE_SHORT_LABELS,
   resolveAppLanguage,
   setAppLanguage,
   SUPPORTED_LANGUAGES,
-  type SupportedLanguage,
 } from "../i18n";
-
-const LANGUAGE_LABEL_KEYS: Record<SupportedLanguage, string> = {
-  en: "common.language.en",
-  "zh-CN": "common.language.zhCN",
-  "zh-TW": "common.language.zhTW",
-};
 
 export function LanguageSwitcher() {
   const { i18n, t } = useTranslation();
@@ -42,7 +36,7 @@ export function LanguageSwitcher() {
           }}
           type="button"
         >
-          {t(LANGUAGE_LABEL_KEYS[language])}
+          {LANGUAGE_SHORT_LABELS[language]}
         </button>
       ))}
     </div>

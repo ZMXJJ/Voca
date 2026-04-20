@@ -7,6 +7,16 @@ import zhTW from "./locales/zh-TW";
 export const LANGUAGE_STORAGE_KEY = "voca.locale";
 export const SUPPORTED_LANGUAGES = ["en", "zh-CN", "zh-TW"] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
+export const LANGUAGE_NATIVE_LABELS: Record<SupportedLanguage, string> = {
+  en: "English",
+  "zh-CN": "简体中文",
+  "zh-TW": "繁體中文",
+};
+export const LANGUAGE_SHORT_LABELS: Record<SupportedLanguage, string> = {
+  en: "EN",
+  "zh-CN": "简",
+  "zh-TW": "繁",
+};
 
 export function resolveAppLanguage(language?: string | null): SupportedLanguage {
   if (!language) {

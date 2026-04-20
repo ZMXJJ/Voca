@@ -2,9 +2,22 @@ import type { SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number };
 
-function defaults(props: IconProps, size = 24): SVGProps<SVGSVGElement> {
-  const { size: s = size, ...rest } = props;
-  return { width: s, height: s, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, ...rest };
+function defaults(
+  props: IconProps,
+  options: { size?: number; viewBox?: string } = {},
+): SVGProps<SVGSVGElement> {
+  const { size: s = options.size ?? 24, ...rest } = props;
+  return {
+    width: s,
+    height: s,
+    viewBox: options.viewBox ?? "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    ...rest,
+  };
 }
 
 export function IconHome(props: IconProps) {
@@ -55,17 +68,16 @@ export function IconAlert(props: IconProps) {
 
 export function IconPlay(props: IconProps) {
   return (
-    <svg {...defaults(props)} fill="currentColor" stroke="none">
-      <polygon points="6,3 20,12 6,21" />
+    <svg {...defaults(props, { viewBox: "0 0 20.6934 20.8691" })} fill="currentColor" stroke="none">
+      <path d="M2.25586 19.1699C2.25586 20.3223 2.92969 20.8594 3.7207 20.8594C4.0625 20.8594 4.42383 20.752 4.76562 20.5566L19.4531 11.9238C20.3613 11.3965 20.6934 11.0254 20.6934 10.4297C20.6934 9.82422 20.3613 9.45312 19.4531 8.92578L4.76562 0.292969C4.42383 0.0976562 4.0625 0 3.7207 0C2.92969 0 2.25586 0.527344 2.25586 1.67969Z" opacity="0.85" />
     </svg>
   );
 }
 
 export function IconPause(props: IconProps) {
   return (
-    <svg {...defaults(props)} fill="currentColor" stroke="none">
-      <rect x="5" y="3" width="5" height="18" rx="1" />
-      <rect x="14" y="3" width="5" height="18" rx="1" />
+    <svg {...defaults(props, { viewBox: "0 0 15.1953 20.5566" })} fill="currentColor" stroke="none">
+      <path d="M1.5625 20.5371L4.375 20.5371C5.41992 20.5371 5.9375 20.0195 5.9375 18.9746L5.9375 1.5625C5.9375 0.478516 5.41992 0 4.375 0L1.5625 0C0.517578 0 0 0.517578 0 1.5625L0 18.9746C0 20.0195 0.517578 20.5371 1.5625 20.5371ZM10.459 20.5371L13.2715 20.5371C14.3164 20.5371 14.834 20.0195 14.834 18.9746L14.834 1.5625C14.834 0.478516 14.3164 0 13.2715 0L10.459 0C9.41406 0 8.89648 0.517578 8.89648 1.5625L8.89648 18.9746C8.89648 20.0195 9.41406 20.5371 10.459 20.5371Z" opacity="0.85" />
     </svg>
   );
 }
@@ -120,9 +132,9 @@ export function IconMicrophone(props: IconProps) {
 
 export function IconSparkle(props: IconProps) {
   return (
-    <svg {...defaults(props)} fill="currentColor" stroke="none">
-      <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
-      <path d="M18 14l1.18 3.54L22.72 19l-3.54 1.46L18 24l-1.18-3.54L13.28 19l3.54-1.46L18 14z" opacity="0.6" />
+    <svg {...defaults(props, { viewBox: "0 0 27.0703 31.2012" })} fill="currentColor" stroke="none">
+      <path d="M5.45898 20.3125C5.22461 20.3125 5.05859 20.459 5.0293 20.7031C4.52148 24.6094 4.39453 24.6484 0.429688 25.3223C0.15625 25.3613 0 25.5078 0 25.752C0 25.9961 0.15625 26.1328 0.380859 26.1719C4.375 26.9434 4.52148 26.9043 5.0293 30.7812C5.05859 31.0449 5.22461 31.2012 5.45898 31.2012C5.68359 31.2012 5.85938 31.0449 5.88867 30.791C6.41602 26.8555 6.52344 26.7969 10.5273 26.1719C10.752 26.1426 10.9082 25.9961 10.9082 25.752C10.9082 25.5176 10.752 25.3613 10.5273 25.3223C6.52344 24.5508 6.42578 24.5898 5.88867 20.6836C5.85938 20.459 5.68359 20.3125 5.45898 20.3125Z" opacity="0.85" />
+      <path d="M15.3223 4.12109C14.9707 4.12109 14.7168 4.36523 14.6777 4.7168C13.6035 12.9199 12.5879 13.8184 4.55078 14.8535C4.18945 14.8926 3.93555 15.1562 3.93555 15.498C3.93555 15.8496 4.18945 16.1133 4.55078 16.1523C12.6172 16.9824 13.6914 18.0762 14.6777 26.2793C14.7168 26.6309 14.9707 26.8848 15.3223 26.8848C15.6641 26.8848 15.9277 26.6309 15.9766 26.2793C16.9727 18.0762 18.0371 16.9824 26.0938 16.1523C26.4648 16.1133 26.709 15.8496 26.709 15.498C26.709 15.1562 26.4648 14.8926 26.0938 14.8535C18.0371 14.0137 16.9727 12.9199 15.9766 4.7168C15.9277 4.36523 15.6641 4.12109 15.3223 4.12109Z" opacity="0.85" />
     </svg>
   );
 }
@@ -157,6 +169,15 @@ export function IconUpload(props: IconProps) {
       <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
       <polyline points="17 8 12 3 7 8" />
       <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  );
+}
+
+export function IconPlus(props: IconProps) {
+  return (
+    <svg {...defaults(props, { viewBox: "0 0 20 20" })} fill="currentColor" stroke="none">
+      <rect x="8.875" y="3.25" width="2.25" height="13.5" rx="1.125" />
+      <rect x="3.25" y="8.875" width="13.5" height="2.25" rx="1.125" />
     </svg>
   );
 }
