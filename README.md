@@ -21,6 +21,13 @@
   A local-first desktop app for voice cloning. Download and use — high-quality speech synthesis and voice cloning run entirely on your machine!
 </p>
 
+<p align="center">
+  <br />
+  <a href="https://github.com/ZMXJJ/Voca/releases/latest">
+    <img src="https://img.shields.io/badge/Download_for_macOS-7c3aed?style=for-the-badge&logo=apple&logoColor=white" alt="Download Voca" />
+  </a>
+</p>
+
 ---
 
 ## Screenshots

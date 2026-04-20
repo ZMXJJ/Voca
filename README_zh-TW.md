@@ -21,6 +21,13 @@
   一款執行在本地的語音複製桌面應用。下載即用，無需聯網即可完成高品質語音合成與聲音複製！
 </p>
 
+<p align="center">
+  <br />
+  <a href="https://github.com/ZMXJJ/Voca/releases/latest">
+    <img src="https://img.shields.io/badge/下載_macOS_版本-7c3aed?style=for-the-badge&logo=apple&logoColor=white" alt="下載 Voca" />
+  </a>
+</p>
+
 ---
 
 ## 應用截圖

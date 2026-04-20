@@ -21,6 +21,13 @@
   一款运行在本地的语音克隆桌面应用。下载即用，无需联网即可完成高质量语音合成与声音克隆！
 </p>
 
+<p align="center">
+  <br />
+  <a href="https://github.com/ZMXJJ/Voca/releases/latest">
+    <img src="https://img.shields.io/badge/下载_macOS_版本-7c3aed?style=for-the-badge&logo=apple&logoColor=white" alt="下载 Voca" />
+  </a>
+</p>
+
 ---
 
 ## 应用截图
