@@ -45,7 +45,7 @@
 - **High-Quality Voice Cloning** — Powered by the VoxCPM engine, supporting bilingual (Chinese & English) speech synthesis and voice cloning
 - **Fine-Grained Control** — Adjustable CFG guidance scale, inference steps, seed, text normalization, post-processing denoising, and more
 - **Extreme Clone Mode** — Uses reference audio transcription to further improve voice fidelity
-- **Built-in ASR** — Automatically transcribes reference audio with the SenseVoice ASR engine, with manual editing support
+- **Built-in ASR** — Automatically transcribes reference audio with SenseVoice Small (ONNX Runtime on CPU), with manual editing support
 - **Dual Model Sources** — Download models from Hugging Face or ModelScope, with automatic source recommendation
 - **Trilingual UI** — Traditional Chinese, Simplified Chinese, and English interface
 
@@ -115,7 +115,7 @@ Adjustable generation parameters:
 
 ### Voice Library
 
-Manage preset and custom voices. When creating custom voices, upload reference audio and the built-in SenseVoice ASR engine will automatically transcribe the text, with support for manual editing.
+Manage preset and custom voices. When creating custom voices, upload reference audio and the built-in SenseVoice ONNX recognizer will automatically transcribe the text, with support for manual editing.
 
 ### Generation History
 

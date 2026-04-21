@@ -119,7 +119,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `audioPath` | string | 是 | 待转录音频文件的本地路径 |
-| `modelKey` | string | 否 | ASR 模型标识，默认 `"sensevoice_small"` |
+| `modelKey` | string | 否 | ASR 在模型目录中的标识，默认 `"sensevoice_small"`（与 ONNX 资源对应；本地安装目录名为 `sensevoice_small_onnx`，见 `model_catalog.json` 的 `localDirName`） |
 
 ### 成功响应
 
@@ -131,7 +131,7 @@
   "result": {
     "transcript": "你好，世界。",
     "transcriptLanguage": "zh",
-    "modelPath": "/path/to/sensevoice_small"
+    "modelPath": "/path/to/sensevoice_small_onnx"
   }
 }
 ```

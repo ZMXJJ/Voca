@@ -14,7 +14,7 @@
 {
   "service": "voca-python-service",
   "status": "ok",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "instanceId": "a1b2c3d4",
   "startedAt": "2025-01-01T00:00:00Z",
   "modelLoaded": true,
@@ -24,6 +24,7 @@
   "zipEnhancerReady": true,
   "speechToolsReady": true,
   "bootstrapAssetsReady": true,
+  "legacyAsrModelPresent": false,
   "deviceName": "Apple M1",
   "deviceType": "mps",
   "audioOutputDir": "/path/to/audio",
@@ -67,3 +68,4 @@
 | `bootstrapAssetsReady` | boolean | 所有引導資源是否全部就緒 |
 | `deviceType` | string | 推理裝置類型：`"mps"` / `"cuda"` / `"cpu"` |
 | `bootstrapAssets` | array | 各引導資源的就緒狀態詳情 |
+| `legacyAsrModelPresent` | boolean | 是否仍存在舊版 FunASR / PyTorch SenseVoice 目錄（`sensevoice_small/model.pt`）。桌面端會據此提示使用者清理並下載 ONNX 資源；清理完成後此欄位為 `false` |

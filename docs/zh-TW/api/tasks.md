@@ -119,7 +119,7 @@
 | 欄位 | 類型 | 必填 | 說明 |
 |------|------|------|------|
 | `audioPath` | string | 是 | 待轉錄音訊檔案的本地路徑 |
-| `modelKey` | string | 否 | ASR 模型標識，預設 `"sensevoice_small"` |
+| `modelKey` | string | 否 | ASR 在模型目錄中的標識，預設 `"sensevoice_small"`（對應 ONNX 資源；本機安裝目錄名為 `sensevoice_small_onnx`，見 `model_catalog.json` 的 `localDirName`） |
 
 ### 成功響應
 
@@ -131,7 +131,7 @@
   "result": {
     "transcript": "你好，世界。",
     "transcriptLanguage": "zh",
-    "modelPath": "/path/to/sensevoice_small"
+    "modelPath": "/path/to/sensevoice_small_onnx"
   }
 }
 ```

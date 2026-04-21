@@ -22,7 +22,7 @@ graph TB
             Routes["main.py<br/>17 API Endpoints"]
             TaskMgr["TaskManager<br/>任务编排"]
             VoxCPM["VoxCPM<br/>TTS Engine"]
-            ASR["SenseVoice<br/>ASR Engine"]
+            ASR["SenseVoice Small<br/>ONNX Runtime (CPU)"]
             Enhancer["ZipEnhancer<br/>音频增强"]
             VoiceLib["VoiceLibrary<br/>SQLite + 文件"]
         end
@@ -244,7 +244,7 @@ flowchart TD
     UserClick --> StartDL["invoke('start_bootstrap_download')<br/>POST /api/v1/bootstrap/start"]
 
     StartDL --> DL_TTS["下载 VoxCPM (TTS)"]
-    StartDL --> DL_ASR["下载 SenseVoice (ASR)"]
+    StartDL --> DL_ASR["下载 SenseVoice ONNX (ASR)"]
     StartDL --> DL_ENH["下载 ZipEnhancer"]
 
     DL_TTS --> Poll["轮询任务进度"]

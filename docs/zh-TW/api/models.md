@@ -224,8 +224,8 @@
       "key": "sensevoice_small",
       "role": "asr",
       "status": "running",
-      "downloadedBytes": 200000000,
-      "totalBytes": 936000000
+      "downloadedBytes": 120000000,
+      "totalBytes": 234000000
     }
   ]
 }

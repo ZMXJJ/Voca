@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Voca Python Service",
-    "version": "0.1.0",
+    "version": "0.4.0",
     "description": "Voca 推理后端 API — 本地语音克隆桌面应用的 FastAPI sidecar 服务"
   },
   "paths": {
@@ -166,6 +166,38 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/TaskRecord" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bootstrap/cleanup-legacy-asr": {
+      "post": {
+        "operationId": "cleanup_legacy_asr_model",
+        "summary": "清理旧版 PyTorch SenseVoice 目录",
+        "description": "将遗留的 `sensevoice_small/`（含 `model.pt`）移入 `.trash` 并异步删除，供升级至 ONNX 后释放空间。请求体可为空对象。",
+        "tags": ["Bootstrap"],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "additionalProperties": true }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "是否发现并处理了遗留目录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "removed": { "type": "boolean", "description": "本次是否将遗留目录移入回收区" }
+                  },
+                  "required": ["removed"]
+                }
               }
             }
           }
@@ -552,6 +584,11 @@
             "type": "array",
             "items": { "$ref": "#/components/schemas/BootstrapAssetStatus" },
             "default": []
+          },
+          "legacyAsrModelPresent": {
+            "type": "boolean",
+            "default": false,
+            "description": "是否仍存在旧版 PyTorch SenseVoice 目录（sensevoice_small/model.pt）；桌面端据此提示迁移至 ONNX"
           }
         },
         "required": ["service", "status", "modelLoaded", "asrLoaded", "version"]

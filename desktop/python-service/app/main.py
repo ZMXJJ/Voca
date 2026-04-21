@@ -48,7 +48,7 @@ from app.services.storage_paths import (
     voices_dir,
 )
 
-app = FastAPI(title="Voca Python Service", version="0.3.0")
+app = FastAPI(title="Voca Python Service", version="0.4.0")
 task_manager = TaskManager()
 SERVICE_LOG_LEVEL = "warning"
 SERVICE_INSTANCE_ID = str(uuid.uuid4())
@@ -188,7 +188,7 @@ def _build_health_response() -> HealthResponse:
         zipEnhancerReady=asset_ready_map.get("zipenhancer_16k", False),
         speechToolsReady=all(asset_ready_map.get(key, False) for key in ("sensevoice_small", "zipenhancer_16k")),
         bootstrapAssetsReady=all(item.ready for item in asset_statuses),
-        version="0.3.0",
+        version="0.4.0",
         deviceName=device_name,
         deviceType=device_type,
         audioOutputDir=str(output_dir),
