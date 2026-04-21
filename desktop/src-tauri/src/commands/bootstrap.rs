@@ -65,6 +65,12 @@ const AUX_ASSET_MARKER_FILES: [&str; 5] = [
     "model.bin",
     "model.safetensors",
 ];
+/// ONNX SenseVoice lives under ``sensevoice_small_onnx/`` (catalog key remains ``sensevoice_small``).
+const SENSEVOICE_ONNX_DIR: &str = "sensevoice_small_onnx";
+const SENSEVOICE_ONNX_REQUIRED: [&str; 2] = ["am.mvn", "tokens.json"];
+const SENSEVOICE_ONNX_WEIGHTS: [&str; 2] = ["model_quant.onnx", "model.onnx"];
+/// Pre-ONNX installs used ``sensevoice_small/model.pt``.
+const SENSEVOICE_LEGACY_DIR: &str = "sensevoice_small";
 
 fn dir_has_any_file(dir: &Path, candidates: &[&str]) -> bool {
     candidates
@@ -134,9 +140,29 @@ fn aux_asset_ready(local_dir: &Path) -> bool {
     dir_has_any_regular_file(local_dir)
 }
 
+/// Match ``bootstrap_assets._is_sensevoice_onnx_ready`` + legacy ``model.pt`` dir for migration windows.
+fn sensevoice_local_bootstrap_ready(models_root: &Path) -> bool {
+    let onnx_dir = models_root.join(SENSEVOICE_ONNX_DIR);
+    if onnx_dir.is_dir() {
+        let has_required = SENSEVOICE_ONNX_REQUIRED
+            .iter()
+            .all(|name| onnx_dir.join(name).exists());
+        let has_weights = dir_has_any_file(&onnx_dir, &SENSEVOICE_ONNX_WEIGHTS);
+        if has_required && has_weights {
+            return true;
+        }
+    }
+    let legacy = models_root.join(SENSEVOICE_LEGACY_DIR);
+    legacy.is_dir() && legacy.join("model.pt").exists()
+}
+
 fn local_bootstrap_asset_ready(model_key: &str) -> bool {
     match model_key {
         "voxcpm2" => voxcpm_ready_with_override(),
+        "sensevoice_small" => match models_root_dir() {
+            Some(root) => sensevoice_local_bootstrap_ready(&root),
+            None => false,
+        },
         _ => match models_root_dir() {
             Some(root) => aux_asset_ready(&root.join(model_key)),
             None => false,
