@@ -295,6 +295,31 @@ const en = {
       recentError: "Recent Error",
       none: "None",
     },
+    inferenceBackend: {
+      title: "Inference Backend",
+      activeLabel: "Active backend",
+      gpuDetected: "NVIDIA GPU detected",
+      gpuNotDetected: "No NVIDIA GPU detected",
+      cpu: "CPU",
+      cuda: "CUDA",
+      mps: "MPS (Apple Silicon)",
+      upgradeAvailable:
+        "Upgrade to the CUDA build of PyTorch to take advantage of your GPU. The download is roughly 2.5 GB and runs in the background.",
+      upgradeButton: "Upgrade to CUDA",
+      upgradeRunning: "Upgrading to CUDA…",
+      stage: {
+        download: "1/4 Downloading wheels",
+        verify: "2/4 Verifying wheels",
+        install: "3/4 Installing runtime",
+        validate: "4/4 Validating installation",
+      },
+      successBanner:
+        "CUDA backend installed successfully. The new runtime will be used after the next restart.",
+      rolledBackBanner:
+        "CUDA upgrade failed and was rolled back. The CPU backend is still active. Details: {{message}}",
+      activeCuda: "CUDA backend is active.",
+      lastError: "Last upgrade error: {{message}}",
+    },
     modelManagement: {
       title: "Model Management",
       count: "{{count}} models",

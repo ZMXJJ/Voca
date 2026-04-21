@@ -1,4 +1,5 @@
 mod commands;
+mod platform;
 mod sidecar;
 mod state;
 
@@ -8,8 +9,9 @@ use commands::audio::{
 };
 use commands::bootstrap::{
     cleanup_legacy_asr_model, clear_cache, complete_onboarding, export_logs, get_bootstrap_state,
-    get_quick_bootstrap_state, get_service_info, get_setup_diagnostics, get_sidecar_status,
-    open_external_url, open_microphone_settings, open_storage_directory, start_bootstrap_download,
+    get_quick_bootstrap_state, get_runtime_info, get_service_info, get_setup_diagnostics,
+    get_sidecar_status, open_external_url, open_microphone_settings, open_storage_directory,
+    start_bootstrap_download, start_cuda_upgrade,
 };
 use commands::models::{get_model_catalog, get_provider_recommendation, prepare_model, start_model_download};
 use commands::tasks::{create_asr_task, create_generate_task, get_task, list_tasks};
@@ -30,6 +32,8 @@ pub fn run() {
             get_setup_diagnostics,
             complete_onboarding,
             start_bootstrap_download,
+            start_cuda_upgrade,
+            get_runtime_info,
             cleanup_legacy_asr_model,
             clear_cache,
             export_logs,

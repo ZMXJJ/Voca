@@ -13,6 +13,7 @@ import type {
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import { IconAlert, IconArrowRight, IconCheck, IconVocaLogo } from "../components/Icons";
+import { InferenceBackendCard } from "../components/InferenceBackendCard";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { StepIndicator } from "../components/StepIndicator";
 
@@ -89,6 +90,32 @@ function getFlowSteps(view: BootstrapFlowView, t: Translate) {
     { label: t("bootstrap.flow.step2"), status: statuses[1] },
     { label: t("bootstrap.flow.step3"), status: statuses[2] },
   ];
+}
+
+function formatDeviceTypeLabel(deviceType?: string | null) {
+  if (!deviceType) return null;
+  const normalised = deviceType.trim().toLowerCase();
+  if (normalised === "mps") return "MPS (Apple Silicon)";
+  if (normalised === "cuda") return "CUDA";
+  if (normalised === "cpu") return "CPU";
+  return deviceType;
+}
+
+function formatDeviceSummary(
+  serviceInfo: ServiceInfo | null | undefined,
+  setupDiagnostics: SetupDiagnostics | null | undefined,
+  t: Translate,
+): string {
+  const deviceLabel = formatDeviceTypeLabel(serviceInfo?.deviceType);
+  const deviceName = serviceInfo?.deviceName?.trim();
+  if (deviceLabel && deviceName) {
+    return `${deviceLabel} · ${deviceName}`;
+  }
+  if (deviceLabel) return deviceLabel;
+  if (deviceName) return deviceName;
+  const cpuName = setupDiagnostics?.cpuName?.trim();
+  if (cpuName) return `CPU · ${cpuName}`;
+  return t("bootstrap.init.detecting");
 }
 
 function formatModelDisplayName(modelKey?: string | null) {
@@ -560,7 +587,9 @@ export function BootstrapFlowPage({
                 </div>
                 <div className="summary-card">
                   <div className="summary-card__label">{t("bootstrap.complete.deviceLabel")}</div>
-                  <div className="summary-card__value">MPS (Apple Silicon)</div>
+                  <div className="summary-card__value">
+                    {formatDeviceSummary(serviceInfo, setupDiagnostics, t)}
+                  </div>
                 </div>
                 <div className="summary-card">
                   <div className="summary-card__label">{t("bootstrap.complete.asrLabel")}</div>
@@ -577,6 +606,11 @@ export function BootstrapFlowPage({
                   </div>
                 </div>
               </div>
+              {setupDiagnostics?.hasNvidiaGpu ? (
+                <div style={{ marginTop: 16 }}>
+                  <InferenceBackendCard setupDiagnostics={setupDiagnostics} />
+                </div>
+              ) : null}
             </div>
           </>
         )}

@@ -14,8 +14,6 @@
       {
         "label": "main",
         "title": "Voca",
-        "hiddenTitle": true,
-        "titleBarStyle": "Transparent",
         "width": 1440,
         "height": 980,
         "resizable": true
@@ -28,7 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.png", "icons/icon.icns"],
+    "icon": ["icons/icon.png", "icons/icon.icns", "icons/icon.ico"],
     "resources": [
       "../.bundle-resources/python-service",
       "../.bundle-resources/python-runtime",
@@ -37,6 +35,15 @@
     "macOS": {
       "entitlements": "./Entitlements.plist",
       "minimumSystemVersion": "14.0"
+    },
+    "windows": {
+      "wix": null,
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "languages": ["English", "SimpChinese"],
+        "displayLanguageSelector": true
+      }
     }
   }
 }

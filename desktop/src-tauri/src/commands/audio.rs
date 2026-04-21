@@ -6,22 +6,12 @@ use std::{
 };
 use uuid::Uuid;
 
-fn app_support_dir_path() -> Result<PathBuf, String> {
-    let home = std::env::var_os("HOME").ok_or_else(|| "HOME is not set".to_string())?;
-    let base = if cfg!(target_os = "macos") {
-        PathBuf::from(home)
-            .join("Library")
-            .join("Application Support")
-    } else {
-        PathBuf::from(home).join(".local").join("share")
-    };
-    let dir = base.join("Voca");
-    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    Ok(dir)
-}
+use crate::platform;
 
 fn imported_audio_dir() -> Result<PathBuf, String> {
-    let dir = app_support_dir_path()?.join("imports").join("reference-audio");
+    let dir = platform::app_support_dir()?
+        .join("imports")
+        .join("reference-audio");
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     Ok(dir)
 }

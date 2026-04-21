@@ -10,6 +10,7 @@ use std::{
 use reqwest::Client;
 use tauri::{AppHandle, Manager};
 
+use crate::platform;
 use crate::state::{AppState, SidecarStatus};
 
 const SIDECAR_HOST: &str = "127.0.0.1";
@@ -39,18 +40,7 @@ fn repo_root() -> PathBuf {
 }
 
 fn voca_app_support_dir() -> Result<PathBuf, String> {
-    let home_dir = env::var_os("HOME").ok_or_else(|| "HOME is not set".to_string())?;
-    let base_dir = if cfg!(target_os = "macos") {
-        PathBuf::from(home_dir)
-            .join("Library")
-            .join("Application Support")
-    } else {
-        PathBuf::from(home_dir).join(".local").join("share")
-    };
-
-    let app_support_dir = base_dir.join("Voca");
-    fs::create_dir_all(&app_support_dir).map_err(|error| error.to_string())?;
-    Ok(app_support_dir)
+    platform::app_support_dir()
 }
 
 fn sidecar_log_path() -> Result<PathBuf, String> {
@@ -62,24 +52,11 @@ fn sidecar_log_path() -> Result<PathBuf, String> {
 }
 
 fn detect_site_packages(venv_root: &Path) -> Option<PathBuf> {
-    let lib_root = venv_root.join("lib");
-    let entries = fs::read_dir(lib_root).ok()?;
-
-    for entry in entries.flatten() {
-        let site_packages = entry.path().join("site-packages");
-        if site_packages.exists() {
-            return Some(site_packages);
-        }
-    }
-
-    None
+    platform::detect_site_packages(venv_root)
 }
 
-fn find_python_executable(bin_root: &Path) -> Option<PathBuf> {
-    ["VocaService", "python3.11", "python3", "python"]
-        .into_iter()
-        .map(|name| bin_root.join(name))
-        .find(|path| path.exists())
+fn find_python_executable(venv_root: &Path) -> Option<PathBuf> {
+    platform::find_python_executable(venv_root)
 }
 
 fn prepare_log_file(log_path: &Path) -> Result<(), String> {
@@ -112,8 +89,16 @@ fn resolve_dev_sidecar_paths() -> SidecarPaths {
     let service_root = desktop_root().join("python-service");
     let voxcpm_src = repo_root().join("VoxCPM").join("src");
 
+    let venv_root = service_root.join(".venv");
+    let python_executable = find_python_executable(&venv_root).unwrap_or_else(|| {
+        // Fallback so callers still see a predictable path when the venv isn't ready yet.
+        venv_root
+            .join(platform::venv_bin_subdir())
+            .join(platform::python_executable_candidates()[0])
+    });
+
     SidecarPaths {
-        python_executable: service_root.join(".venv/bin/python"),
+        python_executable,
         python_path_entries: Vec::new(),
         bundle_resource_dir: None,
         voxcpm_src,
@@ -140,7 +125,7 @@ fn resolve_bundled_sidecar_paths(app_handle: &AppHandle) -> Option<SidecarPaths>
             continue;
         }
 
-        let python_executable = find_python_executable(&runtime_root.join("bin"))?;
+        let python_executable = find_python_executable(&runtime_root)?;
         let site_packages = detect_site_packages(&service_root.join(".venv"))?;
 
         return Some(SidecarPaths {
@@ -241,53 +226,62 @@ fn tracked_sidecar_running(state: &AppState) -> Result<bool, String> {
     Ok(running)
 }
 
-fn listening_pids(port: u16) -> Result<Vec<u32>, String> {
-    let output = Command::new("lsof")
-        .args([
-            "-t",
-            "-nP",
-            &format!("-iTCP:{port}"),
-            "-sTCP:LISTEN",
-        ])
-        .output()
-        .map_err(|error| error.to_string())?;
-
-    if !output.status.success() && output.status.code() != Some(1) {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
-            "failed to inspect listening sidecar process".into()
-        } else {
-            stderr
-        });
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| line.trim().parse::<u32>().ok())
-        .collect())
+fn kill_port_listener(port: u16) -> Result<(), String> {
+    platform::kill_port_listener(port)
 }
 
-fn kill_port_listener(port: u16) -> Result<(), String> {
-    let pids = listening_pids(port)?;
-    if pids.is_empty() {
-        return Ok(());
+/// Probe the Python runtime's torch install and automatically restore the
+/// previous backend from ``runtime/rollback/`` if the current one is broken.
+///
+/// Implementation note: we defer the work to the sidecar's own Python so we
+/// don't have to re-implement the swap semantics in Rust. The call is best-
+/// effort — if anything goes wrong we just log and continue; the FastAPI health
+/// probe in ``ensure_sidecar_running`` will surface any remaining failures.
+fn ensure_torch_healthy(paths: &SidecarPaths) {
+    if !paths.python_executable.exists() {
+        return;
     }
 
-    for pid in &pids {
-        let _ = Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .status();
+    let mut command = Command::new(&paths.python_executable);
+    command.arg("-c");
+    command.arg(concat!(
+        "import json, sys\n",
+        "try:\n",
+        "    from app.services.cuda_upgrade import ensure_torch_healthy\n",
+        "except Exception as exc:\n",
+        "    print(json.dumps({'action': 'import_failed', 'message': str(exc)}))\n",
+        "    sys.exit(0)\n",
+        "report = ensure_torch_healthy()\n",
+        "print(json.dumps(report))\n",
+    ));
+
+    // Feed the same PYTHONPATH entries we pass to the sidecar so the `app`
+    // package can be imported even when it lives inside the bundled resources.
+    if !paths.python_path_entries.is_empty() {
+        let joined = std::env::join_paths(&paths.python_path_entries);
+        if let Ok(value) = joined {
+            command.env("PYTHONPATH", value);
+        }
     }
+    command.current_dir(&paths.service_root);
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
 
-    std::thread::sleep(Duration::from_millis(300));
-
-    for pid in listening_pids(port)? {
-        let _ = Command::new("kill")
-            .args(["-KILL", &pid.to_string()])
-            .status();
+    match command.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !stdout.trim().is_empty() {
+                eprintln!("[voca][self-heal] {}", stdout.trim());
+            }
+            if !stderr.trim().is_empty() {
+                eprintln!("[voca][self-heal][stderr] {}", stderr.trim());
+            }
+        }
+        Err(error) => {
+            eprintln!("[voca][self-heal] failed to run self-heal probe: {error}");
+        }
     }
-
-    Ok(())
 }
 
 pub fn shutdown_sidecar(state: &AppState) -> Result<(), String> {
@@ -385,6 +379,10 @@ pub async fn ensure_sidecar_running(
             reason: Some("python_service_venv_missing".into()),
         });
     }
+
+    // Self-heal a corrupted torch install (typically a half-finished CUDA upgrade)
+    // before every sidecar start. This is a no-op if torch imports cleanly.
+    ensure_torch_healthy(&sidecar_paths);
 
     {
         let mut guard = state

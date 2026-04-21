@@ -284,6 +284,30 @@ const zhCN = {
       recentError: "最近错误",
       none: "无",
     },
+    inferenceBackend: {
+      title: "推理后端",
+      activeLabel: "当前后端",
+      gpuDetected: "检测到 NVIDIA GPU",
+      gpuNotDetected: "未检测到 NVIDIA GPU",
+      cpu: "CPU",
+      cuda: "CUDA",
+      mps: "MPS（Apple Silicon）",
+      upgradeAvailable:
+        "升级到 CUDA 版本的 PyTorch 以启用 GPU 加速。下载量约 2.5 GB，全程在后台进行。",
+      upgradeButton: "升级到 CUDA",
+      upgradeRunning: "正在升级到 CUDA…",
+      stage: {
+        download: "1/4 下载安装包",
+        verify: "2/4 校验安装包",
+        install: "3/4 安装运行时",
+        validate: "4/4 验证安装结果",
+      },
+      successBanner: "CUDA 后端安装成功，重启后即可启用新的运行时。",
+      rolledBackBanner:
+        "CUDA 升级失败，已自动回退到 CPU 后端。错误信息：{{message}}",
+      activeCuda: "CUDA 后端已启用。",
+      lastError: "上次升级错误：{{message}}",
+    },
     modelManagement: {
       title: "模型管理",
       count: "{{count}} 个模型",

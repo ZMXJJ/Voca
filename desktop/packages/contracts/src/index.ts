@@ -42,7 +42,21 @@ export type AppError = {
   details?: Record<string, unknown>;
 };
 
-export type TaskType = "bootstrap" | "generate" | "clone" | "asr_transcribe";
+export type TaskType =
+  | "bootstrap"
+  | "generate"
+  | "clone"
+  | "asr_transcribe"
+  | "cuda_upgrade";
+
+export type CudaUpgradeStage = "download" | "verify" | "install" | "validate";
+
+export type CudaUpgradeRuntimeInfo = {
+  active?: TorchBackend | string | null;
+  lastKnownGoodBackend?: TorchBackend | string | null;
+  lastUpgradeAt?: string | null;
+  lastUpgradeError?: string | null;
+};
 
 export type TaskStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
@@ -193,6 +207,8 @@ export type SidecarStatus = {
 
 export type SetupEnvironmentStatus = "ready" | "missing" | "starting" | "error";
 
+export type TorchBackend = "cpu" | "cuda" | "mps";
+
 export type SetupDiagnostics = {
   cpuName?: string | null;
   totalMemoryBytes?: number | null;
@@ -202,6 +218,10 @@ export type SetupDiagnostics = {
   environmentReady: boolean;
   environmentStatus: SetupEnvironmentStatus;
   environmentReason?: string | null;
+  gpuVendor?: string | null;
+  gpuName?: string | null;
+  hasNvidiaGpu?: boolean;
+  activeTorchBackend?: TorchBackend | string | null;
 };
 
 export type ServiceInfo = {

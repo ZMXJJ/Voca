@@ -6,6 +6,7 @@ import type {
   ModelPrepareResponse,
   ProviderRecommendation,
   ServiceInfo,
+  SetupDiagnostics,
   SidecarStatus,
   TaskRecord,
 } from "@voca/contracts";
@@ -26,6 +27,7 @@ type WorkspacePageProps = {
   auxiliaryModelCatalog: ModelCatalogEntry[];
   downloadedAuxiliaryModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
+  setupDiagnostics?: SetupDiagnostics | null;
   taskHistory: TaskRecord[];
   onPrepareModel: (
     modelKey: string,
@@ -51,6 +53,7 @@ export function WorkspacePage({
   auxiliaryModelCatalog,
   downloadedAuxiliaryModelCatalog,
   serviceInfo,
+  setupDiagnostics,
   taskHistory,
   onPrepareModel,
   onSubmitTask,
@@ -74,6 +77,7 @@ export function WorkspacePage({
             auxiliaryModelCatalog={auxiliaryModelCatalog}
             downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
             serviceInfo={serviceInfo}
+            setupDiagnostics={setupDiagnostics ?? null}
             taskHistory={taskHistory}
             onPrepareModel={onPrepareModel}
             onCacheCleared={onCacheCleared}
@@ -101,6 +105,7 @@ export function WorkspacePage({
     downloadedModelCatalog,
     modelCatalog,
     serviceInfo,
+    setupDiagnostics,
     onPrepareModel,
     onSubmitTask,
     onCacheCleared,

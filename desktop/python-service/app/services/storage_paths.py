@@ -7,6 +7,14 @@ from pathlib import Path
 
 
 def _platform_app_support_root() -> Path:
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA", "").strip()
+        if appdata:
+            return Path(appdata)
+        user_profile = os.environ.get("USERPROFILE", "").strip()
+        if user_profile:
+            return Path(user_profile) / "AppData" / "Roaming"
+        return Path.home() / "AppData" / "Roaming"
     home = Path.home()
     if sys.platform == "darwin":
         return home / "Library" / "Application Support"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import platform
 import subprocess
 import uuid
@@ -26,6 +27,7 @@ from app.models.schemas import (
     VoiceEntry,
     VoiceUpdateRequest,
 )
+from app.services import audio_backend as _audio_backend  # noqa: F401  (side-effect import)
 from app.services.task_manager import TaskManager
 from app.services import voice_library
 from app.services.bootstrap_assets import (
@@ -65,7 +67,8 @@ def _read_command_output(command: list[str]) -> str | None:
 
 @lru_cache(maxsize=1)
 def _detect_host_device_name() -> str | None:
-    if platform.system() == "Darwin":
+    system = platform.system()
+    if system == "Darwin":
         brand = _read_command_output(["sysctl", "-n", "machdep.cpu.brand_string"])
         if brand:
             return brand
@@ -81,6 +84,29 @@ def _detect_host_device_name() -> str | None:
 
         if platform.machine() in ("arm64", "aarch64"):
             return "Apple Silicon"
+
+    if system == "Windows":
+        wmic_output = _read_command_output(["wmic", "cpu", "get", "Name", "/FORMAT:LIST"])
+        if wmic_output:
+            for raw_line in wmic_output.splitlines():
+                line = raw_line.strip()
+                if line.startswith("Name="):
+                    value = line.split("=", 1)[1].strip()
+                    if value:
+                        return value
+
+        powershell_output = _read_command_output([
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "(Get-CimInstance Win32_Processor).Name",
+        ])
+        if powershell_output:
+            return powershell_output
+
+        identifier = os.environ.get("PROCESSOR_IDENTIFIER", "").strip()
+        if identifier:
+            return identifier
 
     processor = platform.processor().strip() if platform.processor() else ""
     if processor:
@@ -340,6 +366,24 @@ def cleanup_legacy_asr_model() -> dict[str, bool]:
     """
     removed = cleanup_legacy_sensevoice_pytorch()
     return {"removed": removed}
+
+
+@app.post("/api/v1/bootstrap/upgrade-cuda", response_model=TaskRecord)
+def create_cuda_upgrade_task() -> TaskRecord:
+    return task_manager.create_cuda_upgrade_task()
+
+
+@app.get("/api/v1/bootstrap/runtime-info")
+def bootstrap_runtime_info() -> dict[str, object]:
+    from app.services import cuda_upgrade
+
+    data = cuda_upgrade.read_runtime_json()
+    return {
+        "active": data.get("active"),
+        "lastKnownGoodBackend": data.get("lastKnownGoodBackend"),
+        "lastUpgradeAt": data.get("lastUpgradeAt"),
+        "lastUpgradeError": data.get("lastUpgradeError"),
+    }
 
 
 @app.post("/api/v1/tasks/generate", response_model=TaskRecord)

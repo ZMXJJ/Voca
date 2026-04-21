@@ -8,10 +8,12 @@
     "lint:web": "npm --prefix app run lint",
     "typecheck:web": "npm --prefix app exec tsc -- -b",
     "prepare:dmg": "node ./scripts/prepare-dmg-resources.mjs",
+    "prepare:windows": "node ./scripts/prepare-windows-resources.mjs",
     "tauri": "tauri",
     "dev": "export SDKROOT=\"$(xcrun --sdk macosx --show-sdk-path)\" && export CPATH=\"$SDKROOT/usr/include\" && tauri dev",
     "build": "node ./scripts/run-tauri-build.mjs",
-    "build:dmg": "npm run prepare:dmg && node ./scripts/run-tauri-build.mjs --bundles dmg"
+    "build:dmg": "npm run prepare:dmg && node ./scripts/run-tauri-build.mjs --bundles dmg",
+    "build:nsis": "npm run prepare:windows && node ./scripts/run-tauri-build.mjs --bundles nsis"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"

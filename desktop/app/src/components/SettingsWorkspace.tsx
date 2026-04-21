@@ -5,6 +5,7 @@ import type {
   ModelPrepareResponse,
   ProviderRecommendation,
   ServiceInfo,
+  SetupDiagnostics,
   SidecarStatus,
   TaskRecord,
 } from "@voca/contracts";
@@ -25,6 +26,7 @@ import {
 import { IconCheck, IconChevronDown, IconDownload, IconHeart } from "./Icons";
 import { UpdateAvailableModal } from "./UpdateAvailableModal";
 import { CustomSelect } from "./CustomSelect";
+import { InferenceBackendCard } from "./InferenceBackendCard";
 import { StorageModal } from "./StorageModal";
 
 const DEFAULT_AUDIO_DOWNLOAD_PATH = "~/Downloads/Voca";
@@ -144,6 +146,7 @@ type SettingsWorkspaceProps = {
   auxiliaryModelCatalog: ModelCatalogEntry[];
   downloadedAuxiliaryModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
+  setupDiagnostics?: SetupDiagnostics | null;
   taskHistory: TaskRecord[];
   onPrepareModel: (
     modelKey: string,
@@ -168,6 +171,7 @@ export function SettingsWorkspace({
   auxiliaryModelCatalog,
   downloadedAuxiliaryModelCatalog,
   serviceInfo,
+  setupDiagnostics,
   taskHistory,
   onPrepareModel,
   onCacheCleared,
@@ -386,6 +390,8 @@ export function SettingsWorkspace({
           </div>
         </div>
       </div>
+
+      <InferenceBackendCard setupDiagnostics={setupDiagnostics} />
 
       {/* Model Management */}
       <div className="settings-section">

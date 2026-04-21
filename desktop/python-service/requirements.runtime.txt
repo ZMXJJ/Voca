@@ -1,5 +1,8 @@
-# Desktop release runtime only.
+# Cross-platform desktop runtime baseline.
 # This intentionally excludes training, dataset tooling, and Gradio/demo dependencies.
+# Platform-specific extras (e.g. torchcodec on macOS) live in
+# requirements.runtime.macos.txt / requirements.runtime.windows.txt and are
+# layered on top of this file by the prepare scripts.
 fastapi==0.135.3
 huggingface-hub==1.10.1
 modelscope==1.35.4
@@ -9,7 +12,6 @@ safetensors==0.7.0
 soundfile==0.13.1
 torch==2.11.0
 torchaudio==2.11.0
-torchcodec==0.11.0
 transformers==5.5.3
 uvicorn==0.44.0
 wetext==0.1.2

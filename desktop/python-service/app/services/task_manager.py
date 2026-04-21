@@ -248,6 +248,149 @@ class TaskManager:
         self._work_queue.put(lambda tid=task_id, pp=provider_preference: self._run_bootstrap_bundle_task(tid, pp))
         return task
 
+    def create_cuda_upgrade_task(self) -> TaskRecord:
+        task_id = str(uuid.uuid4())
+        now = datetime.now(UTC).isoformat()
+        task = TaskRecord(
+            id=task_id,
+            type="cuda_upgrade",
+            status="queued",
+            createdAt=now,
+            updatedAt=now,
+            title="Upgrade inference backend to CUDA",
+            progress=0,
+            message="Preparing CUDA wheels",
+            downloadProgress=DownloadProgress(
+                phase="listing",
+                downloadedBytes=0,
+                totalBytes=None,
+                totalBytesComplete=False,
+                completedFiles=0,
+                totalFiles=2,
+            ),
+        )
+        with self._lock:
+            self._tasks[task_id] = task
+
+        self._work_queue.put(lambda tid=task_id: self._run_cuda_upgrade_task(tid))
+        return task
+
+    def _run_cuda_upgrade_task(self, task_id: str) -> None:
+        from app.services import cuda_upgrade
+
+        def on_progress(event: dict) -> None:
+            stage = event.get("stage")
+            if stage == "download":
+                downloaded = int(event.get("downloadedBytes") or 0)
+                total = event.get("totalBytes")
+                total_complete = bool(event.get("totalBytesComplete"))
+                total_files = int(event.get("totalFiles") or 2)
+                completed = int(event.get("completedFiles") or 0)
+                current_file = event.get("currentFile")
+                ratio = 0.0
+                if total_complete and total and total > 0:
+                    ratio = max(0.0, min(1.0, downloaded / total))
+                progress = int(ratio * 85)
+                self._update_task(
+                    task_id,
+                    status="running",
+                    progress=progress,
+                    message=current_file or "Downloading CUDA wheels",
+                    download_progress=DownloadProgress(
+                        phase="downloading",
+                        downloadedBytes=downloaded,
+                        totalBytes=total if total_complete else None,
+                        totalBytesComplete=total_complete,
+                        completedFiles=completed,
+                        totalFiles=total_files,
+                        currentFile=current_file,
+                    ),
+                )
+            elif stage == "verifying":
+                self._update_task(
+                    task_id,
+                    status="running",
+                    progress=88,
+                    message="Verifying wheels",
+                )
+            elif stage == "installing":
+                self._update_task(
+                    task_id,
+                    status="running",
+                    progress=94,
+                    message="Installing CUDA runtime",
+                )
+            elif stage == "validating":
+                self._update_task(
+                    task_id,
+                    status="running",
+                    progress=98,
+                    message="Validating CUDA runtime",
+                )
+
+        self._update_task(
+            task_id,
+            status="running",
+            progress=1,
+            message="Fetching PyTorch index",
+        )
+
+        try:
+            result = cuda_upgrade.run_cuda_upgrade(progress=on_progress)
+            self._update_task(
+                task_id,
+                status="succeeded",
+                progress=100,
+                message=f"CUDA runtime active (torch {result.self_check.get('torch_version')})",
+            )
+        except cuda_upgrade.UpgradeLockBusy as exc:
+            self._update_task(
+                task_id,
+                status="failed",
+                progress=0,
+                message="Another CUDA upgrade is already running",
+                error=AppError(
+                    code="cuda_upgrade_busy",
+                    userMessageKey="tasks.cuda.busy",
+                    severity="error",
+                    recoverable=True,
+                    actions=["retry_later"],
+                    message=str(exc),
+                ),
+            )
+        except cuda_upgrade.CudaUpgradeError as exc:
+            logger.exception("CUDA upgrade failed")
+            self._update_task(
+                task_id,
+                status="failed",
+                progress=0,
+                message="CUDA upgrade failed",
+                error=AppError(
+                    code="cuda_upgrade_failed",
+                    userMessageKey="tasks.cuda.failed",
+                    severity="error",
+                    recoverable=True,
+                    actions=["retry"],
+                    message=str(exc),
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("CUDA upgrade failed unexpectedly")
+            self._update_task(
+                task_id,
+                status="failed",
+                progress=0,
+                message="CUDA upgrade failed unexpectedly",
+                error=AppError(
+                    code="cuda_upgrade_unexpected",
+                    userMessageKey="tasks.cuda.failed",
+                    severity="error",
+                    recoverable=True,
+                    actions=["retry"],
+                    message=str(exc),
+                ),
+            )
+
     def get_task(self, task_id: str) -> TaskRecord | None:
         with self._lock:
             return self._tasks.get(task_id)

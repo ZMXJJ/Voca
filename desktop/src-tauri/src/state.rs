@@ -45,6 +45,10 @@ pub struct SetupDiagnostics {
     pub environment_ready: bool,
     pub environment_status: String,
     pub environment_reason: Option<String>,
+    pub gpu_vendor: Option<String>,
+    pub gpu_name: Option<String>,
+    pub has_nvidia_gpu: bool,
+    pub active_torch_backend: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

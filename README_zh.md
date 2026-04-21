@@ -64,17 +64,26 @@
 
 ### 系统要求
 
-| 项目 | 要求 |
-|------|------|
-| 操作系统 | macOS 14.0 (Sonoma) 及以上 |
-| 芯片 | Apple Silicon (M1/M2/M3/M4) |
-| 磁盘空间 | 约 6 GB（应用 + 模型） |
+| 项目 | macOS | Windows |
+|------|-------|---------|
+| 版本 | macOS 14.0 (Sonoma) 及以上 | Windows 10 22H2 / Windows 11（x86_64） |
+| 芯片 | Apple Silicon (M1/M2/M3/M4) | Intel/AMD x86_64（NVIDIA GPU 可选） |
+| 磁盘空间 | 约 6 GB（应用 + 模型） | CPU 版约 6 GB；如升级到 CUDA 再增加约 2.5 GB |
+| 推理后端 | 默认 MPS（Apple Silicon） | 默认 CPU；可在设置中按需升级到 CUDA |
 
 ### 安装
+
+**macOS**
 
 1. 前往 [Releases](https://github.com/ZMXJJ/Voca/releases) 页面，下载最新版本的 `.dmg` 文件
 2. 打开 DMG，将 Voca 拖入「应用程序」文件夹
 3. 首次打开时，按照引导完成模型下载即可开始使用
+
+**Windows**
+
+1. 前往 [Releases](https://github.com/ZMXJJ/Voca/releases) 页面，下载最新的 `Voca-x.y.z-x64-setup.exe`
+2. 双击安装包（按用户安装，无需管理员权限），安装完成后从开始菜单启动 Voca
+3. 默认发布的是 CPU 版；若检测到 NVIDIA 显卡，可在「设置 → 推理后端」中一键升级到 CUDA（下载约 2.5 GB，支持断点续传，失败会自动回退）
 
 > **关于 App 签名与公证**
 >
@@ -147,7 +156,7 @@ Voca 内置了完整的初始化引导流程：
 - [x] **更轻量的模型推理后端** — 已将 ASR 从 PyTorch/FunASR 迁移至 ONNX Runtime（`iic/SenseVoiceSmall-onnx`，INT8），大幅减少 App 体积和模型下载大小
 - [ ] **量化模型支持** — 引入 INT8 等量化推理，降低内存占用与磁盘空间需求
 - [ ] **更丰富的 TTS 功能** — 支持更多 TTS 模型和更丰富的语音合成能力
-- [ ] Windows 平台支持
+- [x] Windows 平台支持（x86_64，NSIS 安装器，可选 CUDA 升级）
 
 有想法或建议？欢迎通过 [Issues](https://github.com/ZMXJJ/Voca/issues) 告诉我们。
 
@@ -163,7 +172,7 @@ Voca 内置了完整的初始化引导流程：
 
 ## 已知限制
 
-- 目前仅支持 macOS (Apple Silicon)，Windows 支持在规划中
+- 当前支持 macOS（Apple Silicon）和 Windows x86_64；Linux 暂无支持计划
 - 首次启动需联网下载模型（约 1-2 GB），之后可完全离线使用
 - 语音克隆效果受参考音频质量影响较大，建议使用清晰、无背景噪声的音频
 

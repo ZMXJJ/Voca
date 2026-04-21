@@ -36,7 +36,19 @@ function capture(command, args, options = {}) {
 }
 
 function cleanTauriStaging() {
-  const cleanupTargets = ["_up_", "bundle"].map((name) => path.join(releaseRoot, name));
+  const cleanupTargets = [
+    "_up_",
+    "bundle",
+    // Tauri 2 also produces nested bundle subdirs per target that occasionally
+    // stick around after aborted builds; wipe them explicitly to avoid stale
+    // NSIS/MSI/DMG artefacts leaking into the next run.
+    path.join("bundle", "nsis"),
+    path.join("bundle", "msi"),
+    path.join("bundle", "macos"),
+    path.join("bundle", "dmg"),
+    path.join("bundle", "deb"),
+    path.join("bundle", "appimage"),
+  ].map((name) => path.join(releaseRoot, name));
 
   for (const targetPath of cleanupTargets) {
     if (!existsSync(targetPath)) {

@@ -6,14 +6,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-#[cfg(target_os = "macos")]
-use objc2_foundation::{
-    NSNumber, NSURL, NSURLVolumeAvailableCapacityForImportantUsageKey,
-};
 use rfd::FileDialog;
 use tauri::{AppHandle, State};
 
 use crate::{
+    platform,
     sidecar::{ensure_sidecar_running, get_json, post_json, sidecar_runtime_available},
     state::{AppError, AppState, BootstrapState, SetupDiagnostics, SidecarStatus, TaskRecord},
 };
@@ -24,17 +21,7 @@ const RECOMMENDED_MEMORY_BYTES: u64 = 12 * 1024 * 1024 * 1024;
 const MINIMUM_FREE_STORAGE_BYTES: u64 = 6_000_000_000;
 
 fn onboarding_flag_path() -> Result<PathBuf, String> {
-    let home = std::env::var_os("HOME").ok_or_else(|| "HOME is not set".to_string())?;
-    let base = if cfg!(target_os = "macos") {
-        PathBuf::from(home)
-            .join("Library")
-            .join("Application Support")
-    } else {
-        PathBuf::from(home).join(".local").join("share")
-    };
-    let dir = base.join("Voca");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join("onboarding.json"))
+    Ok(platform::app_support_dir()?.join("onboarding.json"))
 }
 
 fn is_onboarding_complete() -> bool {
@@ -177,104 +164,7 @@ fn local_bootstrap_assets_ready() -> bool {
 }
 
 fn app_support_dir_path() -> Result<PathBuf, String> {
-    let home = std::env::var_os("HOME").ok_or_else(|| "HOME is not set".to_string())?;
-    let base = if cfg!(target_os = "macos") {
-        PathBuf::from(home)
-            .join("Library")
-            .join("Application Support")
-    } else {
-        PathBuf::from(home).join(".local").join("share")
-    };
-    let dir = base.join("Voca");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-
-fn read_command_output(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let text = String::from_utf8(output.stdout).ok()?;
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
-fn detect_cpu_name() -> Option<String> {
-    if cfg!(target_os = "macos") {
-        if let Some(name) = read_command_output("sysctl", &["-n", "machdep.cpu.brand_string"]) {
-            return Some(name);
-        }
-
-        if let Some(profile) = read_command_output("system_profiler", &["SPHardwareDataType"]) {
-            for raw_line in profile.lines() {
-                let line = raw_line.trim();
-                if let Some(value) = line.strip_prefix("Chip:") {
-                    let name = value.trim();
-                    if !name.is_empty() {
-                        return Some(name.to_string());
-                    }
-                }
-                if let Some(value) = line.strip_prefix("Processor Name:") {
-                    let name = value.trim();
-                    if !name.is_empty() {
-                        return Some(name.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    Some(std::env::consts::ARCH.to_string())
-}
-
-fn detect_total_memory_bytes() -> Option<u64> {
-    if cfg!(target_os = "macos") {
-        return read_command_output("sysctl", &["-n", "hw.memsize"])?.parse().ok();
-    }
-    None
-}
-
-fn detect_available_storage_bytes_from_df() -> Option<u64> {
-    let target = app_support_dir_path().ok()?;
-    let target_string = target.to_string_lossy().to_string();
-    let output = read_command_output("df", &["-k", &target_string])?;
-    let line = output.lines().nth(1)?.trim();
-    let available_kb = line
-        .split_whitespace()
-        .nth(3)
-        .and_then(|value| value.parse::<u64>().ok())?;
-    Some(available_kb.saturating_mul(1024))
-}
-
-#[cfg(target_os = "macos")]
-fn detect_available_storage_bytes_macos() -> Option<u64> {
-    let target = app_support_dir_path().ok()?;
-    let url = NSURL::from_file_path(target)?;
-    let mut value = None;
-    unsafe {
-        url.getResourceValue_forKey_error(
-            &mut value,
-            &NSURLVolumeAvailableCapacityForImportantUsageKey,
-        )
-    }
-    .ok()?;
-    let number = value?.downcast::<NSNumber>().ok()?;
-    let capacity = number.as_u64();
-    if capacity > 0 { Some(capacity) } else { None }
-}
-
-fn detect_available_storage_bytes() -> Option<u64> {
-    #[cfg(target_os = "macos")]
-    if let Some(capacity) = detect_available_storage_bytes_macos() {
-        return Some(capacity);
-    }
-
-    detect_available_storage_bytes_from_df()
+    platform::app_support_dir()
 }
 
 fn environment_status_from_sidecar(sidecar: &SidecarStatus) -> String {
@@ -337,23 +227,7 @@ fn render_log_export(log_dir: &Path) -> Result<String, String> {
 }
 
 fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    let mut command = Command::new("open");
-    #[cfg(target_os = "windows")]
-    let mut command = Command::new("explorer");
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    let mut command = Command::new("xdg-open");
-
-    let status = command
-        .arg(path)
-        .status()
-        .map_err(|error| error.to_string())?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("failed to open path: {}", path.display()))
-    }
+    platform::reveal_in_file_manager(path)
 }
 
 async fn is_bootstrap_bundle_ready(state: &AppState) -> bool {
@@ -523,6 +397,37 @@ pub async fn cleanup_legacy_asr_model(
 }
 
 #[tauri::command]
+pub async fn start_cuda_upgrade(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<TaskRecord, String> {
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
+    if !sidecar.healthy {
+        return Err(sidecar
+            .reason
+            .unwrap_or_else(|| "python_sidecar_not_ready".into()));
+    }
+
+    let payload = serde_json::json!({});
+    post_json(state.inner(), "/api/v1/bootstrap/upgrade-cuda", &payload).await
+}
+
+#[tauri::command]
+pub async fn get_runtime_info(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
+    if !sidecar.healthy {
+        return Err(sidecar
+            .reason
+            .unwrap_or_else(|| "python_sidecar_not_ready".into()));
+    }
+
+    get_json(state.inner(), "/api/v1/bootstrap/runtime-info").await
+}
+
+#[tauri::command]
 pub async fn get_sidecar_status(
     app_handle: AppHandle,
     state: State<'_, AppState>,
@@ -530,14 +435,36 @@ pub async fn get_sidecar_status(
     ensure_sidecar_running(&app_handle, state.inner()).await
 }
 
+fn detect_gpu_vendor() -> Option<String> {
+    if platform::detect_nvidia_gpu().is_some() {
+        return Some("nvidia".into());
+    }
+    None
+}
+
+fn read_active_torch_backend() -> Option<String> {
+    let runtime_json = platform::app_support_dir()
+        .ok()?
+        .join("runtime")
+        .join("runtime.json");
+    let content = fs::read_to_string(runtime_json).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+    parsed
+        .get("active")
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+}
+
 #[tauri::command]
 pub async fn get_setup_diagnostics(
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<SetupDiagnostics, String> {
-    let cpu_name = detect_cpu_name();
-    let total_memory_bytes = detect_total_memory_bytes();
-    let available_storage_bytes = detect_available_storage_bytes();
+    let cpu_name = platform::detect_cpu_name();
+    let total_memory_bytes = platform::detect_total_memory_bytes();
+    let available_storage_bytes = platform::detect_available_storage_bytes();
+    let gpu_vendor = detect_gpu_vendor();
+    let has_nvidia_gpu = gpu_vendor.as_deref() == Some("nvidia");
     let runtime_available = sidecar_runtime_available(&app_handle);
     let sidecar = if runtime_available {
         ensure_sidecar_running(&app_handle, state.inner())
@@ -564,6 +491,10 @@ pub async fn get_setup_diagnostics(
         environment_ready: sidecar.healthy,
         environment_status: environment_status_from_sidecar(&sidecar),
         environment_reason: sidecar.reason,
+        gpu_vendor,
+        gpu_name: platform::detect_nvidia_gpu(),
+        has_nvidia_gpu,
+        active_torch_backend: read_active_torch_backend(),
     })
 }
 
@@ -644,14 +575,7 @@ pub async fn open_external_url(url: String) -> Result<bool, String> {
         return Err("Only HTTP(S) URLs are allowed".into());
     }
 
-    #[cfg(target_os = "macos")]
-    let mut command = Command::new("open");
-    #[cfg(target_os = "windows")]
-    let mut command = Command::new("explorer");
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    let mut command = Command::new("xdg-open");
-
-    command.arg(&url).status().map_err(|e| e.to_string())?;
+    platform::open_external_url(&url)?;
     Ok(true)
 }
 

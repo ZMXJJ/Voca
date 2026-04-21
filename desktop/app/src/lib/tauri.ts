@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AudioTranscriptionPayload,
   BootstrapState,
+  CudaUpgradeRuntimeInfo,
   GenerationParams,
   ModelCatalogEntry,
   ModelPrepareResponse,
@@ -252,6 +253,22 @@ export async function cleanupLegacyAsrModel(): Promise<boolean> {
     return await invoke<boolean>("cleanup_legacy_asr_model");
   } catch {
     return false;
+  }
+}
+
+export async function startCudaUpgrade(): Promise<TaskRecord | null> {
+  try {
+    return await invoke<TaskRecord>("start_cuda_upgrade");
+  } catch (error) {
+    throw new Error(getInvokeErrorMessage(error, "Failed to start CUDA upgrade"));
+  }
+}
+
+export async function getCudaRuntimeInfo(): Promise<CudaUpgradeRuntimeInfo | null> {
+  try {
+    return await invoke<CudaUpgradeRuntimeInfo>("get_runtime_info");
+  } catch {
+    return null;
   }
 }
 

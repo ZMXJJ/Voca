@@ -1,0 +1,3 @@
+# Windows-only runtime extras. Layered on top of requirements.runtime.txt.
+# torchcodec has no official Windows wheel as of 0.11.0; torchaudio runs on the
+# soundfile backend instead (configured in app/services/audio_backend.py).

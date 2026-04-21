@@ -1,0 +1,106 @@
+name: Windows Build (NSIS)
+
+# Builds the Windows installer in a clean Windows 2022 runner.
+# This is opt-in: trigger manually via the "Run workflow" button on GitHub,
+# or push a tag matching `v*` to produce a release artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: "Sign the installer (requires repo secrets to be configured)"
+        required: false
+        default: "false"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-nsis:
+    name: Build & package (x86_64-pc-windows-msvc)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            desktop/package-lock.json
+            desktop/app/package-lock.json
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install npm dependencies
+        working-directory: desktop
+        run: |
+          npm install
+          npm --prefix app install
+
+      - name: Build (and optionally sign) NSIS installer
+        env:
+          SIGNTOOL_CERT_BASE64: ${{ secrets.SIGNTOOL_CERT_BASE64 }}
+          SIGNTOOL_CERT_PASSWORD: ${{ secrets.SIGNTOOL_CERT_PASSWORD }}
+          SIGNTOOL_TIMESTAMP_URL: ${{ secrets.SIGNTOOL_TIMESTAMP_URL }}
+        run: |
+          $shouldSign = ($env:GITHUB_EVENT_NAME -eq 'push') -or ('${{ github.event.inputs.sign }}' -eq 'true')
+          if ($shouldSign -and $env:SIGNTOOL_CERT_BASE64) {
+            $pfxPath = Join-Path $env:RUNNER_TEMP "voca-signing.pfx"
+            [System.IO.File]::WriteAllBytes(
+              $pfxPath,
+              [System.Convert]::FromBase64String($env:SIGNTOOL_CERT_BASE64)
+            )
+            $env:SIGNTOOL_CERT_PATH = $pfxPath
+            pwsh ./desktop/scripts/build-nsis-local.ps1
+          } else {
+            if ($shouldSign) {
+              Write-Host "::warning ::Signing requested but SIGNTOOL_CERT_BASE64 secret is missing; building unsigned."
+            }
+            pwsh ./desktop/scripts/build-nsis-local.ps1 -SkipSign
+          }
+
+      - name: Collect installer
+        id: collect
+        working-directory: desktop/src-tauri/target/release/bundle/nsis
+        run: |
+          $installer = Get-ChildItem -Filter "Voca_*-setup.exe" | Select-Object -First 1
+          if (-not $installer) {
+            Write-Error "No NSIS installer found"
+            exit 1
+          }
+          "installer_path=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "installer_name=$($installer.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.collect.outputs.installer_name }}
+          path: ${{ steps.collect.outputs.installer_path }}
+          if-no-files-found: error
+          retention-days: 14
