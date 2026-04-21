@@ -238,6 +238,10 @@ export type ServiceInfo = {
   downloadCacheBytes?: number;
   managedStorageBytes?: number;
   bootstrapAssets?: BootstrapAssetStatus[];
+  // True when a pre-ONNX FunASR SenseVoice directory still exists on disk.
+  // The desktop UI presents a blocking migration dialog until the legacy
+  // directory is removed, since the new ONNX runtime cannot load it.
+  legacyAsrModelPresent?: boolean;
 };
 
 export type VoiceSourceType = "builtin" | "user";

@@ -28,7 +28,12 @@ from app.models.schemas import (
 )
 from app.services.task_manager import TaskManager
 from app.services import voice_library
-from app.services.bootstrap_assets import bootstrap_asset_statuses, bootstrap_entries
+from app.services.bootstrap_assets import (
+    bootstrap_asset_statuses,
+    bootstrap_entries,
+    cleanup_legacy_sensevoice_pytorch,
+    has_legacy_sensevoice_pytorch,
+)
 from app.services.download_pings import start_download_ping_dispatcher
 from app.services.model_integrity import cleanup_orphans, verify_full
 from app.services.storage_paths import (
@@ -205,6 +210,7 @@ def _build_health_response() -> HealthResponse:
         downloadCacheBytes=huggingface_cache_bytes + modelscope_cache_bytes + torch_cache_bytes,
         managedStorageBytes=managed_storage_bytes,
         bootstrapAssets=asset_statuses,
+        legacyAsrModelPresent=has_legacy_sensevoice_pytorch(),
     )
 
 
@@ -320,6 +326,20 @@ def create_bootstrap_bundle_task(payload: ModelDownloadRequest) -> TaskRecord:
     return task_manager.create_bootstrap_bundle_task(
         provider_preference=payload.providerPreference,
     )
+
+
+@app.post("/api/v1/bootstrap/cleanup-legacy-asr")
+def cleanup_legacy_asr_model() -> dict[str, bool]:
+    """Remove the pre-ONNX FunASR SenseVoice directory if present.
+
+    The new ONNX runtime installs to ``models/sensevoice_small_onnx/`` while
+    legacy builds wrote to ``models/sensevoice_small/``. Any leftover legacy
+    directory is dead weight (~936 MB) and incompatible with the new bridge;
+    this endpoint quarantines it into ``models/.trash/`` for background
+    rmtree.
+    """
+    removed = cleanup_legacy_sensevoice_pytorch()
+    return {"removed": removed}
 
 
 @app.post("/api/v1/tasks/generate", response_model=TaskRecord)

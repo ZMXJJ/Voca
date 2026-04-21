@@ -24,15 +24,6 @@ _logger = logging.getLogger(__name__)
 
 DEFAULT_VOICES: tuple[dict[str, str], ...] = (
     {
-        "id": "builtin-female-default",
-        "name": "默认女声",
-        "language": "中文",
-        "description": (
-            "温柔清晰的中文女声，语气自然、明亮，适合讲述、说明和陪伴类内容。"
-        ),
-        "preset_key": "female_default",
-    },
-    {
         "id": "builtin-male-default",
         "name": "默认男声",
         "language": "中文",
@@ -40,6 +31,15 @@ DEFAULT_VOICES: tuple[dict[str, str], ...] = (
             "沉稳自然的中文男声，吐字清楚、节奏平稳，适合解说、播报和知识类内容。"
         ),
         "preset_key": "male_default",
+    },
+    {
+        "id": "builtin-female-default",
+        "name": "默认女声",
+        "language": "中文",
+        "description": (
+            "温柔清晰的中文女声，语气自然、明亮，适合讲述、说明和陪伴类内容。"
+        ),
+        "preset_key": "female_default",
     },
 )
 
@@ -237,6 +237,14 @@ def _seed_default_voices(connection: sqlite3.Connection) -> None:
                 now,
             ),
         )
+
+    valid_ids = {item["id"] for item in DEFAULT_VOICES}
+    existing = connection.execute(
+        "SELECT id FROM voices WHERE source_type = 'builtin'"
+    ).fetchall()
+    for row in existing:
+        if row[0] not in valid_ids:
+            connection.execute("DELETE FROM voices WHERE id = ?", (row[0],))
 
 
 def _migrate_legacy_manifest(connection: sqlite3.Connection) -> None:

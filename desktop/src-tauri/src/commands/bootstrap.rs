@@ -473,6 +473,30 @@ pub async fn start_bootstrap_download(
 }
 
 #[tauri::command]
+pub async fn cleanup_legacy_asr_model(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
+    if !sidecar.healthy {
+        return Err(sidecar
+            .reason
+            .unwrap_or_else(|| "python_sidecar_not_ready".into()));
+    }
+
+    let response: serde_json::Value = post_json(
+        state.inner(),
+        "/api/v1/bootstrap/cleanup-legacy-asr",
+        &serde_json::json!({}),
+    )
+    .await?;
+    Ok(response
+        .get("removed")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false))
+}
+
+#[tauri::command]
 pub async fn get_sidecar_status(
     app_handle: AppHandle,
     state: State<'_, AppState>,

@@ -23,6 +23,7 @@ import {
   type UpdateCheckResult,
 } from "../lib/tauri";
 import { IconCheck, IconChevronDown, IconDownload, IconHeart } from "./Icons";
+import { UpdateAvailableModal } from "./UpdateAvailableModal";
 import { CustomSelect } from "./CustomSelect";
 import { StorageModal } from "./StorageModal";
 
@@ -639,61 +640,11 @@ export function SettingsWorkspace({
       )}
 
       {updateModal.mounted && updateCheckResult?.updateAvailable && (
-        <div
-          className={`storage-modal-overlay${updateModal.closing ? " modal-closing-overlay" : ""}`}
-          onClick={() => updateModal.requestClose(() => setUpdateCheckPhase("idle"))}
-        >
-          <div className={`storage-modal${updateModal.closing ? " modal-closing-content" : ""}`} onClick={(e) => e.stopPropagation()}>
-            <div className="storage-modal__header">
-              <h2 className="storage-modal__title">
-                {t("settings.general.updateAvailable", { version: updateCheckResult.latestVersion })}
-              </h2>
-              <button
-                className="storage-modal__close"
-                onClick={() => updateModal.requestClose(() => setUpdateCheckPhase("idle"))}
-                type="button"
-              >
-                &times;
-              </button>
-            </div>
-
-            <div className="storage-modal__summary">
-              <span className="storage-modal__summary-label">
-                {t("settings.general.updateCompareHint", {
-                  current: updateCheckResult.currentVersion,
-                  latest: updateCheckResult.latestVersion,
-                })}
-              </span>
-            </div>
-
-            {updateCheckResult.releaseNotes ? (
-              <div className="update-modal__notes">
-                <pre className="update-modal__notes-content">
-                  {updateCheckResult.releaseNotes}
-                </pre>
-              </div>
-            ) : null}
-
-            <div className="storage-modal__footer">
-              <button
-                className="btn btn--secondary"
-                style={{ flex: 1 }}
-                type="button"
-                onClick={() => updateModal.requestClose(() => setUpdateCheckPhase("idle"))}
-              >
-                {t("settings.general.updateDismiss")}
-              </button>
-              <button
-                className="btn btn--primary"
-                style={{ flex: 1 }}
-                type="button"
-                onClick={() => void openExternalUrl(updateCheckResult.releaseUrl)}
-              >
-                {t("settings.general.updateGoToDownload")}
-              </button>
-            </div>
-          </div>
-        </div>
+        <UpdateAvailableModal
+          result={updateCheckResult}
+          closing={updateModal.closing}
+          onClose={() => updateModal.requestClose(() => setUpdateCheckPhase("idle"))}
+        />
       )}
 
       {updateToast && (

@@ -144,7 +144,7 @@ Voca 内置了完整的初始化引导流程：
 
 > 以下是 Voca 后续的开发方向，优先级可能根据社区反馈调整。
 
-- [ ] **更轻量的模型推理后端** — 将 ASR 从 PyTorch/FunASR 迁移至 ONNX Runtime，大幅减少 App 体积和模型下载大小
+- [x] **更轻量的模型推理后端** — 已将 ASR 从 PyTorch/FunASR 迁移至 ONNX Runtime（`iic/SenseVoiceSmall-onnx`，INT8），大幅减少 App 体积和模型下载大小
 - [ ] **量化模型支持** — 引入 INT8 等量化推理，降低内存占用与磁盘空间需求
 - [ ] **更丰富的 TTS 功能** — 支持更多 TTS 模型和更丰富的语音合成能力
 - [ ] Windows 平台支持

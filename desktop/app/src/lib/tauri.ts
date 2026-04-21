@@ -247,6 +247,14 @@ export async function startBootstrapDownload(
   }
 }
 
+export async function cleanupLegacyAsrModel(): Promise<boolean> {
+  try {
+    return await invoke<boolean>("cleanup_legacy_asr_model");
+  } catch {
+    return false;
+  }
+}
+
 export async function completeOnboarding(): Promise<boolean> {
   try {
     return await invoke<boolean>("complete_onboarding");

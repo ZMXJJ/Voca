@@ -144,7 +144,7 @@ Check for new versions in Settings. When an update is available, the app opens t
 
 > Upcoming development directions. Priorities may shift based on community feedback.
 
-- [ ] **Lighter inference backend** — Migrate ASR from PyTorch/FunASR to ONNX Runtime, significantly reducing app size and model download size
+- [x] **Lighter inference backend** — ASR migrated from PyTorch/FunASR to ONNX Runtime (`iic/SenseVoiceSmall-onnx`, INT8), significantly reducing app size and model download size
 - [ ] **Quantized model support** — INT8 and other quantized inference to lower memory and disk usage
 - [ ] **Richer TTS capabilities** — Support for more TTS models and expanded speech synthesis features
 - [ ] Windows support

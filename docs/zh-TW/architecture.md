@@ -103,7 +103,8 @@ Voca/
 │   │   │   └── services/         # 業務邏輯層
 │   │   │       ├── task_manager.py       # 任務編排（生成、ASR、下載）
 │   │   │       ├── voxcpm_bridge.py      # VoxCPM TTS 引擎橋接
-│   │   │       ├── asr_bridge.py         # SenseVoice ASR 橋接
+│   │   │       ├── asr_bridge.py                 # SenseVoice ASR 橋接（入口）
+│   │   │       ├── sensevoice_onnx_session.py    # 自研 ONNX Session（Fbank+LFR+CMVN+CTC）
 │   │   │       ├── audio_enhancer.py     # ZipEnhancer 音訊增強
 │   │   │       ├── voice_library.py      # 聲音庫（SQLite + 檔案）
 │   │   │       ├── model_catalog.py      # 模型目錄管理

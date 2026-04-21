@@ -48,6 +48,10 @@ class HealthResponse(BaseModel):
     downloadCacheBytes: int = 0
     managedStorageBytes: int = 0
     bootstrapAssets: list["BootstrapAssetStatus"] = Field(default_factory=list)
+    # True when a pre-ONNX FunASR SenseVoice directory is still present on
+    # disk. The desktop UI must present a blocking migration dialog until the
+    # legacy directory is removed, since the new runtime cannot load it.
+    legacyAsrModelPresent: bool = False
 
 
 class BootstrapAssetStatus(BaseModel):

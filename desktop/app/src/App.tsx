@@ -24,6 +24,7 @@ import { getPreviewModeFromSearch, type PreviewMode, type SinglePreviewScene } f
 import { IconVocaLogo } from "./components/Icons";
 import i18n from "./i18n";
 import {
+  checkForUpdate,
   completeOnboarding,
   createGenerateTask,
   getBootstrapState,
@@ -37,7 +38,15 @@ import {
   prepareModel,
   startBootstrapDownload,
   audioFileExists,
+  cleanupLegacyAsrModel,
+  type UpdateCheckResult,
 } from "./lib/tauri";
+import {
+  LegacyAsrMigrationModal,
+  type LegacyAsrMigrationState,
+} from "./components/LegacyAsrMigrationModal";
+import { UpdateAvailableModal } from "./components/UpdateAvailableModal";
+import { useModalTransition } from "./lib/useModalTransition";
 
 type AppView = "loading" | "welcome" | "download" | "initialize" | "complete" | "workspace";
 const DEFAULT_BOOTSTRAP_MODEL_KEY = "voxcpm2";
@@ -324,6 +333,10 @@ function App() {
   const [finalizedBootstrapTaskId, setFinalizedBootstrapTaskId] = useState<string | null>(null);
   const [initializeRequested, setInitializeRequested] = useState(false);
   const [bootstrapStartRequested, setBootstrapStartRequested] = useState(false);
+  const [legacyAsrMigrationState, setLegacyAsrMigrationState] =
+    useState<LegacyAsrMigrationState>("idle");
+  const [autoUpdateResult, setAutoUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const autoUpdateModal = useModalTransition(autoUpdateResult !== null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>(() =>
     typeof window === "undefined" ? "live" : getPreviewModeFromSearch(window.location.search),
   );
@@ -403,6 +416,56 @@ function App() {
       setBootstrapState(quickState);
       void refreshBootstrapState();
     });
+  }, []);
+
+  // Auto update check: run at most once per local calendar day on cold start.
+  // We persist ``voca.lastUpdateCheckDate`` (YYYY-MM-DD in the user's local
+  // timezone) so the check is skipped on the second and later launches the
+  // same day. On success with an available update we surface the same modal
+  // that the Settings page uses, non-blockingly (the overlay can be dismissed).
+  useEffect(() => {
+    const STORAGE_KEY = "voca.lastUpdateCheckDate";
+    const today = (() => {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    })();
+
+    let stored: string | null = null;
+    try {
+      stored = window.localStorage.getItem(STORAGE_KEY);
+    } catch {
+      stored = null;
+    }
+    if (stored === today) {
+      return;
+    }
+
+    let cancelled = false;
+    void checkForUpdate()
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+        try {
+          window.localStorage.setItem(STORAGE_KEY, today);
+        } catch {
+          // Ignore storage failures — worst case we re-check tomorrow's first launch.
+        }
+        if (data.updateAvailable) {
+          setAutoUpdateResult(data);
+        }
+      })
+      .catch(() => {
+        // Network failure: keep ``stored`` untouched so we'll retry on the
+        // next cold launch (including later today if the user relaunches).
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -905,6 +968,55 @@ function App() {
     void refreshBootstrapState();
   };
 
+  const handleLegacyAsrMigration = async () => {
+    if (legacyAsrMigrationState === "cleaning") {
+      return;
+    }
+    setLegacyAsrMigrationState("cleaning");
+    try {
+      await cleanupLegacyAsrModel();
+      const info = await getServiceInfo();
+      setServiceInfo(info);
+      // If the new ONNX model is not yet installed, kick off the bootstrap
+      // download flow so the user lands on the familiar progress screen.
+      if (info && !info.asrModelReady) {
+        setBootstrapStartRequested(true);
+      }
+      setLegacyAsrMigrationState("idle");
+    } catch (error) {
+      console.error("Failed to clean up legacy ASR model", error);
+      setLegacyAsrMigrationState("failed");
+    }
+  };
+
+  const legacyAsrMigrationVisible = Boolean(serviceInfo?.legacyAsrModelPresent);
+  const legacyAsrOverlay = legacyAsrMigrationVisible ? (
+    <LegacyAsrMigrationModal
+      state={legacyAsrMigrationState}
+      needsRedownload={!(serviceInfo?.asrModelReady ?? false)}
+      onConfirm={handleLegacyAsrMigration}
+    />
+  ) : null;
+
+  // The legacy-ASR migration dialog is blocking and takes precedence over
+  // the (informational) auto-update notice — we don't want to stack two
+  // overlays on top of each other.
+  const autoUpdateOverlay =
+    autoUpdateModal.mounted && autoUpdateResult && !legacyAsrMigrationVisible ? (
+      <UpdateAvailableModal
+        result={autoUpdateResult}
+        closing={autoUpdateModal.closing}
+        onClose={() => autoUpdateModal.requestClose(() => setAutoUpdateResult(null))}
+      />
+    ) : null;
+
+  const globalOverlays = (
+    <>
+      {legacyAsrOverlay}
+      {autoUpdateOverlay}
+    </>
+  );
+
   const bootstrapModel =
     modelCatalog.find(
       (model) =>
@@ -927,6 +1039,7 @@ function App() {
           serviceInfo={serviceInfo}
           onStartSetup={handleStartSetup}
         />
+        {globalOverlays}
       </>
     );
   }
@@ -946,6 +1059,7 @@ function App() {
           bootstrapModel={bootstrapModel}
           onRetryDownload={handleRetryBootstrapDownload}
         />
+        {globalOverlays}
       </>
     );
   }
@@ -965,6 +1079,7 @@ function App() {
           canProceedFromInitialize={canContinueFromInitialize}
           onProceedFromInitialize={handleContinueFromInitialize}
         />
+        {globalOverlays}
       </>
     );
   }
@@ -986,6 +1101,7 @@ function App() {
             setCompletionAcknowledged(true);
           }}
         />
+        {globalOverlays}
       </>
     );
   }
@@ -1008,6 +1124,7 @@ function App() {
         onSubmitTask={handleSubmitTask}
         onCacheCleared={handleCacheCleared}
       />
+      {globalOverlays}
     </>
   );
 }

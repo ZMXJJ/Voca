@@ -35,6 +35,22 @@ const zhCN = {
     title: "Voca 正在恢复你的本地工作台",
     description: "当前会同步初始化状态、Sidecar 健康状态和默认模型准备结果。",
   },
+  legacyAsrMigration: {
+    title: "ASR 模型需要升级",
+    titleCleanupOnly: "清理旧 ASR 模型",
+    description:
+      "新版本已将语音识别后端从 PyTorch 迁移到 ONNX Runtime，推理更快、体积更小。旧的 SenseVoice PyTorch 模型（约 936 MB）无法被新引擎加载，需要先卸载再重新下载 ONNX 版本（约 234 MB）。",
+    descriptionCleanupOnly:
+      "检测到硬盘上仍残留旧版 SenseVoice PyTorch 模型（约 936 MB）。新版 ONNX 模型已经就绪，可以安全地清理旧模型释放空间。",
+    point1: "删除旧的 sensevoice_small/ 目录（约 936 MB）",
+    point2: "识别速度预计提升约 20×，冷启动更快",
+    point3: "升级后会自动下载新的 ONNX 模型（约 234 MB）",
+    confirm: "立即升级",
+    confirmCleanupOnly: "释放空间",
+    busy: "正在升级…",
+    busyCleanupOnly: "正在清理…",
+    failed: "清理旧模型失败，请稍后重试。",
+  },
   sidebar: {
     tagline: "Powered by VoxCPM",
     nav: {
