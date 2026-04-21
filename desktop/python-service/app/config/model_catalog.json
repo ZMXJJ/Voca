@@ -64,16 +64,16 @@
       "descriptionKey": "settings.modelManagement.desc.sensevoice_small",
       "tags": [],
       "defaultProvider": "modelscope",
-      "localDirName": "sensevoice_small",
+      "localDirName": "sensevoice_small_onnx",
       "assetRole": "asr",
       "bootstrapRequired": true,
-      "approxSizeLabel": "~936 MB",
+      "approxSizeLabel": "~234 MB",
       "providers": {
         "huggingface": {
-          "repoId": "FunAudioLLM/SenseVoiceSmall"
+          "repoId": "DennisHuang648/SenseVoiceSmall-onnx"
         },
         "modelscope": {
-          "modelId": "iic/SenseVoiceSmall"
+          "modelId": "iic/SenseVoiceSmall-onnx"
         }
       }
     },

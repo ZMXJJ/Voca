@@ -35,6 +35,22 @@ const en = {
     title: "Voca is restoring your local workspace",
     description: "Syncing bootstrap status, sidecar health, and default model preparation.",
   },
+  legacyAsrMigration: {
+    title: "ASR model upgrade required",
+    titleCleanupOnly: "Clean up legacy ASR model",
+    description:
+      "This release switches the speech recognition backend from PyTorch to ONNX Runtime for faster inference and a smaller footprint. The legacy SenseVoice PyTorch model (~936 MB) cannot be loaded by the new engine and must be uninstalled before the new ONNX version (~234 MB) is downloaded.",
+    descriptionCleanupOnly:
+      "A legacy SenseVoice PyTorch model (~936 MB) is still present on disk. The new ONNX model is already installed; you can safely remove the old one to reclaim space.",
+    point1: "Remove the old sensevoice_small/ directory (~936 MB)",
+    point2: "Expected ~20× faster inference and a quicker cold start",
+    point3: "The new ONNX model (~234 MB) will be downloaded automatically",
+    confirm: "Upgrade now",
+    confirmCleanupOnly: "Reclaim space",
+    busy: "Upgrading…",
+    busyCleanupOnly: "Cleaning up…",
+    failed: "Cleanup failed. Please try again.",
+  },
   sidebar: {
     tagline: "Powered by VoxCPM",
     nav: {
