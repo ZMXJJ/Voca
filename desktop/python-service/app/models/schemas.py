@@ -228,7 +228,7 @@ class TaskResult(BaseModel):
 
 class TaskRecord(BaseModel):
     id: str
-    type: Literal["bootstrap", "generate", "asr_transcribe"]
+    type: Literal["bootstrap", "generate", "asr_transcribe", "cuda_upgrade"]
     status: Literal["queued", "running", "succeeded", "failed", "cancelled"]
     createdAt: str
     updatedAt: str

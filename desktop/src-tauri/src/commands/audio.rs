@@ -127,10 +127,7 @@ pub async fn save_recorded_audio(
     if trimmed_extension.is_empty() {
         return Err("Audio extension is required".to_string());
     }
-    if !trimmed_extension
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric())
-    {
+    if !trimmed_extension.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(format!("Unsupported audio extension: {extension}"));
     }
 

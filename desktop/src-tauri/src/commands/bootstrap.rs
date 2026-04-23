@@ -11,7 +11,10 @@ use tauri::{AppHandle, State};
 
 use crate::{
     platform,
-    sidecar::{ensure_sidecar_running, get_json, post_json, sidecar_runtime_available},
+    sidecar::{
+        ensure_sidecar_running, ensure_sidecar_started, get_json, post_json, restart_sidecar_clean,
+        sidecar_runtime_available,
+    },
     state::{AppError, AppState, BootstrapState, SetupDiagnostics, SidecarStatus, TaskRecord},
 };
 
@@ -19,15 +22,15 @@ const DEFAULT_BOOTSTRAP_MODEL_KEY: &str = "voxcpm2";
 const BOOTSTRAP_BUNDLE_TITLE: &str = "Prepare speech tools bundle";
 const RECOMMENDED_MEMORY_BYTES: u64 = 12 * 1024 * 1024 * 1024;
 const MINIMUM_FREE_STORAGE_BYTES: u64 = 6_000_000_000;
+const MINIMUM_GPU_MEMORY_BYTES: u64 = 6 * 1024 * 1024 * 1024;
+const CUDA_RUNTIME_COMPLETE_MARKER: &str = "cuda-runtime-complete.json";
 
 fn onboarding_flag_path() -> Result<PathBuf, String> {
     Ok(platform::app_support_dir()?.join("onboarding.json"))
 }
 
 fn is_onboarding_complete() -> bool {
-    onboarding_flag_path()
-        .map(|p| p.exists())
-        .unwrap_or(false)
+    onboarding_flag_path().map(|p| p.exists()).unwrap_or(false)
 }
 
 fn models_root_dir() -> Option<PathBuf> {
@@ -163,6 +166,36 @@ fn local_bootstrap_assets_ready() -> bool {
         .all(|key| local_bootstrap_asset_ready(key))
 }
 
+fn runtime_complete_marker_path() -> Option<PathBuf> {
+    app_support_dir_path()
+        .ok()
+        .map(|dir| dir.join("runtime").join(CUDA_RUNTIME_COMPLETE_MARKER))
+}
+
+fn runtime_site_packages_path() -> Option<PathBuf> {
+    app_support_dir_path()
+        .ok()
+        .map(|dir| dir.join("runtime").join("site-packages"))
+}
+
+fn local_runtime_ready() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let marker_exists = runtime_complete_marker_path()
+            .map(|path| path.exists())
+            .unwrap_or(false);
+        let site_packages_ready = runtime_site_packages_path()
+            .map(|path| path.join("torch").exists() && path.join("torchaudio").exists())
+            .unwrap_or(false);
+        marker_exists && site_packages_ready
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        true
+    }
+}
+
 fn app_support_dir_path() -> Result<PathBuf, String> {
     platform::app_support_dir()
 }
@@ -174,6 +207,7 @@ fn environment_status_from_sidecar(sidecar: &SidecarStatus) -> String {
 
     match sidecar.reason.as_deref() {
         Some("python_service_venv_missing") => "missing".into(),
+        Some("python_sidecar_starting") => "starting".into(),
         Some("python_sidecar_not_ready") => "starting".into(),
         Some(_) => "error".into(),
         None if sidecar.running => "starting".into(),
@@ -230,20 +264,22 @@ fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
     platform::reveal_in_file_manager(path)
 }
 
-async fn is_bootstrap_bundle_ready(state: &AppState) -> bool {
-    let response: serde_json::Value = match get_json(state, "/api/v1/health").await {
-        Ok(value) => value,
-        Err(_) => return false,
-    };
+async fn is_bootstrap_bundle_ready(_state: &AppState) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        local_bootstrap_assets_ready() && local_runtime_ready()
+    }
 
-    response
-        .get("bootstrapAssetsReady")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false)
+    #[cfg(not(target_os = "windows"))]
+    {
+        local_bootstrap_assets_ready()
+    }
 }
 
 async fn list_recent_tasks(state: &AppState) -> Vec<TaskRecord> {
-    get_json(state, "/api/v1/tasks?limit=50").await.unwrap_or_default()
+    get_json(state, "/api/v1/tasks?limit=50")
+        .await
+        .unwrap_or_default()
 }
 
 fn active_bootstrap_task(tasks: &[TaskRecord]) -> Option<&TaskRecord> {
@@ -255,18 +291,18 @@ fn active_bootstrap_task(tasks: &[TaskRecord]) -> Option<&TaskRecord> {
 }
 
 fn latest_failed_bootstrap_task(tasks: &[TaskRecord]) -> Option<&TaskRecord> {
-    tasks.iter()
-        .find(|task| {
-            task.r#type == "bootstrap"
-                && task.title.as_deref() == Some(BOOTSTRAP_BUNDLE_TITLE)
-                && task.status == "failed"
-        })
+    tasks.iter().find(|task| {
+        task.r#type == "bootstrap"
+            && task.title.as_deref() == Some(BOOTSTRAP_BUNDLE_TITLE)
+            && task.status == "failed"
+    })
 }
 
 #[tauri::command]
 pub async fn get_quick_bootstrap_state() -> Result<BootstrapState, String> {
     let onboarding_complete = is_onboarding_complete();
-    let assets_ready = local_bootstrap_assets_ready();
+    let runtime_ready = local_runtime_ready();
+    let assets_ready = local_bootstrap_assets_ready() && runtime_ready;
     let needs_repair = onboarding_complete && !assets_ready;
 
     let is_first_launch = !onboarding_complete;
@@ -282,7 +318,7 @@ pub async fn get_quick_bootstrap_state() -> Result<BootstrapState, String> {
         is_first_launch,
         phase: phase.into(),
         status: status.into(),
-        runtime_ready: false,
+        runtime_ready,
         model_ready,
         sidecar_ready: false,
         current_download_job_id: None,
@@ -298,7 +334,9 @@ pub async fn get_bootstrap_state(
 ) -> Result<BootstrapState, String> {
     let onboarding_complete = is_onboarding_complete();
     let is_first_launch = !onboarding_complete;
-    let sidecar = ensure_sidecar_running(&app_handle, state.inner())
+    let local_runtime_ready = local_runtime_ready();
+    let local_bundle_ready = local_bootstrap_assets_ready() && local_runtime_ready;
+    let sidecar = ensure_sidecar_started(&app_handle, state.inner())
         .await
         .unwrap_or(SidecarStatus {
             running: false,
@@ -308,7 +346,7 @@ pub async fn get_bootstrap_state(
     let bundle_ready = if sidecar.healthy {
         is_bootstrap_bundle_ready(state.inner()).await
     } else {
-        local_bootstrap_assets_ready()
+        local_bundle_ready
     };
     let needs_repair = onboarding_complete && !bundle_ready;
     let tasks = if sidecar.healthy {
@@ -343,7 +381,7 @@ pub async fn get_bootstrap_state(
         is_first_launch,
         phase: phase.into(),
         status: status.into(),
-        runtime_ready: sidecar.running,
+        runtime_ready: local_runtime_ready || sidecar.running,
         model_ready: bundle_ready,
         sidecar_ready: sidecar.healthy,
         current_download_job_id,
@@ -358,8 +396,8 @@ pub async fn start_bootstrap_download(
     state: State<'_, AppState>,
     provider_preference: Option<String>,
 ) -> Result<TaskRecord, String> {
-    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
-    if !sidecar.healthy {
+    let sidecar = restart_sidecar_clean(&app_handle, state.inner()).await?;
+    if !sidecar.running {
         return Err(sidecar
             .reason
             .unwrap_or_else(|| "python_sidecar_not_ready".into()));
@@ -401,8 +439,8 @@ pub async fn start_cuda_upgrade(
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<TaskRecord, String> {
-    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
-    if !sidecar.healthy {
+    let sidecar = restart_sidecar_clean(&app_handle, state.inner()).await?;
+    if !sidecar.running {
         return Err(sidecar
             .reason
             .unwrap_or_else(|| "python_sidecar_not_ready".into()));
@@ -435,6 +473,14 @@ pub async fn get_sidecar_status(
     ensure_sidecar_running(&app_handle, state.inner()).await
 }
 
+#[tauri::command]
+pub async fn get_bootstrap_sidecar_status(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<SidecarStatus, String> {
+    ensure_sidecar_started(&app_handle, state.inner()).await
+}
+
 fn detect_gpu_vendor() -> Option<String> {
     if platform::detect_nvidia_gpu().is_some() {
         return Some("nvidia".into());
@@ -443,16 +489,39 @@ fn detect_gpu_vendor() -> Option<String> {
 }
 
 fn read_active_torch_backend() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        if local_runtime_ready() {
+            return Some("cuda".into());
+        }
+    }
+
     let runtime_json = platform::app_support_dir()
         .ok()?
         .join("runtime")
         .join("runtime.json");
-    let content = fs::read_to_string(runtime_json).ok()?;
-    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
-    parsed
-        .get("active")
-        .and_then(|value| value.as_str())
-        .map(|value| value.to_string())
+    if let Ok(content) = fs::read_to_string(runtime_json) {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(active) = parsed.get("active").and_then(|value| value.as_str()) {
+                return Some(active.to_string());
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return None;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return Some("mps".into());
+    }
+
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    {
+        Some("cpu".into())
+    }
 }
 
 #[tauri::command]
@@ -464,10 +533,12 @@ pub async fn get_setup_diagnostics(
     let total_memory_bytes = platform::detect_total_memory_bytes();
     let available_storage_bytes = platform::detect_available_storage_bytes();
     let gpu_vendor = detect_gpu_vendor();
+    let gpu_name = platform::detect_nvidia_gpu();
+    let gpu_memory_bytes = platform::detect_nvidia_gpu_memory_bytes();
     let has_nvidia_gpu = gpu_vendor.as_deref() == Some("nvidia");
     let runtime_available = sidecar_runtime_available(&app_handle);
     let sidecar = if runtime_available {
-        ensure_sidecar_running(&app_handle, state.inner())
+        ensure_sidecar_started(&app_handle, state.inner())
             .await
             .unwrap_or(SidecarStatus {
                 running: false,
@@ -488,11 +559,13 @@ pub async fn get_setup_diagnostics(
         available_storage_bytes,
         recommended_memory_bytes: RECOMMENDED_MEMORY_BYTES,
         minimum_free_storage_bytes: MINIMUM_FREE_STORAGE_BYTES,
+        gpu_memory_bytes,
+        minimum_gpu_memory_bytes: MINIMUM_GPU_MEMORY_BYTES,
         environment_ready: sidecar.healthy,
         environment_status: environment_status_from_sidecar(&sidecar),
         environment_reason: sidecar.reason,
         gpu_vendor,
-        gpu_name: platform::detect_nvidia_gpu(),
+        gpu_name,
         has_nvidia_gpu,
         active_torch_backend: read_active_torch_backend(),
     })
@@ -591,11 +664,15 @@ pub async fn open_microphone_settings() -> Result<bool, String> {
     }
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         let status = Command::new("explorer")
             .arg("ms-settings:privacy-microphone")
+            .creation_flags(CREATE_NO_WINDOW)
             .status()
             .map_err(|e| e.to_string())?;
-        return Ok(status.success());
+        let _ = status;
+        return Ok(true);
     }
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {

@@ -1,4 +1,4 @@
-"""Upgrade the Voca Python runtime from CPU torch to CUDA torch in-place.
+"""Install the CUDA PyTorch runtime into Voca's bundled Windows venv.
 
 This module implements the multi-stage flow described in the Windows support
 plan:
@@ -6,10 +6,10 @@ plan:
   * ``DownloadStage`` — resumable + SHA-256-verified fetch of ``torch`` and
     ``torchaudio`` wheels from the PyTorch public index.
   * ``InstallStage``  — extract the wheels into ``runtime/staging/``, run a
-    sub-process import self-check, then atomically swap the old ``torch`` and
-    ``torchaudio`` directories out of ``site-packages/`` (preserving them under
-    ``runtime/rollback/<timestamp>/``) and move the new ones in. If the post-
-    swap validation fails, the rollback is restored automatically.
+    sub-process import self-check, then atomically move the new ``torch`` and
+    ``torchaudio`` directories into ``site-packages/``. If a previous runtime
+    exists it is preserved under ``runtime/rollback/<timestamp>/`` first. If the
+    post-swap validation fails, the rollback is restored automatically.
 
 All operations are idempotent and interruption-safe:
 
@@ -19,24 +19,25 @@ All operations are idempotent and interruption-safe:
   * the ``upgrade.lock`` file guarantees at most one concurrent upgrade.
   * on failure any fully-downloaded wheel is kept so the next attempt starts
     right at the install stage.
-
-The Rust sidecar consumes ``runtime.json`` at boot to decide whether to
-``ensure_torch_healthy`` the environment on startup.
 """
 
 from __future__ import annotations
 
+import html
 import hashlib
 import json
 import logging
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -44,21 +45,37 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 try:
+    import certifi  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    certifi = None  # type: ignore
+
+try:
     import requests  # type: ignore
 except Exception:  # pragma: no cover - requests is a transitive dep of huggingface_hub
     requests = None  # type: ignore
 
 from app.services.storage_paths import app_support_dir
+from app.services.provider_router import prefer_cn_downloads
 
 logger = logging.getLogger(__name__)
 
-PYTORCH_INDEX_BASE = "https://download.pytorch.org/whl/cu124"
-TORCH_VERSION = "2.11.0"
+PYTORCH_INDEX_BASE_OFFICIAL = "https://download.pytorch.org/whl/cu124"
+PYTORCH_INDEX_BASE_ALIYUN = "https://mirrors.aliyun.com/pytorch-wheels/cu124"
+TORCH_VERSION = "2.6.0"
 TORCH_LOCAL_VARIANT = "cu124"
 MAX_DOWNLOAD_ATTEMPTS = 3
 DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024  # 4 MiB
 DOWNLOAD_TIMEOUT_SECONDS = 120
+TORCH_SEGMENT_THREADS = 32
+PROGRESS_EMIT_INTERVAL_SECONDS = 0.2
 REQUEST_HEADERS = {"User-Agent": "Voca-Desktop-Upgrader"}
+RUNTIME_SITE_PACKAGES_ENV = "VOCA_RUNTIME_SITE_PACKAGES"
+RUNTIME_COMPLETE_MARKER_FILENAME = "cuda-runtime-complete.json"
+_WEAK_CERT_ERROR_MARKERS = (
+    "ee certificate key too weak",
+    "ca certificate key too weak",
+    "certificate key too weak",
+)
 
 
 ProgressCallback = Callable[[dict], None]
@@ -74,6 +91,30 @@ class WheelSpec:
     filename: str
     url: str
     sha256: str | None
+    source_name: str
+    source_label: str | None = None
+
+
+@dataclass(frozen=True)
+class WheelSource:
+    name: str
+    label: str
+    index_base: str
+    package_subdirs: bool = False
+
+
+OFFICIAL_WHEEL_SOURCE = WheelSource(
+    name="official",
+    label="PyTorch",
+    index_base=PYTORCH_INDEX_BASE_OFFICIAL,
+    package_subdirs=True,
+)
+ALIYUN_WHEEL_SOURCE = WheelSource(
+    name="aliyun",
+    label="Aliyun",
+    index_base=PYTORCH_INDEX_BASE_ALIYUN,
+    package_subdirs=False,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -113,19 +154,100 @@ def upgrade_lock_path() -> Path:
     return runtime_root() / "upgrade.lock"
 
 
+def runtime_site_packages_dir() -> Path:
+    explicit = os.environ.get(RUNTIME_SITE_PACKAGES_ENV, "").strip()
+    if explicit:
+        directory = Path(explicit).expanduser()
+    else:
+        directory = runtime_root() / "site-packages"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def runtime_complete_marker_path() -> Path:
+    return runtime_root() / RUNTIME_COMPLETE_MARKER_FILENAME
+
+
+def has_runtime_complete_marker() -> bool:
+    marker = runtime_complete_marker_path()
+    if not marker.exists():
+        return False
+    site_packages = runtime_site_packages_dir()
+    return (site_packages / "torch").exists() and (site_packages / "torchaudio").exists()
+
+
+def write_runtime_complete_marker(*, backend: str, self_check: dict | None = None) -> None:
+    payload = {
+        "backend": backend,
+        "installedAt": datetime.now(UTC).isoformat(),
+        "sitePackagesDir": str(runtime_site_packages_dir()),
+    }
+    if self_check:
+        payload["selfCheck"] = self_check
+    marker_path = runtime_complete_marker_path()
+    tmp_path = marker_path.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    tmp_path.replace(marker_path)
+
+
 def current_venv_python() -> Path:
     """Return the interpreter running this process.
 
-    CUDA upgrades must target the venv the sidecar is actually using; sys.executable
-    is the most reliable answer here because this module only runs inside the
-    sidecar process.
+    The bundled Windows sidecar runs with the python-build-standalone interpreter
+    from ``python-runtime`` and augments imports via ``PYTHONPATH`` to point at
+    ``python-service/.venv/Lib/site-packages``. For subprocess self-checks we
+    still want the actual interpreter executable, which is ``sys.executable``.
     """
 
     return Path(sys.executable)
 
 
+def _service_site_packages_from_env() -> Path | None:
+    explicit_runtime_site_packages = os.environ.get(RUNTIME_SITE_PACKAGES_ENV, "").strip()
+    if explicit_runtime_site_packages:
+        candidate = Path(explicit_runtime_site_packages).expanduser()
+        candidate.mkdir(parents=True, exist_ok=True)
+        return candidate.resolve()
+
+    service_root = os.environ.get("VOCA_PYTHON_SERVICE_ROOT", "").strip()
+    if service_root:
+        candidate = Path(service_root).expanduser() / ".venv" / "Lib" / "site-packages"
+        if candidate.exists():
+            return candidate.resolve()
+
+    python_path = os.environ.get("PYTHONPATH")
+    if python_path:
+        for entry in python_path.split(os.pathsep):
+            text = entry.strip()
+            if not text:
+                continue
+            candidate = Path(text).expanduser()
+            try:
+                resolved = candidate.resolve()
+            except Exception:
+                continue
+            if resolved.name.lower() == "site-packages" and resolved.exists():
+                return resolved
+
+    return None
+
+
 def current_site_packages() -> Path:
-    """Resolve the site-packages directory for the currently running interpreter."""
+    """Resolve the writable site-packages directory used by the sidecar.
+
+    In bundled Windows builds the interpreter lives under ``python-runtime`` but
+    third-party packages live under ``python-service/.venv/Lib/site-packages`` and
+    are injected through ``PYTHONPATH`` by the Tauri launcher. Installing into the
+    interpreter's own ``Lib/site-packages`` would target the bundled resources
+    directory and fail with ``WinError 5``.
+    """
+
+    if sys.platform == "win32":
+        return runtime_site_packages_dir().resolve()
+
+    service_site_packages = _service_site_packages_from_env()
+    if service_site_packages is not None:
+        return service_site_packages
 
     # site.getsitepackages gives us every search path; the venv one typically contains
     # "site-packages" and lives under the venv root so filter on that.
@@ -239,8 +361,150 @@ def _ensure_requests():
         )
 
 
-def _index_url(package: str) -> str:
-    return f"{PYTORCH_INDEX_BASE}/{package}/"
+def _looks_like_weak_cert_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _WEAK_CERT_ERROR_MARKERS)
+
+
+if requests is not None:
+    _WEAK_TLS_HOSTS: set[str] = set()
+    _WEAK_TLS_HOSTS_LOCK = threading.Lock()
+
+    def _request_hostname(url: str) -> str:
+        return urllib.parse.urlparse(url).hostname or ""
+
+
+    def _remember_weak_tls_host(url: str) -> None:
+        hostname = _request_hostname(url)
+        if not hostname:
+            return
+        with _WEAK_TLS_HOSTS_LOCK:
+            _WEAK_TLS_HOSTS.add(hostname)
+
+
+    def _is_weak_tls_host(url: str) -> bool:
+        hostname = _request_hostname(url)
+        if not hostname:
+            return False
+        with _WEAK_TLS_HOSTS_LOCK:
+            return hostname in _WEAK_TLS_HOSTS
+
+
+    def _resolve_verify_setting(explicit_verify):
+        if explicit_verify is not None:
+            return explicit_verify
+
+        for env_name in ("REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+            env_value = os.environ.get(env_name, "").strip()
+            if env_value:
+                return env_value
+
+        if certifi is not None:
+            try:
+                return certifi.where()
+            except Exception:
+                pass
+
+        return True
+
+
+    class _TLSHttpAdapter(requests.adapters.HTTPAdapter):  # type: ignore[misc]
+        """HTTP adapter that can lower the OpenSSL security level for weak cert chains.
+
+        Some Windows environments in China are behind TLS interception appliances or
+        mirrors whose certificate chain is accepted by the system trust store but is
+        rejected by OpenSSL 3.x at its default security level with
+        ``EE certificate key too weak``. Retrying with ``SECLEVEL=1`` keeps
+        verification enabled while allowing those legacy keys.
+        """
+
+        def __init__(self, *, allow_weak_keys: bool = False, verify_setting=None, **kwargs) -> None:
+            self._allow_weak_keys = allow_weak_keys
+            self._verify_setting = verify_setting
+            super().__init__(**kwargs)
+
+        def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+            pool_kwargs["ssl_context"] = self._build_ssl_context()
+            return super().init_poolmanager(connections, maxsize, block, **pool_kwargs)
+
+        def proxy_manager_for(self, proxy, **proxy_kwargs):
+            proxy_kwargs["ssl_context"] = self._build_ssl_context()
+            return super().proxy_manager_for(proxy, **proxy_kwargs)
+
+        def _build_ssl_context(self) -> ssl.SSLContext:
+            verify_setting = _resolve_verify_setting(self._verify_setting)
+            if verify_setting is False:
+                context = ssl._create_unverified_context()
+            else:
+                cafile = verify_setting if isinstance(verify_setting, str) and not os.path.isdir(verify_setting) else None
+                capath = verify_setting if isinstance(verify_setting, str) and os.path.isdir(verify_setting) else None
+                context = ssl.create_default_context(cafile=cafile, capath=capath)
+            if self._allow_weak_keys:
+                try:
+                    context.set_ciphers("DEFAULT@SECLEVEL=1")
+                except ssl.SSLError:
+                    logger.warning("unable to lower OpenSSL security level for weak-cert retry")
+            return context
+
+
+    def _request_with_weak_tls(
+        method: str,
+        url: str,
+        **kwargs,
+    ):
+        verify_setting = kwargs.get("verify")
+        session = requests.Session()
+        adapter = _TLSHttpAdapter(
+            allow_weak_keys=True,
+            verify_setting=verify_setting,
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        if verify_setting is not None:
+            session.verify = verify_setting
+        try:
+            return session.request(method, url, **kwargs)
+        finally:
+            session.close()
+
+
+def _request(
+    method: str,
+    url: str,
+    *,
+    allow_weak_cert_retry: bool = True,
+    **kwargs,
+):
+    _ensure_requests()
+
+    if allow_weak_cert_retry and requests is not None and _is_weak_tls_host(url):
+        return _request_with_weak_tls(method, url, **kwargs)
+
+    try:
+        return requests.request(method, url, **kwargs)
+    except requests.exceptions.SSLError as exc:
+        if not allow_weak_cert_retry or not _looks_like_weak_cert_error(exc):
+            raise
+
+        _remember_weak_tls_host(url)
+        logger.warning(
+            "SSL verification hit weak certificate chain for %s; retrying with OpenSSL SECLEVEL=1",
+            url,
+        )
+        return _request_with_weak_tls(method, url, **kwargs)
+
+
+def _wheel_source_order() -> tuple[WheelSource, ...]:
+    if prefer_cn_downloads():
+        return (ALIYUN_WHEEL_SOURCE, OFFICIAL_WHEEL_SOURCE)
+    return (OFFICIAL_WHEEL_SOURCE, ALIYUN_WHEEL_SOURCE)
+
+
+def _index_url(package: str, source: WheelSource) -> str:
+    base = source.index_base.rstrip("/")
+    if source.package_subdirs:
+        return f"{base}/{package}/"
+    return f"{base}/"
 
 
 _HREF_PATTERN = re.compile(r'href="([^"]+)"', re.IGNORECASE)
@@ -253,30 +517,58 @@ def discover_wheels() -> list[WheelSpec]:
 
     python_tag = _python_tag()
     platform_tag = _platform_tag()
+    errors: list[str] = []
 
-    wheels: list[WheelSpec] = []
-    for package in ("torch", "torchaudio"):
-        index_url = _index_url(package)
-        logger.info("fetching pytorch index: %s", index_url)
-        response = requests.get(index_url, headers=REQUEST_HEADERS, timeout=30)
-        response.raise_for_status()
-        wheels.append(_select_wheel(package, index_url, response.text, python_tag, platform_tag))
-    return wheels
+    for source in _wheel_source_order():
+        wheels: list[WheelSpec] = []
+        try:
+            for package in ("torch", "torchaudio"):
+                index_url = _index_url(package, source)
+                logger.info(
+                    "fetching pytorch index from %s: %s",
+                    source.label,
+                    index_url,
+                )
+                response = _request("GET", index_url, headers=REQUEST_HEADERS, timeout=30)
+                response.raise_for_status()
+                wheels.append(
+                    _select_wheel(
+                        package,
+                        index_url,
+                        response.text,
+                        python_tag,
+                        platform_tag,
+                        source=source,
+                    )
+                )
+            logger.info("selected CUDA wheel source: %s", source.label)
+            return wheels
+        except Exception as exc:
+            message = f"{source.label}: {exc}"
+            logger.warning("CUDA wheel discovery failed for %s: %s", source.label, exc)
+            errors.append(message)
+
+    raise CudaUpgradeError(
+        "unable to locate CUDA wheels from any configured source: "
+        + " | ".join(errors)
+    )
 
 
 def _select_wheel(
     package: str,
     index_url: str,
-    html: str,
+    html_text: str,
     python_tag: str,
     platform_tag: str,
+    *,
+    source: WheelSource,
 ) -> WheelSpec:
     expected_version_fragment = f"-{TORCH_VERSION}+{TORCH_LOCAL_VARIANT}-"
     expected_tags = f"-{python_tag}-{python_tag}-{platform_tag}.whl"
 
     best: tuple[str, str, str | None] | None = None
-    for match in _HREF_PATTERN.finditer(html):
-        href = match.group(1)
+    for match in _HREF_PATTERN.finditer(html_text):
+        href = html.unescape(match.group(1))
         split = href.split("#", 1)
         path_part = split[0]
         fragment = split[1] if len(split) == 2 else ""
@@ -303,11 +595,18 @@ def _select_wheel(
     if best is None:
         raise CudaUpgradeError(
             f"no wheel found for {package} {TORCH_VERSION}+{TORCH_LOCAL_VARIANT} "
-            f"matching {python_tag}/{platform_tag}"
+            f"matching {python_tag}/{platform_tag} from {source.label}"
         )
 
     filename, url, sha256 = best
-    return WheelSpec(package=package, filename=filename, url=url, sha256=sha256)
+    return WheelSpec(
+        package=package,
+        filename=filename,
+        url=url,
+        sha256=sha256,
+        source_name=source.name,
+        source_label=source.label,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +621,56 @@ class DownloadResult:
     wheel_specs: list[WheelSpec]
 
 
+class _SegmentedDownloadFallback(RuntimeError):
+    """Raised when segmented downloading should fall back to the legacy path."""
+
+
+class _SegmentProgressTracker:
+    """Thread-safe aggregate progress reporter for segmented downloads."""
+
+    def __init__(
+        self,
+        part_count: int,
+        total_bytes: int,
+        callback: Callable[[int, int | None], None] | None,
+    ) -> None:
+        self._part_sizes = [0] * part_count
+        self._total_downloaded = 0
+        self._total_bytes = total_bytes
+        self._callback = callback
+        self._lock = threading.Lock()
+        self._last_emit_at = 0.0
+
+    def set_part_size(self, index: int, size: int, *, force: bool = False) -> None:
+        if self._callback is None:
+            return
+
+        emit_total: int | None = None
+        now = time.monotonic()
+        with self._lock:
+            previous = self._part_sizes[index]
+            if previous == size and not force:
+                return
+
+            self._part_sizes[index] = size
+            self._total_downloaded += size - previous
+            should_emit = force or (now - self._last_emit_at) >= PROGRESS_EMIT_INTERVAL_SECONDS
+            if should_emit:
+                self._last_emit_at = now
+                emit_total = self._total_downloaded
+
+        if emit_total is not None:
+            self._callback(emit_total, self._total_bytes)
+
+    def emit_now(self) -> None:
+        if self._callback is None:
+            return
+        with self._lock:
+            self._last_emit_at = time.monotonic()
+            total_downloaded = self._total_downloaded
+        self._callback(total_downloaded, self._total_bytes)
+
+
 def _sha256_of(path: Path) -> str:
     hasher = hashlib.sha256()
     with path.open("rb") as handle:
@@ -333,20 +682,238 @@ def _sha256_of(path: Path) -> str:
     return hasher.hexdigest()
 
 
-def download_wheel(
+def _segmented_parts_dir(destination_dir: Path, wheel: WheelSpec) -> Path:
+    return destination_dir / f"{wheel.filename}.parts"
+
+
+def _discover_wheel_total_bytes(
+    wheel: WheelSpec,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+) -> int | None:
+    if cancel_check and cancel_check():
+        raise CudaUpgradeError("download cancelled")
+
+    try:
+        response = _request(
+            "HEAD",
+            wheel.url,
+            timeout=DOWNLOAD_TIMEOUT_SECONDS,
+            headers=REQUEST_HEADERS,
+            allow_redirects=True,
+        )
+        try:
+            response.raise_for_status()
+            content_length = response.headers.get("Content-Length")
+            if content_length:
+                size = int(content_length)
+                if size > 0:
+                    return size
+        finally:
+            response.close()
+    except Exception as exc:
+        logger.debug("HEAD size probe failed for %s: %s", wheel.filename, exc)
+
+    try:
+        headers = dict(REQUEST_HEADERS)
+        headers["Range"] = "bytes=0-0"
+        response = _request(
+            "GET",
+            wheel.url,
+            stream=True,
+            timeout=DOWNLOAD_TIMEOUT_SECONDS,
+            headers=headers,
+            allow_redirects=True,
+        )
+        try:
+            if response.status_code == 206:
+                content_range = response.headers.get("Content-Range", "").strip()
+                match = re.match(r"bytes\s+\d+-\d+/(\d+)", content_range, flags=re.IGNORECASE)
+                if match is not None:
+                    size = int(match.group(1))
+                    if size > 0:
+                        return size
+
+            response.raise_for_status()
+            content_length = response.headers.get("Content-Length")
+            if content_length:
+                size = int(content_length)
+                if size > 0:
+                    return size
+        finally:
+            response.close()
+    except Exception as exc:
+        logger.debug("GET size probe failed for %s: %s", wheel.filename, exc)
+
+    return None
+
+
+def _probe_range_download(
+    wheel: WheelSpec,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+) -> int:
+    if cancel_check and cancel_check():
+        raise CudaUpgradeError("download cancelled")
+
+    headers = dict(REQUEST_HEADERS)
+    headers["Range"] = "bytes=0-0"
+    with _request(
+        "GET",
+        wheel.url,
+        stream=True,
+        timeout=DOWNLOAD_TIMEOUT_SECONDS,
+        headers=headers,
+        allow_redirects=True,
+    ) as response:
+        if response.status_code != 206:
+            raise _SegmentedDownloadFallback(
+                f"range requests are not supported for {wheel.filename} from {wheel.source_label or wheel.source_name}"
+            )
+
+        content_range = response.headers.get("Content-Range", "").strip()
+        match = re.match(r"bytes\s+\d+-\d+/(\d+)", content_range, flags=re.IGNORECASE)
+        if match is None:
+            raise _SegmentedDownloadFallback(
+                f"range probe returned unreadable Content-Range for {wheel.filename}: {content_range!r}"
+            )
+
+        total_bytes = int(match.group(1))
+        if total_bytes <= 0:
+            raise _SegmentedDownloadFallback(
+                f"range probe reported invalid size for {wheel.filename}: {total_bytes}"
+            )
+        return total_bytes
+
+
+def _segment_ranges(total_bytes: int, segment_count: int) -> list[tuple[int, int]]:
+    segment_count = max(1, min(segment_count, total_bytes))
+    chunk_size, remainder = divmod(total_bytes, segment_count)
+    ranges: list[tuple[int, int]] = []
+    start = 0
+    for index in range(segment_count):
+        size = chunk_size + (1 if index < remainder else 0)
+        end = start + size - 1
+        ranges.append((start, end))
+        start = end + 1
+    return ranges
+
+
+def _segment_part_paths(parts_dir: Path, part_count: int) -> list[Path]:
+    return [parts_dir / f"part-{index:03d}.partial" for index in range(part_count)]
+
+
+def _cleanup_stale_segment_parts(parts_dir: Path, active_paths: Iterable[Path]) -> None:
+    if not parts_dir.exists():
+        return
+
+    active_names = {path.name for path in active_paths}
+    for path in parts_dir.iterdir():
+        if path.is_file() and path.name not in active_names:
+            path.unlink(missing_ok=True)
+
+
+def _cleanup_segmented_artifacts(parts_dir: Path, partial_path: Path | None = None) -> None:
+    if partial_path is not None:
+        partial_path.unlink(missing_ok=True)
+
+    if not parts_dir.exists():
+        return
+
+    shutil.rmtree(parts_dir, ignore_errors=True)
+
+
+def _copy_n_bytes(source, destination, count: int) -> None:
+    remaining = count
+    while remaining > 0:
+        chunk = source.read(min(1024 * 1024, remaining))
+        if not chunk:
+            raise CudaUpgradeError("unexpected EOF while migrating partial download into segments")
+        destination.write(chunk)
+        remaining -= len(chunk)
+
+
+def _migrate_monolithic_partial_to_segments(
+    partial_path: Path,
+    part_paths: list[Path],
+    ranges: list[tuple[int, int]],
+) -> None:
+    if not partial_path.exists():
+        return
+
+    partial_size = partial_path.stat().st_size
+    if partial_size <= 0:
+        partial_path.unlink(missing_ok=True)
+        return
+
+    part_paths[0].parent.mkdir(parents=True, exist_ok=True)
+    with partial_path.open("rb") as source:
+        remaining = partial_size
+        for part_path, (start, end) in zip(part_paths, ranges, strict=False):
+            if remaining <= 0:
+                break
+
+            expected_size = end - start + 1
+            to_copy = min(expected_size, remaining)
+            with part_path.open("wb") as destination:
+                _copy_n_bytes(source, destination, to_copy)
+            remaining -= to_copy
+
+    partial_path.unlink(missing_ok=True)
+
+
+def _merge_segment_parts(
+    part_paths: list[Path],
+    ranges: list[tuple[int, int]],
+    partial_path: Path,
+) -> None:
+    partial_path.parent.mkdir(parents=True, exist_ok=True)
+    with partial_path.open("wb") as merged:
+        for part_path, (start, end) in zip(part_paths, ranges, strict=False):
+            expected_size = end - start + 1
+            actual_size = part_path.stat().st_size if part_path.exists() else 0
+            if actual_size != expected_size:
+                raise CudaUpgradeError(
+                    f"segment {part_path.name} has size {actual_size}, expected {expected_size}"
+                )
+            with part_path.open("rb") as source:
+                shutil.copyfileobj(source, merged, length=1024 * 1024)
+
+
+def _maybe_complete_from_partial(
+    partial_path: Path,
+    final_path: Path,
+    wheel: WheelSpec,
+    *,
+    expected_size: int,
+    on_bytes: Callable[[int, int | None], None] | None = None,
+) -> bool:
+    if not partial_path.exists():
+        return False
+
+    actual_size = partial_path.stat().st_size
+    if actual_size != expected_size:
+        return False
+
+    if wheel.sha256 is not None:
+        actual_sha = _sha256_of(partial_path)
+        if actual_sha != wheel.sha256:
+            partial_path.unlink(missing_ok=True)
+            return False
+
+    partial_path.replace(final_path)
+    if on_bytes is not None:
+        on_bytes(expected_size, expected_size)
+    return True
+
+
+def _download_wheel_single_connection(
     wheel: WheelSpec,
     destination_dir: Path,
     *,
     on_bytes: Callable[[int, int | None], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> Path:
-    """Download ``wheel`` resumably into ``destination_dir`` and SHA-256 verify it.
-
-    Returns the final wheel path on disk.
-    """
-
-    _ensure_requests()
-
     destination_dir.mkdir(parents=True, exist_ok=True)
     final_path = destination_dir / wheel.filename
     partial_path = destination_dir / f"{wheel.filename}.partial"
@@ -371,7 +938,8 @@ def download_wheel(
             if existing:
                 headers["Range"] = f"bytes={existing}-"
 
-            with requests.get(
+            with _request(
+                "GET",
                 wheel.url,
                 stream=True,
                 timeout=DOWNLOAD_TIMEOUT_SECONDS,
@@ -408,7 +976,6 @@ def download_wheel(
                 else:
                     response.raise_for_status()
 
-            # Verify integrity.
             if wheel.sha256 is not None:
                 actual = _sha256_of(partial_path)
                 if actual != wheel.sha256:
@@ -437,6 +1004,246 @@ def download_wheel(
     )
 
 
+def _download_segment_part(
+    wheel: WheelSpec,
+    part_path: Path,
+    *,
+    part_index: int,
+    start: int,
+    end: int,
+    tracker: _SegmentProgressTracker,
+    cancel_check: Callable[[], bool] | None,
+    abort_event: threading.Event,
+) -> None:
+    expected_size = end - start + 1
+    existing = part_path.stat().st_size if part_path.exists() else 0
+
+    if existing > expected_size:
+        part_path.unlink(missing_ok=True)
+        existing = 0
+
+    tracker.set_part_size(part_index, existing, force=(existing == expected_size))
+    if existing == expected_size:
+        return
+
+    last_error: Exception | None = None
+    for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
+        if abort_event.is_set():
+            raise CudaUpgradeError("download aborted")
+        if cancel_check and cancel_check():
+            abort_event.set()
+            raise CudaUpgradeError("download cancelled")
+
+        try:
+            headers = dict(REQUEST_HEADERS)
+            headers["Range"] = f"bytes={start + existing}-{end}"
+            with _request(
+                "GET",
+                wheel.url,
+                stream=True,
+                timeout=DOWNLOAD_TIMEOUT_SECONDS,
+                headers=headers,
+                allow_redirects=True,
+            ) as response:
+                if response.status_code != 206:
+                    raise _SegmentedDownloadFallback(
+                        f"server ignored range request for {wheel.filename} segment {part_index}"
+                    )
+
+                content_range = response.headers.get("Content-Range", "").strip()
+                expected_prefix = f"bytes {start + existing}-"
+                if not content_range.lower().startswith(expected_prefix.lower()):
+                    raise CudaUpgradeError(
+                        f"unexpected Content-Range for {wheel.filename} segment {part_index}: {content_range!r}"
+                    )
+
+                mode = "ab" if existing else "wb"
+                with part_path.open(mode) as handle:
+                    for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
+                        if abort_event.is_set():
+                            raise CudaUpgradeError("download aborted")
+                        if cancel_check and cancel_check():
+                            abort_event.set()
+                            raise CudaUpgradeError("download cancelled")
+                        if not chunk:
+                            continue
+                        handle.write(chunk)
+                        existing += len(chunk)
+                        tracker.set_part_size(part_index, existing)
+
+            if existing != expected_size:
+                raise CudaUpgradeError(
+                    f"segment {part_index} incomplete for {wheel.filename}: got {existing}, expected {expected_size}"
+                )
+
+            tracker.set_part_size(part_index, existing, force=True)
+            return
+        except (_SegmentedDownloadFallback, CudaUpgradeError):
+            raise
+        except Exception as exc:  # noqa: BLE001 — retry resumably
+            last_error = exc
+            existing = part_path.stat().st_size if part_path.exists() else 0
+            tracker.set_part_size(part_index, existing, force=True)
+            logger.warning(
+                "segment attempt %d/%d for %s part %d failed: %s",
+                attempt,
+                MAX_DOWNLOAD_ATTEMPTS,
+                wheel.filename,
+                part_index,
+                exc,
+            )
+            time.sleep(min(2 ** attempt, 10))
+
+    raise CudaUpgradeError(
+        f"failed to download segment {part_index} for {wheel.filename} after {MAX_DOWNLOAD_ATTEMPTS} attempts: {last_error}"
+    )
+
+
+def _download_wheel_segmented(
+    wheel: WheelSpec,
+    destination_dir: Path,
+    *,
+    on_bytes: Callable[[int, int | None], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> Path:
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    final_path = destination_dir / wheel.filename
+    partial_path = destination_dir / f"{wheel.filename}.partial"
+    parts_dir = _segmented_parts_dir(destination_dir, wheel)
+
+    if final_path.exists():
+        if wheel.sha256 is None or _sha256_of(final_path) == wheel.sha256:
+            if on_bytes is not None:
+                size = final_path.stat().st_size
+                on_bytes(size, size)
+            return final_path
+        logger.warning("existing wheel %s failed sha256; re-downloading", wheel.filename)
+        final_path.unlink(missing_ok=True)
+
+    total_bytes = _probe_range_download(wheel, cancel_check=cancel_check)
+    if _maybe_complete_from_partial(
+        partial_path,
+        final_path,
+        wheel,
+        expected_size=total_bytes,
+        on_bytes=on_bytes,
+    ):
+        return final_path
+
+    ranges = _segment_ranges(total_bytes, TORCH_SEGMENT_THREADS)
+    part_paths = _segment_part_paths(parts_dir, len(ranges))
+    parts_dir.mkdir(parents=True, exist_ok=True)
+    _cleanup_stale_segment_parts(parts_dir, part_paths)
+
+    if partial_path.exists() and partial_path.stat().st_size > total_bytes:
+        logger.warning("discarding oversized partial download for %s", wheel.filename)
+        partial_path.unlink(missing_ok=True)
+
+    existing_segment_parts = any(path.exists() for path in part_paths)
+    if partial_path.exists() and not existing_segment_parts:
+        logger.info("migrating monolithic partial download into segmented parts for %s", wheel.filename)
+        _migrate_monolithic_partial_to_segments(partial_path, part_paths, ranges)
+    elif partial_path.exists():
+        partial_path.unlink(missing_ok=True)
+
+    tracker = _SegmentProgressTracker(len(part_paths), total_bytes, on_bytes)
+    for index, (part_path, (start, end)) in enumerate(zip(part_paths, ranges, strict=False)):
+        expected_size = end - start + 1
+        existing = part_path.stat().st_size if part_path.exists() else 0
+        if existing > expected_size:
+            part_path.unlink(missing_ok=True)
+            existing = 0
+        tracker.set_part_size(index, existing, force=False)
+    tracker.emit_now()
+
+    abort_event = threading.Event()
+    executor = ThreadPoolExecutor(max_workers=len(part_paths), thread_name_prefix="voca-cuda")
+    futures = {
+        executor.submit(
+            _download_segment_part,
+            wheel,
+            part_path,
+            part_index=index,
+            start=start,
+            end=end,
+            tracker=tracker,
+            cancel_check=cancel_check,
+            abort_event=abort_event,
+        ): index
+        for index, (part_path, (start, end)) in enumerate(zip(part_paths, ranges, strict=False))
+    }
+
+    fallback_error: _SegmentedDownloadFallback | None = None
+    regular_error: Exception | None = None
+    try:
+        for future in as_completed(futures):
+            exc = future.exception()
+            if exc is None:
+                continue
+            abort_event.set()
+            if isinstance(exc, _SegmentedDownloadFallback):
+                fallback_error = fallback_error or exc
+            else:
+                regular_error = regular_error or exc
+    finally:
+        if abort_event.is_set():
+            for future in futures:
+                future.cancel()
+        executor.shutdown(wait=True, cancel_futures=True)
+
+    if fallback_error is not None:
+        raise fallback_error
+    if regular_error is not None:
+        raise regular_error
+
+    _merge_segment_parts(part_paths, ranges, partial_path)
+    if wheel.sha256 is not None:
+        actual_sha = _sha256_of(partial_path)
+        if actual_sha != wheel.sha256:
+            _cleanup_segmented_artifacts(parts_dir, partial_path)
+            raise CudaUpgradeError(
+                f"sha256 mismatch for {wheel.filename}: expected {wheel.sha256}, got {actual_sha}"
+            )
+
+    partial_path.replace(final_path)
+    tracker.emit_now()
+    _cleanup_segmented_artifacts(parts_dir)
+    return final_path
+
+
+def download_wheel(
+    wheel: WheelSpec,
+    destination_dir: Path,
+    *,
+    on_bytes: Callable[[int, int | None], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> Path:
+    """Download ``wheel`` resumably into ``destination_dir`` and SHA-256 verify it.
+
+    Returns the final wheel path on disk.
+    """
+
+    _ensure_requests()
+    if wheel.package == "torch":
+        try:
+            return _download_wheel_segmented(
+                wheel,
+                destination_dir,
+                on_bytes=on_bytes,
+                cancel_check=cancel_check,
+            )
+        except _SegmentedDownloadFallback as exc:
+            _cleanup_segmented_artifacts(_segmented_parts_dir(destination_dir, wheel))
+            logger.warning("segmented download unavailable for %s; falling back: %s", wheel.filename, exc)
+
+    return _download_wheel_single_connection(
+        wheel,
+        destination_dir,
+        on_bytes=on_bytes,
+        cancel_check=cancel_check,
+    )
+
+
 class DownloadStage:
     """Download ``torch`` and ``torchaudio`` CUDA wheels with progress reporting."""
 
@@ -457,6 +1264,16 @@ class DownloadStage:
 
         per_wheel_total: dict[str, int] = {}
         per_wheel_seen: dict[str, int] = {wheel.filename: 0 for wheel in specs}
+
+        for wheel in specs:
+            total_bytes = _discover_wheel_total_bytes(
+                wheel,
+                cancel_check=self._cancel_check,
+            )
+            if total_bytes is not None:
+                per_wheel_total[wheel.filename] = total_bytes
+
+        self._emit(per_wheel_seen, per_wheel_total, len(specs))
 
         for wheel in specs:
             def make_callback(filename: str):
@@ -562,6 +1379,8 @@ def record_upgrade_success(backend: str) -> None:
             "lastUpgradeError": None,
         }
     )
+    if backend == "cuda":
+        write_runtime_complete_marker(backend=backend)
 
 
 # ---------------------------------------------------------------------------
@@ -574,15 +1393,18 @@ def record_upgrade_success(backend: str) -> None:
 # ``*.data``) is informational and doesn't participate in the atomic rename
 # because ``pip`` isn't actually involved.
 _WHEEL_LIB_DIRS = {
-    "torch": ["torch"],
-    "torchaudio": ["torchaudio"],
+    "torch": ["torch", "torchgen", "functorch"],
+    "torchaudio": ["torchaudio", "torio"],
 }
 
 _SELF_CHECK_SCRIPT = """
 import json, sys
-sys.path.insert(0, STAGING_PATH)
+sys.path = [CHECK_PATH] + [item for item in sys.path if item != CHECK_PATH]
 import torch
 import torchaudio
+import torchgen
+import functorch
+import torio
 info = {
     'torch_version': torch.__version__,
     'torchaudio_version': torchaudio.__version__,
@@ -610,6 +1432,15 @@ def _sibling_data_dirs(wheel_root: Path, top_level: str) -> list[Path]:
     return extras
 
 
+def _dist_info_dirs(wheel_root: Path, package: str) -> list[Path]:
+    prefix = f"{package}-"
+    entries: list[Path] = []
+    for candidate in wheel_root.glob(f"{package}-*.dist-info"):
+        if candidate.name.startswith(prefix):
+            entries.append(candidate)
+    return entries
+
+
 def _extract_wheel(wheel_path: Path, destination: Path) -> Path:
     """Extract ``wheel_path`` into ``destination`` and return the extracted root."""
 
@@ -626,14 +1457,29 @@ def _run_self_check(
 ) -> dict:
     """Import torch/torchaudio from ``staging_site_packages`` in a sub-process."""
 
-    script = _SELF_CHECK_SCRIPT.replace(
-        "STAGING_PATH", repr(str(staging_site_packages))
-    )
+    check_path = str(staging_site_packages)
+    script = _SELF_CHECK_SCRIPT.replace("CHECK_PATH", repr(check_path))
+    env = os.environ.copy()
+    existing_python_path = env.get("PYTHONPATH", "")
+    filtered_entries: list[str] = []
+    if existing_python_path:
+        for entry in existing_python_path.split(os.pathsep):
+            trimmed = entry.strip()
+            if not trimmed:
+                continue
+            try:
+                if Path(trimmed).resolve() == staging_site_packages.resolve():
+                    continue
+            except Exception:
+                pass
+            filtered_entries.append(trimmed)
+    env["PYTHONPATH"] = os.pathsep.join([check_path, *filtered_entries])
     result = subprocess.run(
         [str(python_executable), "-c", script],
         capture_output=True,
         text=True,
         timeout=timeout_seconds,
+        env=env,
     )
     if result.returncode != 0:
         raise CudaUpgradeError(
@@ -648,11 +1494,127 @@ def _run_self_check(
         ) from exc
 
 
+def _is_retryable_replace_error(exc: BaseException) -> bool:
+    if sys.platform != "win32":
+        return False
+    if isinstance(exc, PermissionError):
+        return True
+    if not isinstance(exc, OSError):
+        return False
+    return getattr(exc, "winerror", None) in {5, 32}
+
+
+def _replace_with_retry(
+    source: Path,
+    destination: Path,
+    *,
+    attempts: int = 20,
+    delay_seconds: float = 0.25,
+) -> None:
+    last_error: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            os.replace(source, destination)
+            return
+        except Exception as exc:  # pragma: no cover - exercised on Windows only
+            if not _is_retryable_replace_error(exc) or attempt == attempts:
+                raise
+            last_error = exc
+            logger.warning(
+                "replace busy on attempt %s/%s: %s -> %s (%s)",
+                attempt,
+                attempts,
+                source,
+                destination,
+                exc,
+            )
+            time.sleep(delay_seconds)
+    if last_error is not None:  # pragma: no cover - defensive
+        raise last_error
+
+
+def _copy_path_with_retry(
+    source: Path,
+    destination: Path,
+    *,
+    attempts: int = 20,
+    delay_seconds: float = 0.25,
+) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        raise CudaUpgradeError(f"copy target already exists: {destination}")
+
+    last_error: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            if source.is_dir():
+                shutil.copytree(source, destination)
+            else:
+                shutil.copy2(source, destination)
+            return
+        except Exception as exc:  # pragma: no cover - exercised on Windows only
+            if destination.exists():
+                try:
+                    if destination.is_dir():
+                        shutil.rmtree(destination, ignore_errors=True)
+                    else:
+                        destination.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            if not _is_retryable_replace_error(exc) or attempt == attempts:
+                raise
+            last_error = exc
+            logger.warning(
+                "copy busy on attempt %s/%s: %s -> %s (%s)",
+                attempt,
+                attempts,
+                source,
+                destination,
+                exc,
+            )
+            time.sleep(delay_seconds)
+    if last_error is not None:  # pragma: no cover - defensive
+        raise last_error
+
+
+def _remove_path_with_retry(
+    path: Path,
+    *,
+    attempts: int = 20,
+    delay_seconds: float = 0.25,
+) -> None:
+    if not path.exists():
+        return
+
+    last_error: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+            return
+        except Exception as exc:  # pragma: no cover - exercised on Windows only
+            if not _is_retryable_replace_error(exc) or attempt == attempts:
+                raise
+            last_error = exc
+            logger.warning(
+                "remove busy on attempt %s/%s: %s (%s)",
+                attempt,
+                attempts,
+                path,
+                exc,
+            )
+            time.sleep(delay_seconds)
+    if last_error is not None:  # pragma: no cover - defensive
+        raise last_error
+
+
 def _safe_rename(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         raise CudaUpgradeError(f"rename target already exists: {destination}")
-    os.replace(source, destination)
+    _replace_with_retry(source, destination)
 
 
 def _rollback(moves: list[tuple[Path, Path]]) -> None:
@@ -664,7 +1626,7 @@ def _rollback(moves: list[tuple[Path, Path]]) -> None:
             continue
         if backup.exists() and not original.exists():
             try:
-                os.replace(backup, original)
+                _replace_with_retry(backup, original)
             except Exception as exc:  # pragma: no cover — defensive
                 logger.error("failed to roll back %s -> %s: %s", backup, original, exc)
         elif backup.exists() and original.exists():
@@ -674,7 +1636,7 @@ def _rollback(moves: list[tuple[Path, Path]]) -> None:
             except Exception:
                 pass
             try:
-                os.replace(backup, original)
+                _replace_with_retry(backup, original)
             except Exception as exc:  # pragma: no cover
                 logger.error("failed to roll back %s: %s", original, exc)
 
@@ -732,48 +1694,50 @@ class InstallStage:
             _extract_wheel(wheel_path, staging_site)
 
         # Sanity: the two packages we are about to swap must be present.
-        for package in _WHEEL_LIB_DIRS:
-            package_root = staging_site / package
-            if not package_root.exists():
-                raise CudaUpgradeError(
-                    f"wheel extraction is missing {package}/ under {staging_site}"
-                )
-
-        self._emit("installing", "pre-swap self-check")
-        pre_check = _run_self_check(venv_python, staging_site)
-        if not pre_check.get("cuda_available"):
-            raise CudaUpgradeError(
-                "pre-swap torch.cuda.is_available() returned False; aborting"
-            )
+        for package, directories in _WHEEL_LIB_DIRS.items():
+            for directory_name in directories:
+                package_root = staging_site / directory_name
+                if not package_root.exists():
+                    raise CudaUpgradeError(
+                        f"wheel extraction is missing {directory_name}/ under {staging_site}"
+                    )
 
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         rollback_dir = rollback_root() / timestamp
         rollback_dir.mkdir(parents=True, exist_ok=False)
 
         moves: list[tuple[Path, Path]] = []
-        staged_moves: list[tuple[Path, Path]] = []
+        copied_targets: list[Path] = []
         try:
             # 1) Rename the existing packages out of site-packages.
-            for package, _directories in _WHEEL_LIB_DIRS.items():
-                for candidate in [target_site_packages / package] + _sibling_data_dirs(
-                    target_site_packages, package
-                ):
+            for package, directories in _WHEEL_LIB_DIRS.items():
+                candidates = [target_site_packages / directory_name for directory_name in directories]
+                candidates.extend(_sibling_data_dirs(target_site_packages, package))
+                candidates.extend(_dist_info_dirs(target_site_packages, package))
+                for candidate in candidates:
                     if not candidate.exists():
                         continue
                     backup = rollback_dir / candidate.name
                     _safe_rename(candidate, backup)
                     moves.append((candidate, backup))
 
-            # 2) Move the staged packages into site-packages.
-            for package, _directories in _WHEEL_LIB_DIRS.items():
-                staged = staging_site / package
-                target = target_site_packages / package
-                _safe_rename(staged, target)
-                staged_moves.append((staged, target))
+            # 2) Copy the staged packages into site-packages. Using a copy here
+            # avoids Windows rename failures when freshly extracted torch files
+            # are still being touched by antivirus or the just-finished probe.
+            for package, directories in _WHEEL_LIB_DIRS.items():
+                for directory_name in directories:
+                    staged = staging_site / directory_name
+                    target = target_site_packages / directory_name
+                    _copy_path_with_retry(staged, target)
+                    copied_targets.append(target)
                 for sibling in _sibling_data_dirs(staging_site, package):
                     sibling_target = target_site_packages / sibling.name
-                    _safe_rename(sibling, sibling_target)
-                    staged_moves.append((sibling, sibling_target))
+                    _copy_path_with_retry(sibling, sibling_target)
+                    copied_targets.append(sibling_target)
+                for dist_info in _dist_info_dirs(staging_site, package):
+                    dist_target = target_site_packages / dist_info.name
+                    _copy_path_with_retry(dist_info, dist_target)
+                    copied_targets.append(dist_target)
 
             self._emit("validating", "post-swap torch.cuda self-check")
             post_check = _run_self_check(venv_python, target_site_packages)
@@ -783,6 +1747,7 @@ class InstallStage:
                 )
 
             record_upgrade_success("cuda")
+            write_runtime_complete_marker(backend="cuda", self_check=post_check)
             _cleanup_old_rollbacks()
             self._emit("done", "cuda runtime active")
             return InstallResult(
@@ -792,17 +1757,15 @@ class InstallStage:
             )
 
         except Exception as exc:
-            # Undo new-package moves first, then restore the backed-up originals.
-            for staged_source, staged_target in reversed(staged_moves):
-                if staged_target.exists():
+            # Remove copied targets first, then restore the backed-up originals.
+            for copied_target in reversed(copied_targets):
+                if copied_target.exists():
                     try:
-                        staged_source.parent.mkdir(parents=True, exist_ok=True)
-                        os.replace(staged_target, staged_source)
+                        _remove_path_with_retry(copied_target)
                     except Exception as inner:  # pragma: no cover - defensive
                         logger.error(
-                            "failed to undo staged move %s -> %s: %s",
-                            staged_target,
-                            staged_source,
+                            "failed to remove copied target %s: %s",
+                            copied_target,
                             inner,
                         )
             _rollback(moves)
@@ -875,8 +1838,8 @@ def ensure_torch_healthy() -> dict:
                 # The install left something behind — move it aside before restoring.
                 broken_target = rollback.with_name(f"broken-{rollback.name}")
                 broken_target.mkdir(parents=True, exist_ok=True)
-                os.replace(destination, broken_target / item.name)
-            os.replace(source, destination)
+                _replace_with_retry(destination, broken_target / item.name)
+            _replace_with_retry(source, destination)
             restored.append((source, destination))
 
         # Remove the now-empty rollback directory.

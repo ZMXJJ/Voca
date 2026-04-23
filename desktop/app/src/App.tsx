@@ -39,6 +39,7 @@ import {
   startBootstrapDownload,
   audioFileExists,
   cleanupLegacyAsrModel,
+  getBootstrapSidecarStatus,
   type UpdateCheckResult,
 } from "./lib/tauri";
 import {
@@ -223,10 +224,21 @@ function createPreviewBootstrapDownloadTask(): TaskRecord {
       downloadedBytes: 560 * 1024 * 1024,
       totalBytes: 936 * 1024 * 1024,
       totalBytesComplete: true,
-      completedFiles: 1,
-      totalFiles: 3,
+      completedFiles: 2,
+      totalFiles: 4,
     },
     bootstrapAssetProgress: [
+      {
+        modelKey: "cuda_runtime",
+        displayName: "CUDA Runtime",
+        status: "succeeded",
+        progress: 100,
+        provider: "local",
+        currentFile: "CUDA Runtime",
+        downloadedBytes: 2_500 * 1024 * 1024,
+        totalBytes: 2_500 * 1024 * 1024,
+        totalBytesComplete: true,
+      },
       {
         modelKey: "voxcpm2",
         displayName: "VoxCPM2",
@@ -273,11 +285,17 @@ function createPreviewBootstrapDownloadTask(): TaskRecord {
 
 function createPreviewSetupDiagnostics(): SetupDiagnostics {
   return {
-    cpuName: "Apple M4",
-    totalMemoryBytes: 8 * 1024 * 1024 * 1024,
+    cpuName: "Intel Core Ultra 9",
+    totalMemoryBytes: 32 * 1024 * 1024 * 1024,
     availableStorageBytes: 42_000_000_000,
     recommendedMemoryBytes: 12 * 1024 * 1024 * 1024,
     minimumFreeStorageBytes: 6_000_000_000,
+    gpuVendor: "nvidia",
+    gpuName: "NVIDIA GeForce RTX 4070 Laptop GPU",
+    hasNvidiaGpu: true,
+    gpuMemoryBytes: 8 * 1024 * 1024 * 1024,
+    minimumGpuMemoryBytes: 6 * 1024 * 1024 * 1024,
+    activeTorchBackend: "cuda",
     environmentReady: true,
     environmentStatus: "ready",
     environmentReason: null,
@@ -351,6 +369,11 @@ function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  const shouldUseFullHealthChecks = Boolean(
+    bootstrapState &&
+      ((!bootstrapState.isFirstLaunch && !bootstrapState.needsRepair) || completionAcknowledged),
+  );
+
   const refreshModelCatalogState = async () => {
     const catalog = await getModelCatalog();
     const ttsCatalog = catalog.filter((entry) => entry.assetRole === "tts");
@@ -385,7 +408,10 @@ function App() {
   };
 
   const refreshBootstrapState = async () => {
-    const [bs, ss] = await Promise.all([getBootstrapState(), getSidecarStatus()]);
+    const [bs, ss] = await Promise.all([
+      getBootstrapState(),
+      shouldUseFullHealthChecks ? getSidecarStatus() : getBootstrapSidecarStatus(),
+    ]);
     setBootstrapState(bs);
     setSidecarStatus(ss);
     if (ss.healthy && bs.currentDownloadJobId) {
@@ -403,7 +429,7 @@ function App() {
           : null;
       });
     }
-    if (ss.healthy) {
+    if (shouldUseFullHealthChecks && ss.healthy) {
       void getProviderRecommendation("auto").then(setProviderRecommendation);
       void prepareModel(DEFAULT_BOOTSTRAP_MODEL_KEY, "auto", false).then(setPreparedModel);
       void refreshModelCatalogState();
@@ -477,14 +503,38 @@ function App() {
   }, [sidecarStatus.healthy]);
 
   useEffect(() => {
-    if (!sidecarStatus.healthy) {
+    if (!sidecarStatus.healthy || !shouldUseFullHealthChecks) {
       return;
     }
     const timer = window.setInterval(() => {
       void refreshServiceInfo();
     }, 10000);
     return () => window.clearInterval(timer);
-  }, [sidecarStatus.healthy]);
+  }, [sidecarStatus.healthy, shouldUseFullHealthChecks]);
+
+  useEffect(() => {
+    if (!shouldUseFullHealthChecks) {
+      return;
+    }
+
+    let cancelled = false;
+    void getSidecarStatus().then((status) => {
+      if (cancelled) {
+        return;
+      }
+      setSidecarStatus(status);
+      if (status.healthy) {
+        void getProviderRecommendation("auto").then(setProviderRecommendation);
+        void prepareModel(DEFAULT_BOOTSTRAP_MODEL_KEY, "auto", false).then(setPreparedModel);
+        void refreshModelCatalogState();
+        void refreshServiceInfo();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldUseFullHealthChecks]);
 
   useEffect(() => {
     if (!initializeRequested || bootstrapStartRequested) {
@@ -611,14 +661,49 @@ function App() {
     if (bootstrapDownloadTask.status === "succeeded" && finalizedBootstrapTaskId !== bootstrapDownloadTask.id) {
       setFinalizedBootstrapTaskId(bootstrapDownloadTask.id);
       void (async () => {
-        const prepared = await prepareModel(
-          bootstrapDownloadTask.result?.modelKey ?? DEFAULT_BOOTSTRAP_MODEL_KEY,
-          "auto",
-          false,
-        );
-        setPreparedModel(prepared);
-        await refreshModelCatalogState();
-        await refreshBootstrapState();
+        try {
+          const prepared = await prepareModel(
+            bootstrapDownloadTask.result?.modelKey ?? DEFAULT_BOOTSTRAP_MODEL_KEY,
+            "auto",
+            false,
+          );
+          setPreparedModel(prepared);
+          setBootstrapState((current) =>
+            current
+              ? {
+                  ...current,
+                  phase: "ready",
+                  status: "ready",
+                  runtimeReady: true,
+                  modelReady: prepared?.configExists ?? true,
+                  sidecarReady: sidecarStatus.healthy || current.sidecarReady,
+                  currentDownloadJobId: null,
+                  lastError: null,
+                  needsRepair: false,
+                }
+              : current,
+          );
+          await refreshModelCatalogState();
+        } catch (error) {
+          console.error("Failed to finalize bootstrap success state", error);
+          setBootstrapState((current) =>
+            current
+              ? {
+                  ...current,
+                  phase: "ready",
+                  status: "ready",
+                  runtimeReady: true,
+                  modelReady: true,
+                  sidecarReady: sidecarStatus.healthy || current.sidecarReady,
+                  currentDownloadJobId: null,
+                  lastError: null,
+                  needsRepair: false,
+                }
+              : current,
+          );
+        } finally {
+          await refreshBootstrapState();
+        }
       })();
       return;
     }
@@ -632,7 +717,7 @@ function App() {
     if (!bootstrapState?.needsRepair) {
       return;
     }
-    const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState.modelReady;
+    const modelReady = bootstrapState.modelReady;
     if (modelReady) {
       return;
     }
@@ -651,7 +736,6 @@ function App() {
     bootstrapStartRequested,
     bootstrapState?.modelReady,
     bootstrapState?.needsRepair,
-    serviceInfo?.bootstrapAssetsReady,
     sidecarStatus.healthy,
   ]);
 
@@ -660,7 +744,7 @@ function App() {
       return;
     }
 
-    const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState?.modelReady ?? false;
+    const modelReady = bootstrapState?.modelReady ?? false;
     const repairRequested = Boolean(bootstrapState?.needsRepair);
     if (modelReady || (!bootstrapState?.isFirstLaunch && !repairRequested)) {
       setBootstrapStartRequested(false);
@@ -723,7 +807,6 @@ function App() {
     bootstrapStartRequested,
     bootstrapState?.isFirstLaunch,
     bootstrapState?.modelReady,
-    serviceInfo?.bootstrapAssetsReady,
     sidecarStatus.healthy,
   ]);
 
@@ -796,6 +879,13 @@ function App() {
   const previewBootstrapDownloadTask = createPreviewBootstrapDownloadTask();
   const previewSetupDiagnostics = createPreviewSetupDiagnostics();
   const previewTaskHistory = taskHistory.length > 0 ? upsertTaskHistory(taskHistory, previewTask) : [previewTask];
+  const canContinueFromInitialize = Boolean(
+    setupDiagnostics &&
+      setupDiagnostics.hasNvidiaGpu &&
+      (setupDiagnostics.gpuMemoryBytes ?? 0) >= setupDiagnostics.minimumGpuMemoryBytes &&
+      setupDiagnostics.environmentReady &&
+      (setupDiagnostics.availableStorageBytes ?? 0) >= setupDiagnostics.minimumFreeStorageBytes,
+  );
   const renderPreviewScene = (scene: SinglePreviewScene) => {
     const previewBootstrapState = createPreviewBootstrapState(bootstrapState ?? fallbackBootstrapState, scene);
     const previewSidecarStatus = createPreviewSidecarStatus(sidecarStatus, scene);
@@ -815,7 +905,6 @@ function App() {
           auxiliaryModelCatalog={auxiliaryModelCatalog}
           downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
           serviceInfo={serviceInfo}
-          setupDiagnostics={previewSetupDiagnostics}
           taskHistory={previewTaskHistory}
           onPrepareModel={handlePrepareModel}
           onSubmitTask={handleSubmitTask}
@@ -880,14 +969,13 @@ function App() {
   }
 
   const activeView: AppView = (() => {
-    const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState.modelReady;
+    const modelReady = bootstrapState.modelReady;
     const inRepairMode = Boolean(bootstrapState.needsRepair) && !modelReady;
+    const bootstrapTaskStatus = bootstrapDownloadTask?.status;
 
     if (!bootstrapState.isFirstLaunch && !inRepairMode) {
       return "workspace";
     }
-
-    const bootstrapTaskStatus = bootstrapDownloadTask?.status;
 
     if (bootstrapStartRequested && !modelReady) {
       return "download";
@@ -897,8 +985,8 @@ function App() {
       return "download";
     }
 
-    if (bootstrapTaskStatus === "succeeded" && !modelReady) {
-      return "download";
+    if (bootstrapTaskStatus === "succeeded") {
+      return completionAcknowledged ? "workspace" : "complete";
     }
 
     if (bootstrapState.phase === "ready") {
@@ -928,12 +1016,6 @@ function App() {
     return "welcome";
   })();
 
-  const canContinueFromInitialize = Boolean(
-    setupDiagnostics &&
-      setupDiagnostics.environmentReady &&
-      (setupDiagnostics.availableStorageBytes ?? 0) >= setupDiagnostics.minimumFreeStorageBytes,
-  );
-
   const handleStartSetup = () => {
     setInitializeRequested(true);
     void refreshSetupDiagnostics();
@@ -941,7 +1023,7 @@ function App() {
   };
 
   const handleContinueFromInitialize = () => {
-    const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState.modelReady;
+    const modelReady = bootstrapState.modelReady;
     if (!canContinueFromInitialize || modelReady || !isTaskTerminal(bootstrapDownloadTask)) {
       return;
     }
@@ -1120,7 +1202,6 @@ function App() {
         auxiliaryModelCatalog={auxiliaryModelCatalog}
         downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
         serviceInfo={serviceInfo}
-        setupDiagnostics={setupDiagnostics}
         taskHistory={taskHistory}
         onPrepareModel={handlePrepareModel}
         onSubmitTask={handleSubmitTask}

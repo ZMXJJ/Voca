@@ -27,7 +27,6 @@ from app.models.schemas import (
     VoiceEntry,
     VoiceUpdateRequest,
 )
-from app.services import audio_backend as _audio_backend  # noqa: F401  (side-effect import)
 from app.services.task_manager import TaskManager
 from app.services import voice_library
 from app.services.bootstrap_assets import (
@@ -49,6 +48,7 @@ from app.services.storage_paths import (
     torch_cache_dir,
     voices_dir,
 )
+from app.services.torch_runtime import import_torch_clean, purge_torch_modules
 
 app = FastAPI(title="Voca Python Service", version="0.4.0")
 task_manager = TaskManager()
@@ -118,14 +118,14 @@ def _detect_host_device_name() -> str | None:
 
 def _detect_device_info() -> tuple[str, str | None]:
     try:
-        import torch  # type: ignore
+        torch = import_torch_clean()
 
         if torch.backends.mps.is_available():
             return "mps", _detect_host_device_name()
         if torch.cuda.is_available():
             return "cuda", torch.cuda.get_device_name(0)
     except Exception:
-        pass
+        purge_torch_modules()
 
     return "cpu", _detect_host_device_name()
 
@@ -277,6 +277,15 @@ def _on_startup_cleanup() -> None:
 @app.get("/api/v1/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return _build_health_response()
+
+
+@app.get("/api/v1/probe")
+def probe() -> dict[str, str]:
+    return {
+        "service": "voca-python-service",
+        "status": "ok",
+        "instanceId": SERVICE_INSTANCE_ID,
+    }
 
 
 @app.post("/api/v1/bootstrap/verify")

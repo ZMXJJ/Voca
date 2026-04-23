@@ -12,6 +12,15 @@ from typing import Any, Callable, Iterator, Literal
 
 logger = logging.getLogger(__name__)
 
+
+def _cuda_required_for_local_inference() -> bool:
+    raw = os.environ.get("VOCA_REQUIRE_CUDA", "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return os.name == "nt"
+
 from app.models.schemas import GenerationRequest, ModelPrepareResponse, ProviderRecommendation
 from app.services.audio_enhancer import AudioEnhancer
 from app.services.bootstrap_assets import is_asset_ready
@@ -25,6 +34,7 @@ from app.services.model_integrity import (
 )
 from app.services.provider_router import recommend_provider
 from app.services.storage_paths import audio_output_dir
+from app.services.torch_runtime import import_torch_clean, purge_torch_modules
 
 
 def _resolve_voxcpm_src() -> Path:
@@ -668,6 +678,31 @@ class VoxCPMBridge:
     def _load_model(self, model_key: str, model_path: str):
         if self._model is not None and self._loaded_model_key == model_key and self._loaded_model_path == model_path:
             return self._model
+
+        if _cuda_required_for_local_inference():
+            try:
+                torch = import_torch_clean(attempts=3)
+            except Exception as exc:  # pragma: no cover - environment-specific dependency issue
+                purge_torch_modules()
+                raise RuntimeError(
+                    "The bundled Windows runtime requires CUDA-enabled PyTorch, "
+                    "but torch could not be imported."
+                ) from exc
+
+            try:
+                cuda_available = bool(torch.cuda.is_available())
+            except Exception as exc:
+                purge_torch_modules()
+                raise RuntimeError(
+                    "The bundled Windows runtime imported PyTorch, but the CUDA extension "
+                    "did not initialize cleanly."
+                ) from exc
+
+            if not cuda_available:
+                raise RuntimeError(
+                    "The bundled Windows build requires an NVIDIA GPU with at least 6 GB of VRAM "
+                    "and a working CUDA runtime. CPU fallback has been disabled."
+                )
 
         try:
             import voxcpm  # type: ignore

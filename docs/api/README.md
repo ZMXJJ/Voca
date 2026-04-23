@@ -11,6 +11,7 @@ Voca 的推理后端是一个 FastAPI sidecar 服务，由桌面端自动启动�
 | 分组 | 方法 | 路径 | 说明 |
 |------|------|------|------|
 | **健康检查** | GET | [`/api/v1/health`](health.md) | 服务状态与诊断信息 |
+| | GET | [`/api/v1/probe`](probe.md) | 轻量级 sidecar 存活探针 |
 | **模型管理** | GET | [`/api/v1/models/catalog`](models.md#get-apiv1modelscatalog) | 模型目录列表 |
 | | GET | [`/api/v1/providers/recommendation`](models.md#get-apiv1providersrecommendation) | 下载源推荐 |
 | | POST | [`/api/v1/models/prepare`](models.md#post-apiv1modelsprepare) | 模型解析与准备 |

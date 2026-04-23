@@ -215,6 +215,8 @@ export type SetupDiagnostics = {
   availableStorageBytes?: number | null;
   recommendedMemoryBytes: number;
   minimumFreeStorageBytes: number;
+  gpuMemoryBytes?: number | null;
+  minimumGpuMemoryBytes: number;
   environmentReady: boolean;
   environmentStatus: SetupEnvironmentStatus;
   environmentReason?: string | null;

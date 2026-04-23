@@ -61,6 +61,29 @@ _TAG_PATTERN = re.compile(r"<\|([^|]+)\|>")
 _LANG_TAG_RE = re.compile(r"<\|(zh|en|yue|ja|ko|nospeech|auto)\|>")
 
 
+def _cuda_required_for_local_inference() -> bool:
+    raw = os.environ.get("VOCA_REQUIRE_CUDA", "").strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return os.name == "nt"
+
+
+def _default_onnx_providers(ort: Any) -> list[str]:
+    if not _cuda_required_for_local_inference():
+        return ["CPUExecutionProvider"]
+
+    available = set(ort.get_available_providers())
+    if "CUDAExecutionProvider" not in available:
+        raise RuntimeError(
+            "The bundled Windows runtime now requires CUDA for ASR inference, "
+            "but onnxruntime-gpu did not expose CUDAExecutionProvider. "
+            "Please check the NVIDIA driver and bundled CUDA dependencies."
+        )
+    return ["CUDAExecutionProvider"]
+
+
 # ---------------------------------------------------------------------------
 # CMVN (``am.mvn``) parsing.
 # ---------------------------------------------------------------------------
@@ -322,17 +345,13 @@ class SenseVoiceOnnxSession:
             if not tokens_path.exists():
                 raise RuntimeError(f"Missing tokens.json under {self._model_dir}")
 
-            # NOTE: CPU provider wins on INT8-quantized SenseVoice.
-            # Local benchmarks on Apple Silicon (M-series) show CoreML is
-            # ~4x slower at inference AND ~7x slower at session load because
-            # it falls back to CPU for INT8 ops while paying extra graph
-            # compile + device-transfer overhead. We opt out by default and
-            # expose ``VOCA_ASR_ONNX_PROVIDERS`` as an escape hatch.
             providers_env = os.environ.get("VOCA_ASR_ONNX_PROVIDERS", "").strip()
-            if providers_env:
-                providers: list[str] = [p.strip() for p in providers_env.split(",") if p.strip()]
+            if _cuda_required_for_local_inference():
+                providers = _default_onnx_providers(ort)
+            elif providers_env:
+                providers = [p.strip() for p in providers_env.split(",") if p.strip()]
             else:
-                providers = ["CPUExecutionProvider"]
+                providers = _default_onnx_providers(ort)
 
             sess_options = ort.SessionOptions()
             sess_options.log_severity_level = 3

@@ -4,15 +4,18 @@ On macOS we keep the default (torchcodec when installed), but on Windows/Linux
 we force the `soundfile` backend so that torchaudio.load / torchaudio.save can
 work without torchcodec (which has no Windows wheels).
 
-This module is imported for side effects at service startup; it MUST NOT raise
-if torchaudio is missing or if the backend cannot be changed — the caller might
-not need audio I/O at all (pure API health checks, etc.).
+Callers should invoke :func:`configure_audio_backend` right before they perform
+torchaudio-based audio I/O. We intentionally avoid importing torchaudio during
+service startup because that would lock the runtime package directories and
+interfere with in-place CUDA runtime upgrades on Windows.
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+
+from app.services.torch_runtime import import_torchaudio_clean, purge_torch_modules
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,8 +36,9 @@ def configure_audio_backend() -> str | None:
     _configured = True
 
     try:
-        import torchaudio  # type: ignore
+        torchaudio = import_torchaudio_clean()
     except Exception as exc:  # pragma: no cover - torchaudio missing is non-fatal
+        purge_torch_modules()
         _LOGGER.debug("torchaudio import failed; skipping audio backend setup: %s", exc)
         return None
 
@@ -60,14 +64,12 @@ def configure_audio_backend() -> str | None:
 
 def _current_backend() -> str | None:
     try:
-        import torchaudio  # type: ignore
+        torchaudio = import_torchaudio_clean(attempts=1)
 
         getter = getattr(torchaudio, "get_audio_backend", None)
         if callable(getter):
             return getter()
     except Exception:
+        purge_torch_modules()
         return None
     return None
-
-
-configure_audio_backend()

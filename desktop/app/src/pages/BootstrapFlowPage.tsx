@@ -13,7 +13,6 @@ import type {
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import { IconAlert, IconArrowRight, IconCheck, IconVocaLogo } from "../components/Icons";
-import { InferenceBackendCard } from "../components/InferenceBackendCard";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { StepIndicator } from "../components/StepIndicator";
 
@@ -73,8 +72,9 @@ type InitializeCheckItem = {
 
 type DownloadSpeedSample = {
   bytes: number;
-  atMs: number;
-  taskUpdatedAt: string | null;
+  eventAtMs: number;
+  receivedAtMs: number;
+  currentFile: string | null;
 };
 
 function getFlowSteps(view: BootstrapFlowView, t: Translate) {
@@ -113,8 +113,12 @@ function formatDeviceSummary(
   }
   if (deviceLabel) return deviceLabel;
   if (deviceName) return deviceName;
-  const cpuName = setupDiagnostics?.cpuName?.trim();
-  if (cpuName) return `CPU · ${cpuName}`;
+  const gpuName = setupDiagnostics?.gpuName?.trim();
+  const gpuMemoryBytes = setupDiagnostics?.gpuMemoryBytes ?? null;
+  if (gpuName && gpuMemoryBytes !== null) {
+    return `CUDA · ${gpuName} · ${formatBytes(gpuMemoryBytes)}`;
+  }
+  if (gpuName) return `CUDA · ${gpuName}`;
   return t("bootstrap.init.detecting");
 }
 
@@ -210,16 +214,20 @@ function getInitializeChecks(
   setupDiagnostics: SetupDiagnostics | null | undefined,
   t: Translate,
 ): InitializeCheckItem[] {
-  const recommendedMemoryBytes = setupDiagnostics?.recommendedMemoryBytes ?? 12 * 1024 * 1024 * 1024;
+  const minimumGpuMemoryBytes = setupDiagnostics?.minimumGpuMemoryBytes ?? 6 * 1024 * 1024 * 1024;
   const minimumFreeStorageBytes = setupDiagnostics?.minimumFreeStorageBytes ?? 6_000_000_000;
-  const totalMemoryBytes = setupDiagnostics?.totalMemoryBytes ?? null;
+  const gpuMemoryBytes = setupDiagnostics?.gpuMemoryBytes ?? null;
   const availableStorageBytes = setupDiagnostics?.availableStorageBytes ?? null;
-  const memoryLow = totalMemoryBytes !== null && totalMemoryBytes < recommendedMemoryBytes;
+  const hasNvidiaGpu = setupDiagnostics?.hasNvidiaGpu ?? false;
+  const gpuInsufficient =
+    !hasNvidiaGpu || gpuMemoryBytes === null || gpuMemoryBytes < minimumGpuMemoryBytes;
   const storageInsufficient =
     availableStorageBytes !== null && availableStorageBytes < minimumFreeStorageBytes;
 
-  const cpuSummary = setupDiagnostics
-    ? [setupDiagnostics.cpuName, totalMemoryBytes !== null ? formatBytes(totalMemoryBytes) : null]
+  const gpuSummary = setupDiagnostics
+    ? !hasNvidiaGpu
+      ? t("bootstrap.init.gpuMissing")
+      : [setupDiagnostics.gpuName, gpuMemoryBytes !== null ? formatBytes(gpuMemoryBytes) : t("bootstrap.init.detecting")]
         .filter(Boolean)
         .join(" · ")
     : t("bootstrap.init.detecting");
@@ -240,8 +248,8 @@ function getInitializeChecks(
     {
       key: "device",
       title: t("bootstrap.init.deviceTitle"),
-      summary: cpuSummary,
-      status: setupDiagnostics ? (memoryLow ? "warning" : "done") : "pending",
+      summary: gpuSummary,
+      status: setupDiagnostics ? (gpuInsufficient ? "blocked" : "done") : "pending",
     },
     {
       key: "storage",
@@ -273,7 +281,18 @@ function getBootstrapAssetCards(
   const shouldPreferTaskProgress = assetProgress.length > 0 && taskStatus !== null && taskStatus !== undefined;
 
   if (bootstrapAssets.length > 0) {
-    return bootstrapAssets.map((asset) => {
+    const knownAssetKeys = new Set(bootstrapAssets.map((asset) => asset.modelKey));
+    const extraTaskCards = assetProgress
+      .filter((asset) => !knownAssetKeys.has(asset.modelKey))
+      .map((asset) => ({
+        modelKey: asset.modelKey,
+        displayName: asset.displayName,
+        ready: asset.status === "succeeded",
+        progress: clampProgress(asset.progress),
+        status: asset.status,
+      }));
+
+    const bootstrapCards = bootstrapAssets.map((asset) => {
       const progress = progressByModelKey.get(asset.modelKey);
       if (shouldPreferTaskProgress) {
         const status: BootstrapAssetCardStatus =
@@ -300,6 +319,8 @@ function getBootstrapAssetCards(
         status,
       };
     });
+
+    return [...bootstrapCards, ...extraTaskCards];
   }
 
   return assetProgress.map((asset) => ({
@@ -336,12 +357,7 @@ export function BootstrapFlowPage({
 }: BootstrapFlowPageProps) {
   const { t } = useTranslation();
   const speedSampleRef = useRef<DownloadSpeedSample | null>(null);
-  const stagnantSinceRef = useRef<number | null>(null);
   const [downloadSpeedBps, setDownloadSpeedBps] = useState<number | null>(null);
-  const latestProgressRef = useRef<{ bytes: number; isActive: boolean }>({
-    bytes: 0,
-    isActive: false,
-  });
   const bootstrapAssets = serviceInfo?.bootstrapAssets ?? [];
   const initializeChecks = getInitializeChecks(setupDiagnostics, t);
   const bootstrapAssetCards = getBootstrapAssetCards(
@@ -387,63 +403,81 @@ export function BootstrapFlowPage({
     view === "download" &&
     downloadTask?.status === "running" &&
     progressInfo?.phase === "downloading";
-  latestProgressRef.current = {
-    bytes: progressInfo?.downloadedBytes ?? 0,
-    isActive: !!isSpeedTrackingActive,
-  };
+  const progressUpdatedAtMs = downloadTask?.updatedAt ? Date.parse(downloadTask.updatedAt) : Number.NaN;
 
   useEffect(() => {
-    if (view !== "download") {
+    if (view !== "download" || !isSpeedTrackingActive) {
       speedSampleRef.current = null;
-      stagnantSinceRef.current = null;
       setDownloadSpeedBps(null);
       return;
     }
 
-    const tick = () => {
-      const { bytes: currentBytes, isActive } = latestProgressRef.current;
+    if (!Number.isFinite(progressUpdatedAtMs)) {
+      return;
+    }
 
-      if (!isActive) {
-        speedSampleRef.current = null;
-        stagnantSinceRef.current = null;
+    const currentBytes = progressInfo?.downloadedBytes ?? 0;
+    const currentFile = progressInfo?.currentFile ?? null;
+    const previousSample = speedSampleRef.current;
+    const receivedAtMs = Date.now();
+
+    if (
+      !previousSample ||
+      currentBytes < previousSample.bytes ||
+      progressUpdatedAtMs <= previousSample.eventAtMs ||
+      (currentFile !== previousSample.currentFile && currentBytes === 0)
+    ) {
+      speedSampleRef.current = {
+        bytes: currentBytes,
+        eventAtMs: progressUpdatedAtMs,
+        receivedAtMs,
+        currentFile,
+      };
+      setDownloadSpeedBps(null);
+      return;
+    }
+
+    const deltaBytes = currentBytes - previousSample.bytes;
+    const deltaMs = progressUpdatedAtMs - previousSample.eventAtMs;
+
+    speedSampleRef.current = {
+      bytes: currentBytes,
+      eventAtMs: progressUpdatedAtMs,
+      receivedAtMs,
+      currentFile,
+    };
+
+    if (deltaBytes > 0 && deltaMs > 0) {
+      setDownloadSpeedBps((deltaBytes / deltaMs) * 1000);
+    }
+  }, [
+    view,
+    isSpeedTrackingActive,
+    progressInfo?.downloadedBytes,
+    progressInfo?.currentFile,
+    progressUpdatedAtMs,
+  ]);
+
+  useEffect(() => {
+    if (view !== "download" || !isSpeedTrackingActive) {
+      setDownloadSpeedBps(null);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      const sample = speedSampleRef.current;
+      if (!sample) {
         setDownloadSpeedBps(null);
         return;
       }
 
-      const nowMs = Date.now();
-      const previousSample = speedSampleRef.current;
-
-      if (!previousSample) {
-        speedSampleRef.current = { bytes: currentBytes, atMs: nowMs, taskUpdatedAt: null };
-        stagnantSinceRef.current = currentBytes > 0 ? nowMs : null;
-        return;
+      if (Date.now() - sample.receivedAtMs >= 4000) {
+        setDownloadSpeedBps(null);
       }
+    }, 800);
 
-      const deltaBytes = currentBytes - previousSample.bytes;
-      const deltaMs = nowMs - previousSample.atMs;
-
-      if (deltaBytes > 0 && deltaMs >= 250) {
-        const instantBps = (deltaBytes / deltaMs) * 1000;
-        setDownloadSpeedBps((previousSpeed) =>
-          previousSpeed && Number.isFinite(previousSpeed)
-            ? previousSpeed * 0.65 + instantBps * 0.35
-            : instantBps,
-        );
-        stagnantSinceRef.current = nowMs;
-        speedSampleRef.current = { bytes: currentBytes, atMs: nowMs, taskUpdatedAt: null };
-      } else {
-        const stagnantSince = stagnantSinceRef.current ?? previousSample.atMs;
-        stagnantSinceRef.current = stagnantSince;
-        if (nowMs - stagnantSince >= 4000) {
-          setDownloadSpeedBps(null);
-        }
-      }
-    };
-
-    tick();
-    const timer = setInterval(tick, 800);
     return () => clearInterval(timer);
-  }, [view]);
+  }, [view, isSpeedTrackingActive]);
 
   if (view === "welcome") {
     return (
@@ -606,11 +640,6 @@ export function BootstrapFlowPage({
                   </div>
                 </div>
               </div>
-              {setupDiagnostics?.hasNvidiaGpu ? (
-                <div style={{ marginTop: 16 }}>
-                  <InferenceBackendCard setupDiagnostics={setupDiagnostics} />
-                </div>
-              ) : null}
             </div>
           </>
         )}

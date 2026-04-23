@@ -21,6 +21,37 @@ _SUPPORTED_EXTENSIONS = {
 }
 
 
+def _resample_audio_linear(audio_data, orig_sr: int, target_sr: int):
+    """Resample a mono float32 numpy array with lightweight linear interpolation.
+
+    We intentionally avoid depending on librosa in the packaged desktop runtime:
+    bundled Windows builds only guarantee ``soundfile`` for WAV/FLAC decoding.
+    For ASR pre-processing, linear resampling is sufficient and keeps the
+    reference-audio transcription path self-contained.
+    """
+
+    import numpy as np
+
+    if orig_sr <= 0 or target_sr <= 0:
+        raise ValueError(f"Invalid sample rate: orig_sr={orig_sr}, target_sr={target_sr}")
+
+    if orig_sr == target_sr:
+        return np.asarray(audio_data, dtype=np.float32)
+
+    audio_data = np.asarray(audio_data, dtype=np.float32).reshape(-1)
+    if audio_data.size == 0:
+        return audio_data
+
+    duration = audio_data.shape[0] / float(orig_sr)
+    target_length = max(1, int(round(duration * target_sr)))
+    if target_length == audio_data.shape[0]:
+        return audio_data
+
+    source_positions = np.linspace(0.0, audio_data.shape[0] - 1, num=audio_data.shape[0], dtype=np.float32)
+    target_positions = np.linspace(0.0, audio_data.shape[0] - 1, num=target_length, dtype=np.float32)
+    return np.interp(target_positions, source_positions, audio_data).astype(np.float32, copy=False)
+
+
 def _load_audio_as_ndarray(audio_path: str):
     """Load any audio format into a 16 kHz mono numpy array.
 
@@ -40,9 +71,11 @@ def _load_audio_as_ndarray(audio_path: str):
             f"Supported: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
         )
 
+    librosa_available = False
     try:
         import librosa  # type: ignore
 
+        librosa_available = True
         audio_data, _ = librosa.load(
             audio_path,
             sr=_TARGET_SAMPLE_RATE,
@@ -51,7 +84,8 @@ def _load_audio_as_ndarray(audio_path: str):
         )
         return np.asarray(audio_data, dtype=np.float32)
     except Exception as exc:
-        logger.warning(
+        log_method = logger.debug if not librosa_available else logger.warning
+        log_method(
             "librosa.load failed for %s: %s — trying soundfile fallback",
             audio_path,
             exc,
@@ -63,9 +97,7 @@ def _load_audio_as_ndarray(audio_path: str):
         audio_data, sr = sf.read(audio_path, dtype="float32", always_2d=True)
         audio_data = audio_data.mean(axis=1)
         if sr != _TARGET_SAMPLE_RATE:
-            import librosa  # type: ignore
-
-            audio_data = librosa.resample(
+            audio_data = _resample_audio_linear(
                 audio_data, orig_sr=sr, target_sr=_TARGET_SAMPLE_RATE
             )
         return np.asarray(audio_data, dtype=np.float32)

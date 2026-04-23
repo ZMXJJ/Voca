@@ -7,6 +7,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 use reqwest::Client;
 use tauri::{AppHandle, Manager};
 
@@ -14,8 +17,11 @@ use crate::platform;
 use crate::state::{AppState, SidecarStatus};
 
 const SIDECAR_HOST: &str = "127.0.0.1";
-const HEALTH_RETRIES: usize = 20;
+const HEALTH_RETRIES: usize = 60;
 const LOG_ROTATE_BYTES: u64 = 5 * 1024 * 1024;
+const VOCA_RUNTIME_SITE_PACKAGES_ENV: &str = "VOCA_RUNTIME_SITE_PACKAGES";
+const CUDA_RUNTIME_COMPLETE_MARKER: &str = "cuda-runtime-complete.json";
+const VOCA_DEV_BUNDLE_ROOT_ENV: &str = "VOCA_DEV_BUNDLE_ROOT";
 
 struct SidecarPaths {
     service_root: PathBuf,
@@ -85,6 +91,23 @@ fn resolve_env_dir(var_names: &[&str], default_path: PathBuf) -> PathBuf {
         .unwrap_or(default_path)
 }
 
+fn runtime_site_packages_dir(app_support_dir: &Path) -> PathBuf {
+    app_support_dir.join("runtime").join("site-packages")
+}
+
+fn runtime_complete_marker_path(app_support_dir: &Path) -> PathBuf {
+    app_support_dir
+        .join("runtime")
+        .join(CUDA_RUNTIME_COMPLETE_MARKER)
+}
+
+fn runtime_overlay_ready(app_support_dir: &Path) -> bool {
+    let site_packages = runtime_site_packages_dir(app_support_dir);
+    runtime_complete_marker_path(app_support_dir).exists()
+        && site_packages.join("torch").exists()
+        && site_packages.join("torchaudio").exists()
+}
+
 fn resolve_dev_sidecar_paths() -> SidecarPaths {
     let service_root = desktop_root().join("python-service");
     let voxcpm_src = repo_root().join("VoxCPM").join("src");
@@ -106,41 +129,58 @@ fn resolve_dev_sidecar_paths() -> SidecarPaths {
     }
 }
 
-fn bundled_resource_roots(resource_dir: &Path) -> [PathBuf; 3] {
-    [
+fn bundled_resource_roots(resource_dir: &Path) -> Vec<PathBuf> {
+    let mut roots = vec![
         resource_dir.to_path_buf(),
         resource_dir.join(".bundle-resources"),
+        resource_dir.join(".bundle-resources-win"),
         resource_dir.join("_up_").join(".bundle-resources"),
-    ]
+        resource_dir.join("_up_").join(".bundle-resources-win"),
+    ];
+    roots.dedup();
+    roots
+}
+
+fn sidecar_paths_from_bundle_root(bundle_root: &Path) -> Option<SidecarPaths> {
+    let service_root = bundle_root.join("python-service");
+    let runtime_root = bundle_root.join("python-runtime");
+    let voxcpm_src = bundle_root.join("VoxCPM").join("src");
+
+    if !service_root.join("app").exists() || !voxcpm_src.exists() {
+        return None;
+    }
+
+    let python_executable = find_python_executable(&runtime_root)?;
+    let site_packages = detect_site_packages(&service_root.join(".venv"))?;
+
+    Some(SidecarPaths {
+        python_executable,
+        python_path_entries: vec![service_root.clone(), site_packages, voxcpm_src.clone()],
+        bundle_resource_dir: Some(bundle_root.to_path_buf()),
+        voxcpm_src,
+        service_root,
+    })
+}
+
+fn resolve_explicit_bundle_sidecar_paths() -> Option<SidecarPaths> {
+    let bundle_root = env::var_os(VOCA_DEV_BUNDLE_ROOT_ENV)?;
+    sidecar_paths_from_bundle_root(Path::new(&bundle_root))
 }
 
 fn resolve_bundled_sidecar_paths(app_handle: &AppHandle) -> Option<SidecarPaths> {
     let resource_dir = app_handle.path().resource_dir().ok()?;
     for bundle_root in bundled_resource_roots(&resource_dir) {
-        let service_root = bundle_root.join("python-service");
-        let runtime_root = bundle_root.join("python-runtime");
-        let voxcpm_src = bundle_root.join("VoxCPM").join("src");
-
-        if !service_root.join("app").exists() || !voxcpm_src.exists() {
-            continue;
+        if let Some(paths) = sidecar_paths_from_bundle_root(&bundle_root) {
+            return Some(paths);
         }
-
-        let python_executable = find_python_executable(&runtime_root)?;
-        let site_packages = detect_site_packages(&service_root.join(".venv"))?;
-
-        return Some(SidecarPaths {
-            python_executable,
-            python_path_entries: vec![service_root.clone(), site_packages, voxcpm_src.clone()],
-            bundle_resource_dir: Some(bundle_root),
-            voxcpm_src,
-            service_root,
-        });
     }
     None
 }
 
 fn resolve_sidecar_paths(app_handle: &AppHandle) -> SidecarPaths {
-    resolve_bundled_sidecar_paths(app_handle).unwrap_or_else(resolve_dev_sidecar_paths)
+    resolve_explicit_bundle_sidecar_paths()
+        .or_else(|| resolve_bundled_sidecar_paths(app_handle))
+        .unwrap_or_else(resolve_dev_sidecar_paths)
 }
 
 pub fn sidecar_runtime_available(app_handle: &AppHandle) -> bool {
@@ -168,6 +208,25 @@ async fn fetch_health(client: &Client, port: u16) -> Result<bool, String> {
         .map_err(|error| error.to_string())?;
 
     Ok(response.status().is_success())
+}
+
+async fn fetch_probe(client: &Client, port: u16) -> Result<bool, String> {
+    let response = client
+        .get(format!("{}/api/v1/probe", sidecar_url(port)))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if !response.status().is_success() {
+        return Ok(false);
+    }
+
+    let payload = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(payload.get("service").and_then(|value| value.as_str()) == Some("voca-python-service"))
 }
 
 async fn fetch_openapi_spec(client: &Client, port: u16) -> Result<serde_json::Value, String> {
@@ -237,6 +296,7 @@ fn kill_port_listener(port: u16) -> Result<(), String> {
 /// don't have to re-implement the swap semantics in Rust. The call is best-
 /// effort — if anything goes wrong we just log and continue; the FastAPI health
 /// probe in ``ensure_sidecar_running`` will surface any remaining failures.
+#[cfg(not(target_os = "windows"))]
 fn ensure_torch_healthy(paths: &SidecarPaths) {
     if !paths.python_executable.exists() {
         return;
@@ -339,7 +399,114 @@ fn healthy_sidecar_status() -> SidecarStatus {
     }
 }
 
-pub async fn ensure_sidecar_running(
+fn starting_sidecar_status() -> SidecarStatus {
+    SidecarStatus {
+        running: true,
+        healthy: false,
+        reason: Some("python_sidecar_starting".into()),
+    }
+}
+
+fn spawn_sidecar_if_needed(app_handle: &AppHandle, state: &AppState) -> Result<(), String> {
+    let sidecar_paths = resolve_sidecar_paths(app_handle);
+    if !sidecar_paths.python_executable.exists() {
+        return Err("python_service_venv_missing".into());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        ensure_torch_healthy(&sidecar_paths);
+    }
+
+    let mut guard = state
+        .sidecar
+        .lock()
+        .map_err(|_| "failed to lock sidecar state".to_string())?;
+
+    let should_spawn = match guard.child.as_mut() {
+        Some(child) => matches!(child.try_wait(), Ok(Some(_))),
+        None => true,
+    };
+
+    if !should_spawn {
+        return Ok(());
+    }
+
+    let mut command = Command::new(&sidecar_paths.python_executable);
+    let log_path = sidecar_log_path()?;
+    let app_support_dir = voca_app_support_dir()?;
+    let model_dir = resolve_env_dir(&["VOCA_MODEL_DIR"], app_support_dir.join("models"));
+    let hf_home = resolve_env_dir(&["HF_HOME"], app_support_dir.join("huggingface"));
+    let hf_hub_cache = resolve_env_dir(&["HF_HUB_CACHE"], hf_home.join("hub"));
+    let modelscope_cache =
+        resolve_env_dir(&["MODELSCOPE_CACHE"], app_support_dir.join("modelscope"));
+    let torch_home = resolve_env_dir(&["TORCH_HOME"], app_support_dir.join("torch"));
+    fs::create_dir_all(&model_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&hf_home).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&hf_hub_cache).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&modelscope_cache).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&torch_home).map_err(|error| error.to_string())?;
+    let stdout_log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|error| error.to_string())?;
+    let stderr_log = stdout_log.try_clone().map_err(|error| error.to_string())?;
+    command
+        .args([
+            "-m",
+            "uvicorn",
+            "app.main:app",
+            "--host",
+            SIDECAR_HOST,
+            "--port",
+            &guard.port.to_string(),
+            "--log-level",
+            "warning",
+        ])
+        .current_dir(&sidecar_paths.service_root)
+        .stdout(Stdio::from(stdout_log))
+        .stderr(Stdio::from(stderr_log))
+        .env("VOCA_PYTHON_SERVICE_ROOT", &sidecar_paths.service_root)
+        .env("VOCA_VOXCPM_SRC", &sidecar_paths.voxcpm_src)
+        .env("VOCA_APP_SUPPORT_DIR", &app_support_dir)
+        .env("VOCA_MODEL_DIR", &model_dir)
+        .env("HF_HOME", &hf_home)
+        .env("HF_HUB_CACHE", &hf_hub_cache)
+        .env("MODELSCOPE_CACHE", &modelscope_cache)
+        .env("TORCH_HOME", &torch_home)
+        .env("VOCA_REQUIRE_CUDA", "1");
+
+    let mut python_path_entries = sidecar_paths.python_path_entries.clone();
+    #[cfg(target_os = "windows")]
+    {
+        let runtime_site_packages = runtime_site_packages_dir(&app_support_dir);
+        fs::create_dir_all(&runtime_site_packages).map_err(|error| error.to_string())?;
+        command.env(VOCA_RUNTIME_SITE_PACKAGES_ENV, &runtime_site_packages);
+        if runtime_overlay_ready(&app_support_dir) {
+            python_path_entries.insert(0, runtime_site_packages);
+        }
+    }
+    if !python_path_entries.is_empty() {
+        command.env("PYTHONPATH", build_python_path(&python_path_entries)?);
+    }
+
+    if let Some(resource_dir) = &sidecar_paths.bundle_resource_dir {
+        command.env("VOCA_BUNDLE_RESOURCE_DIR", resource_dir);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let child = command.spawn().map_err(|error| error.to_string())?;
+    guard.child = Some(child);
+    Ok(())
+}
+
+pub async fn ensure_sidecar_started(
     app_handle: &AppHandle,
     state: &AppState,
 ) -> Result<SidecarStatus, String> {
@@ -352,12 +519,14 @@ pub async fn ensure_sidecar_running(
     };
 
     let client = Client::new();
+    if fetch_probe(&client, port).await.unwrap_or(false) {
+        return Ok(healthy_sidecar_status());
+    }
+
     let tracked_running = tracked_sidecar_running(state)?;
     if fetch_health(&client, port).await.unwrap_or(false) {
         let compatible = is_sidecar_compatible(&client, port).await.unwrap_or(false);
         if compatible {
-            // Reuse any healthy compatible sidecar already listening on the port,
-            // even if this app instance did not spawn or no longer tracks it.
             return Ok(healthy_sidecar_status());
         }
 
@@ -367,110 +536,100 @@ pub async fn ensure_sidecar_running(
         kill_port_listener(port)?;
     }
 
-    if fetch_health(&client, port).await.unwrap_or(false) {
-        return Ok(healthy_sidecar_status());
-    }
-
-    let sidecar_paths = resolve_sidecar_paths(app_handle);
-    if !sidecar_paths.python_executable.exists() {
-        return Ok(SidecarStatus {
-            running: false,
-            healthy: false,
-            reason: Some("python_service_venv_missing".into()),
-        });
-    }
-
-    // Self-heal a corrupted torch install (typically a half-finished CUDA upgrade)
-    // before every sidecar start. This is a no-op if torch imports cleanly.
-    ensure_torch_healthy(&sidecar_paths);
-
-    {
-        let mut guard = state
-            .sidecar
-            .lock()
-            .map_err(|_| "failed to lock sidecar state".to_string())?;
-
-        let should_spawn = match guard.child.as_mut() {
-            Some(child) => matches!(child.try_wait(), Ok(Some(_))),
-            None => true,
-        };
-
-        if should_spawn {
-            let mut command = Command::new(&sidecar_paths.python_executable);
-            let log_path = sidecar_log_path()?;
-            let app_support_dir = voca_app_support_dir()?;
-            let model_dir = resolve_env_dir(&["VOCA_MODEL_DIR"], app_support_dir.join("models"));
-            let hf_home = resolve_env_dir(&["HF_HOME"], app_support_dir.join("huggingface"));
-            let hf_hub_cache = resolve_env_dir(&["HF_HUB_CACHE"], hf_home.join("hub"));
-            let modelscope_cache =
-                resolve_env_dir(&["MODELSCOPE_CACHE"], app_support_dir.join("modelscope"));
-            let torch_home = resolve_env_dir(&["TORCH_HOME"], app_support_dir.join("torch"));
-            fs::create_dir_all(&model_dir).map_err(|error| error.to_string())?;
-            fs::create_dir_all(&hf_home).map_err(|error| error.to_string())?;
-            fs::create_dir_all(&hf_hub_cache).map_err(|error| error.to_string())?;
-            fs::create_dir_all(&modelscope_cache).map_err(|error| error.to_string())?;
-            fs::create_dir_all(&torch_home).map_err(|error| error.to_string())?;
-            let stdout_log = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_path)
-                .map_err(|error| error.to_string())?;
-            let stderr_log = stdout_log
-                .try_clone()
-                .map_err(|error| error.to_string())?;
-            command
-                .args([
-                    "-m",
-                    "uvicorn",
-                    "app.main:app",
-                    "--host",
-                    SIDECAR_HOST,
-                    "--port",
-                    &guard.port.to_string(),
-                    "--log-level",
-                    "warning",
-                ])
-                .current_dir(&sidecar_paths.service_root)
-                .stdout(Stdio::from(stdout_log))
-                .stderr(Stdio::from(stderr_log))
-                .env("VOCA_PYTHON_SERVICE_ROOT", &sidecar_paths.service_root)
-                .env("VOCA_VOXCPM_SRC", &sidecar_paths.voxcpm_src)
-                .env("VOCA_APP_SUPPORT_DIR", &app_support_dir)
-                .env("VOCA_MODEL_DIR", &model_dir)
-                .env("HF_HOME", &hf_home)
-                .env("HF_HUB_CACHE", &hf_hub_cache)
-                .env("MODELSCOPE_CACHE", &modelscope_cache)
-                .env("TORCH_HOME", &torch_home);
-
-            if !sidecar_paths.python_path_entries.is_empty() {
-                command.env(
-                    "PYTHONPATH",
-                    build_python_path(&sidecar_paths.python_path_entries)?,
-                );
-            }
-
-            if let Some(resource_dir) = &sidecar_paths.bundle_resource_dir {
-                command.env("VOCA_BUNDLE_RESOURCE_DIR", resource_dir);
-            }
-
-            let child = command.spawn().map_err(|error| error.to_string())?;
-
-            guard.child = Some(child);
+    match spawn_sidecar_if_needed(app_handle, state) {
+        Ok(()) => {}
+        Err(error) if error == "python_service_venv_missing" => {
+            return Ok(SidecarStatus {
+                running: false,
+                healthy: false,
+                reason: Some(error),
+            });
         }
+        Err(error) => return Err(error),
     }
 
-    for _ in 0..HEALTH_RETRIES {
+    for _ in 0..4 {
         tokio::time::sleep(Duration::from_millis(250)).await;
-        if fetch_health(&client, port).await.unwrap_or(false) {
+        if fetch_probe(&client, port).await.unwrap_or(false) {
             return Ok(healthy_sidecar_status());
         }
     }
 
-    Ok(SidecarStatus {
-        running: true,
-        healthy: false,
-        reason: Some("python_sidecar_not_ready".into()),
-    })
+    Ok(starting_sidecar_status())
+}
+
+pub async fn restart_sidecar_clean(
+    app_handle: &AppHandle,
+    state: &AppState,
+) -> Result<SidecarStatus, String> {
+    let port = {
+        let guard = state
+            .sidecar
+            .lock()
+            .map_err(|_| "failed to lock sidecar state".to_string())?;
+        guard.port
+    };
+
+    let _ = shutdown_sidecar(state);
+    let _ = kill_port_listener(port);
+
+    match spawn_sidecar_if_needed(app_handle, state) {
+        Ok(()) => {}
+        Err(error) if error == "python_service_venv_missing" => {
+            return Ok(SidecarStatus {
+                running: false,
+                healthy: false,
+                reason: Some(error),
+            });
+        }
+        Err(error) => return Err(error),
+    }
+
+    let client = Client::new();
+    for _ in 0..8 {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        if fetch_probe(&client, port).await.unwrap_or(false) {
+            return Ok(healthy_sidecar_status());
+        }
+    }
+
+    Ok(starting_sidecar_status())
+}
+
+pub async fn ensure_sidecar_running(
+    app_handle: &AppHandle,
+    state: &AppState,
+) -> Result<SidecarStatus, String> {
+    let started = ensure_sidecar_started(app_handle, state).await?;
+    if !started.running {
+        return Ok(started);
+    }
+
+    let port = {
+        let guard = state
+            .sidecar
+            .lock()
+            .map_err(|_| "failed to lock sidecar state".to_string())?;
+        guard.port
+    };
+    let client = Client::new();
+
+    for _ in 0..HEALTH_RETRIES {
+        if fetch_health(&client, port).await.unwrap_or(false) {
+            if is_sidecar_compatible(&client, port).await.unwrap_or(false) {
+                return Ok(healthy_sidecar_status());
+            }
+
+            if tracked_sidecar_running(state)? {
+                shutdown_sidecar(state)?;
+            }
+            kill_port_listener(port)?;
+            spawn_sidecar_if_needed(app_handle, state)?;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+
+    Ok(starting_sidecar_status())
 }
 
 pub async fn get_json<T: serde::de::DeserializeOwned>(

@@ -132,6 +132,14 @@ export async function getSidecarStatus(): Promise<SidecarStatus> {
   }
 }
 
+export async function getBootstrapSidecarStatus(): Promise<SidecarStatus> {
+  try {
+    return await invoke<SidecarStatus>("get_bootstrap_sidecar_status");
+  } catch {
+    return { running: false, healthy: false, reason: "tauri_not_available" };
+  }
+}
+
 export async function getSetupDiagnostics(): Promise<SetupDiagnostics | null> {
   try {
     return await invoke<SetupDiagnostics>("get_setup_diagnostics");

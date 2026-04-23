@@ -42,6 +42,8 @@ pub struct SetupDiagnostics {
     pub available_storage_bytes: Option<u64>,
     pub recommended_memory_bytes: u64,
     pub minimum_free_storage_bytes: u64,
+    pub gpu_memory_bytes: Option<u64>,
+    pub minimum_gpu_memory_bytes: u64,
     pub environment_ready: bool,
     pub environment_status: String,
     pub environment_reason: Option<String>,

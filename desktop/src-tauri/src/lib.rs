@@ -8,12 +8,14 @@ use commands::audio::{
     save_recorded_audio,
 };
 use commands::bootstrap::{
-    cleanup_legacy_asr_model, clear_cache, complete_onboarding, export_logs, get_bootstrap_state,
-    get_quick_bootstrap_state, get_runtime_info, get_service_info, get_setup_diagnostics,
-    get_sidecar_status, open_external_url, open_microphone_settings, open_storage_directory,
-    start_bootstrap_download, start_cuda_upgrade,
+    cleanup_legacy_asr_model, clear_cache, complete_onboarding, export_logs,
+    get_bootstrap_sidecar_status, get_bootstrap_state, get_quick_bootstrap_state, get_runtime_info,
+    get_service_info, get_setup_diagnostics, get_sidecar_status, open_external_url,
+    open_microphone_settings, open_storage_directory, start_bootstrap_download, start_cuda_upgrade,
 };
-use commands::models::{get_model_catalog, get_provider_recommendation, prepare_model, start_model_download};
+use commands::models::{
+    get_model_catalog, get_provider_recommendation, prepare_model, start_model_download,
+};
 use commands::tasks::{create_asr_task, create_generate_task, get_task, list_tasks};
 use commands::updater::check_for_update;
 use commands::voices::{create_voice, delete_voice, get_voice, list_voices, update_voice};
@@ -27,6 +29,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_quick_bootstrap_state,
             get_bootstrap_state,
+            get_bootstrap_sidecar_status,
             get_sidecar_status,
             get_service_info,
             get_setup_diagnostics,

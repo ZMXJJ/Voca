@@ -116,6 +116,30 @@ def get_geoip_location(ip_address: str) -> tuple[str | None, bool | None]:
     return None, None
 
 
+def detect_region() -> tuple[str | None, str | None, bool | None]:
+    """Return ``(public_ip, location, is_cn)`` using the shared geo lookup flow."""
+
+    public_ip = get_public_ip()
+    if not public_ip:
+        return None, None, None
+    location, is_cn = get_geoip_location(public_ip)
+    return public_ip, location, is_cn
+
+
+def prefer_cn_downloads() -> bool:
+    """Whether domestic mirrors should be preferred for downloads.
+
+    We intentionally keep the fallback aligned with the existing model-provider
+    router: when region detection is unavailable, default to the domestic path
+    instead of assuming overseas connectivity.
+    """
+
+    _public_ip, _location, is_cn = detect_region()
+    if is_cn is None:
+        return True
+    return bool(is_cn)
+
+
 def recommend_provider(preferred: str = "auto") -> ProviderRecommendation:
     if preferred in {"huggingface", "modelscope"}:
         return ProviderRecommendation(
@@ -128,29 +152,27 @@ def recommend_provider(preferred: str = "auto") -> ProviderRecommendation:
             userOverridden=True,
         )
 
-    public_ip = get_public_ip()
-    if public_ip:
-        location, is_cn = get_geoip_location(public_ip)
-        if location and is_cn:
-            return ProviderRecommendation(
-                publicIp=public_ip,
-                location=location,
-                preferred="auto",
-                recommended="modelscope",
-                current="modelscope",
-                reason="ip_region_cn",
-                userOverridden=False,
-            )
-        if location:
-            return ProviderRecommendation(
-                publicIp=public_ip,
-                location=location,
-                preferred="auto",
-                recommended="huggingface",
-                current="huggingface",
-                reason="ip_region_global",
-                userOverridden=False,
-            )
+    public_ip, location, is_cn = detect_region()
+    if public_ip and location and is_cn:
+        return ProviderRecommendation(
+            publicIp=public_ip,
+            location=location,
+            preferred="auto",
+            recommended="modelscope",
+            current="modelscope",
+            reason="ip_region_cn",
+            userOverridden=False,
+        )
+    if public_ip and location:
+        return ProviderRecommendation(
+            publicIp=public_ip,
+            location=location,
+            preferred="auto",
+            recommended="huggingface",
+            current="huggingface",
+            reason="ip_region_global",
+            userOverridden=False,
+        )
 
     return ProviderRecommendation(
         publicIp=public_ip,

@@ -3,7 +3,7 @@
  *
  * Mirrors scripts/prepare-dmg-resources.mjs but:
  *   - Uses `uv python install` to fetch a python-build-standalone distribution.
- *   - Creates a CPU-only torch venv (Windows torchcodec wheels do not exist).
+ *   - Builds a lean sidecar venv; CUDA torch is downloaded during first-run bootstrap.
  *   - Skips codesigning, FFmpeg dylib bundling, and symlink materialization.
  *
  * Output directory: desktop/.bundle-resources-win/
@@ -32,8 +32,6 @@ const stageVenvRoot = path.join(stageServiceRoot, ".venv");
 const stageRuntimeRoot = path.join(stageRoot, "python-runtime");
 
 const PYTHON_VERSION_SPEC = process.env.VOCA_PYTHON_VERSION?.trim() || "3.11";
-const TORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu";
-
 function ensureExists(targetPath, label) {
   if (!existsSync(targetPath)) {
     throw new Error(`${label} does not exist: ${targetPath}`);
@@ -144,8 +142,6 @@ function buildReleaseVenv(runtimePythonPath) {
       "install",
       "--python",
       stagePythonPath,
-      "--extra-index-url",
-      TORCH_CPU_INDEX,
       "-r",
       runtimeRequirementsPath,
       "-r",
@@ -163,7 +159,11 @@ function stripVenvForRelease() {
   const sitePackagesRoot = path.join(stageVenvRoot, "Lib", "site-packages");
   if (!existsSync(sitePackagesRoot)) return;
 
-  const prunePatterns = [/^__pycache__$/, /\.dist-info$/, /^tests$/, /^test$/];
+  // Keep .dist-info directories: transformers reads dependency metadata via
+  // importlib.metadata.version() during import, and pruning metadata breaks
+  // the packaged runtime with PackageNotFoundError for transitive deps such
+  // as tqdm.
+  const prunePatterns = [/^__pycache__$/, /^tests$/, /^test$/];
   const stack = [sitePackagesRoot];
   let freedBytes = 0;
   while (stack.length > 0) {
@@ -184,7 +184,7 @@ function stripVenvForRelease() {
       }
     }
   }
-  console.log(`- pruned ${freedBytes} cache/metadata directories from site-packages`);
+  console.log(`- pruned ${freedBytes} cache/test directories from site-packages`);
 }
 
 function stripRuntimeForRelease() {
@@ -223,7 +223,7 @@ async function main() {
   console.log("Copying python runtime into stage…");
   copyDirectory(runtimeRoot, stageRuntimeRoot, { dereference: true });
 
-  console.log("Building release venv (CPU torch)…");
+  console.log("Building release venv (bootstrap downloads CUDA runtime later)…");
   const stagePythonPath = buildReleaseVenv(runtimePythonPath);
 
   console.log("Copying app/ and VoxCPM sources…");
@@ -247,7 +247,7 @@ async function main() {
         runtimeRequirementsWinPath,
         stagePythonPath,
         voxcpmSrcRoot,
-        torchBackend: "cpu",
+        torchBackend: "bootstrap-download",
       },
       null,
       2,

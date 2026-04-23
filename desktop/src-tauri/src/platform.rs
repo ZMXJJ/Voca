@@ -10,6 +10,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 pub const APP_DIR_NAME: &str = "Voca";
 
 /// Root directory Voca uses to store its user data (logs, models, caches, etc.).
@@ -143,12 +146,7 @@ pub fn listening_pids(port: u16) -> Result<Vec<u32>, String> {
 #[cfg(not(target_os = "windows"))]
 fn listening_pids_unix(port: u16) -> Result<Vec<u32>, String> {
     let output = Command::new("lsof")
-        .args([
-            "-t",
-            "-nP",
-            &format!("-iTCP:{port}"),
-            "-sTCP:LISTEN",
-        ])
+        .args(["-t", "-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN"])
         .output()
         .map_err(|error| error.to_string())?;
 
@@ -169,10 +167,11 @@ fn listening_pids_unix(port: u16) -> Result<Vec<u32>, String> {
 
 #[cfg(target_os = "windows")]
 fn listening_pids_windows(port: u16) -> Result<Vec<u32>, String> {
-    let output = Command::new("netstat")
-        .args(["-ano", "-p", "tcp"])
-        .output()
-        .map_err(|error| error.to_string())?;
+    let mut command = Command::new("netstat");
+    command.args(["-ano", "-p", "tcp"]);
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.output().map_err(|error| error.to_string())?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -202,9 +201,15 @@ fn listening_pids_windows(port: u16) -> Result<Vec<u32>, String> {
         if !local.ends_with(&needle_suffix) {
             continue;
         }
-        let Some(_remote) = fields.next() else { continue };
-        let Some(_state) = fields.next() else { continue };
-        let Some(pid_str) = fields.next() else { continue };
+        let Some(_remote) = fields.next() else {
+            continue;
+        };
+        let Some(_state) = fields.next() else {
+            continue;
+        };
+        let Some(pid_str) = fields.next() else {
+            continue;
+        };
         if let Ok(pid) = pid_str.parse::<u32>() {
             if pid != 0 && !pids.contains(&pid) {
                 pids.push(pid);
@@ -223,9 +228,11 @@ pub fn kill_port_listener(port: u16) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         for pid in &pids {
             let _ = Command::new("taskkill")
                 .args(["/F", "/T", "/PID", &pid.to_string()])
+                .creation_flags(CREATE_NO_WINDOW)
                 .status();
         }
         std::thread::sleep(Duration::from_millis(300));
@@ -256,7 +263,12 @@ pub fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut command = Command::new("open");
     #[cfg(target_os = "windows")]
-    let mut command = Command::new("explorer");
+    let mut command = {
+        let mut cmd = Command::new("explorer");
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
+    };
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     let mut command = Command::new("xdg-open");
 
@@ -294,6 +306,8 @@ pub fn open_external_url(url: &str) -> Result<(), String> {
     let mut command = {
         let mut cmd = Command::new("cmd");
         cmd.args(["/C", "start", ""]);
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
         cmd
     };
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
@@ -332,10 +346,7 @@ pub fn detect_cpu_name() -> Option<String> {
 
     #[cfg(target_os = "windows")]
     {
-        if let Some(output) = read_command_output(
-            "wmic",
-            &["cpu", "get", "Name", "/FORMAT:LIST"],
-        ) {
+        if let Some(output) = read_command_output("wmic", &["cpu", "get", "Name", "/FORMAT:LIST"]) {
             for raw_line in output.lines() {
                 let line = raw_line.trim();
                 if let Some(value) = line.strip_prefix("Name=") {
@@ -385,7 +396,12 @@ pub fn detect_total_memory_bytes() -> Option<u64> {
     {
         if let Some(output) = read_command_output(
             "wmic",
-            &["ComputerSystem", "get", "TotalPhysicalMemory", "/FORMAT:LIST"],
+            &[
+                "ComputerSystem",
+                "get",
+                "TotalPhysicalMemory",
+                "/FORMAT:LIST",
+            ],
         ) {
             for line in output.lines() {
                 if let Some(value) = line.trim().strip_prefix("TotalPhysicalMemory=") {
@@ -453,9 +469,7 @@ fn detect_available_storage_bytes_df(target: &Path) -> Option<u64> {
 
 #[cfg(target_os = "macos")]
 fn detect_available_storage_bytes_macos(target: &Path) -> Option<u64> {
-    use objc2_foundation::{
-        NSNumber, NSURL, NSURLVolumeAvailableCapacityForImportantUsageKey,
-    };
+    use objc2_foundation::{NSNumber, NSURL, NSURLVolumeAvailableCapacityForImportantUsageKey};
     let url = NSURL::from_file_path(target)?;
     let mut value = None;
     unsafe {
@@ -477,22 +491,31 @@ fn detect_free_space_windows(target: &Path) -> Option<u64> {
         .find(|candidate| candidate.exists())
         .unwrap_or(target)
         .to_path_buf();
-    let drive = root.components().next()?.as_os_str().to_string_lossy().to_string();
+    let drive = root
+        .components()
+        .next()?
+        .as_os_str()
+        .to_string_lossy()
+        .to_string();
     let drive_letter = drive.trim_end_matches(['\\', '/']);
     let command_str = format!(
         "(Get-PSDrive -Name '{}' -PSProvider FileSystem).Free",
         drive_letter.trim_end_matches(':')
     );
-    let output = read_command_output(
-        "powershell",
-        &["-NoProfile", "-Command", &command_str],
-    )?;
+    let output = read_command_output("powershell", &["-NoProfile", "-Command", &command_str])?;
     output.trim().parse::<u64>().ok()
 }
 
 /// Run a subprocess and capture a trimmed stdout string. Returns `None` on non-zero exit.
 pub fn read_command_output(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
+    let mut command = Command::new(program);
+    command.args(args);
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -528,6 +551,37 @@ pub fn detect_nvidia_gpu() -> Option<String> {
             let trimmed = name.trim();
             if !trimmed.is_empty() {
                 return Some(trimmed.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Best-effort NVIDIA VRAM detection in bytes.
+pub fn detect_nvidia_gpu_memory_bytes() -> Option<u64> {
+    if let Some(output) = read_command_output(
+        "nvidia-smi",
+        &["--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+    ) {
+        let first = output.lines().next()?.trim();
+        if let Ok(megabytes) = first.parse::<u64>() {
+            return Some(megabytes.saturating_mul(1024 * 1024));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(output) = read_command_output(
+            "powershell",
+            &[
+                "-NoProfile",
+                "-Command",
+                "(Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA' } | Select-Object -First 1).AdapterRAM",
+            ],
+        ) {
+            if let Ok(bytes) = output.trim().parse::<u64>() {
+                return Some(bytes);
             }
         }
     }
