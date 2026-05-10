@@ -441,11 +441,13 @@ fn spawn_sidecar_if_needed(app_handle: &AppHandle, state: &AppState) -> Result<(
     let modelscope_cache =
         resolve_env_dir(&["MODELSCOPE_CACHE"], app_support_dir.join("modelscope"));
     let torch_home = resolve_env_dir(&["TORCH_HOME"], app_support_dir.join("torch"));
+    let sidecar_cwd = app_support_dir.join("sidecar-cwd");
     fs::create_dir_all(&model_dir).map_err(|error| error.to_string())?;
     fs::create_dir_all(&hf_home).map_err(|error| error.to_string())?;
     fs::create_dir_all(&hf_hub_cache).map_err(|error| error.to_string())?;
     fs::create_dir_all(&modelscope_cache).map_err(|error| error.to_string())?;
     fs::create_dir_all(&torch_home).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&sidecar_cwd).map_err(|error| error.to_string())?;
     let stdout_log = OpenOptions::new()
         .create(true)
         .append(true)
@@ -464,7 +466,14 @@ fn spawn_sidecar_if_needed(app_handle: &AppHandle, state: &AppState) -> Result<(
             "--log-level",
             "warning",
         ])
-        .current_dir(&sidecar_paths.service_root)
+        // Use a dedicated, writable scratch directory under app_support as the
+        // child process CWD instead of the service source directory. On Windows
+        // a process holds a directory handle on its CWD for the entire lifetime,
+        // which previously prevented users from deleting/moving the install or
+        // repository directory while the app was running. The Python service
+        // does not rely on CWD-based imports — `service_root` is now placed on
+        // PYTHONPATH explicitly below.
+        .current_dir(&sidecar_cwd)
         .stdout(Stdio::from(stdout_log))
         .stderr(Stdio::from(stderr_log))
         .env("VOCA_PYTHON_SERVICE_ROOT", &sidecar_paths.service_root)
@@ -475,9 +484,30 @@ fn spawn_sidecar_if_needed(app_handle: &AppHandle, state: &AppState) -> Result<(
         .env("HF_HUB_CACHE", &hf_hub_cache)
         .env("MODELSCOPE_CACHE", &modelscope_cache)
         .env("TORCH_HOME", &torch_home)
-        .env("VOCA_REQUIRE_CUDA", "1");
+        .env("VOCA_REQUIRE_CUDA", "1")
+        // Disable .pyc generation so Python never writes __pycache__ folders
+        // into the bundled service / VoxCPM source trees. This both avoids
+        // cluttering the install directory and removes the short-lived write
+        // locks Windows holds while compiling .pyc files.
+        .env("PYTHONDONTWRITEBYTECODE", "1");
 
     let mut python_path_entries = sidecar_paths.python_path_entries.clone();
+    // Always make the service root importable via PYTHONPATH instead of relying
+    // on the working directory. In bundle mode `service_root` is already part of
+    // `python_path_entries`; in dev mode it is empty and we must inject it now
+    // that we no longer cd into the service directory.
+    if !python_path_entries
+        .iter()
+        .any(|entry| entry == &sidecar_paths.service_root)
+    {
+        python_path_entries.push(sidecar_paths.service_root.clone());
+    }
+    if !python_path_entries
+        .iter()
+        .any(|entry| entry == &sidecar_paths.voxcpm_src)
+    {
+        python_path_entries.push(sidecar_paths.voxcpm_src.clone());
+    }
     #[cfg(target_os = "windows")]
     {
         let runtime_site_packages = runtime_site_packages_dir(&app_support_dir);

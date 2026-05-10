@@ -67,10 +67,27 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building voca desktop");
 
-    app.run(|app_handle, event| {
-        if matches!(event, tauri::RunEvent::Exit) {
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+            // Tear the sidecar down on both ExitRequested (fires before any
+            // listeners can prevent the exit) and Exit so we cover scenarios
+            // where the OS forces a quick shutdown and `Exit` never reaches us.
+            // `shutdown_sidecar` uses `Option::take` internally, so calling it
+            // twice during the same shutdown is idempotent.
             let state = app_handle.state::<AppState>();
             let _ = sidecar::shutdown_sidecar(state.inner());
         }
+        tauri::RunEvent::WindowEvent {
+            event: tauri::WindowEvent::Destroyed,
+            ..
+        } => {
+            // When the last window is destroyed (e.g. user closes the main
+            // window on Windows) Tauri may not always emit `Exit` before the
+            // process is reclaimed. Eagerly drop the sidecar so its file
+            // handles on the install/runtime directory are released.
+            let state = app_handle.state::<AppState>();
+            let _ = sidecar::shutdown_sidecar(state.inner());
+        }
+        _ => {}
     });
 }

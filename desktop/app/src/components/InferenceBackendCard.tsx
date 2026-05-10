@@ -36,7 +36,28 @@ function formatBytes(value: number) {
 export function InferenceBackendCard({ setupDiagnostics }: Props) {
   const { t } = useTranslation();
   const activeBackend = setupDiagnostics?.activeTorchBackend ?? null;
-  const hasNvidiaGpu = setupDiagnostics?.hasNvidiaGpu ?? false;
+  // The CUDA-aware GPU/VRAM panel only applies to Windows builds. On
+  // macOS/Linux we render a slim card describing the active backend and skip
+  // any "no NVIDIA GPU detected" warning that would otherwise mislead users.
+  const isWindows = setupDiagnostics?.platform === "windows";
+
+  if (!isWindows) {
+    return (
+      <div className="settings-section">
+        <div className="settings-section__title">{t("settings.inferenceBackend.title")}</div>
+        <div className="kv-grid">
+          <div>
+            <div className="kv-row">
+              <span className="kv-row__key">{t("settings.inferenceBackend.activeLabel")}</span>
+              <span className="kv-row__value">{backendLabel(activeBackend?.toString(), t)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const hasNvidiaGpu = Boolean(setupDiagnostics?.hasNvidiaGpu);
   const gpuMemoryBytes = setupDiagnostics?.gpuMemoryBytes ?? null;
   const minimumGpuMemoryBytes =
     setupDiagnostics?.minimumGpuMemoryBytes ?? 6 * 1024 * 1024 * 1024;

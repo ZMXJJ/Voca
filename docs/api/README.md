@@ -18,6 +18,8 @@ Voca 的推理后端是一个 FastAPI sidecar 服务，由桌面端自动启动�
 | | POST | [`/api/v1/models/validate`](models.md#post-apiv1modelsvalidate) | 模型路径校验 |
 | | POST | [`/api/v1/models/download`](models.md#post-apiv1modelsdownload) | 下载单个模型（异步任务） |
 | | POST | [`/api/v1/bootstrap/start`](models.md#post-apiv1bootstrapstart) | 启动引导下载（批量异步任务） |
+| | POST | [`/api/v1/bootstrap/upgrade-cuda`](cuda-upgrade.md) | 启动 CUDA 推理运行时下载（仅 Windows） |
+| | GET | [`/api/v1/bootstrap/runtime-info`](runtime-info.md) | 读取 CUDA 运行时元信息 |
 | **任务管理** | POST | [`/api/v1/tasks/generate`](tasks.md#post-apiv1tasksgenerate) | 创建语音生成任务 |
 | | POST | [`/api/v1/tasks/asr`](tasks.md#post-apiv1tasksasr) | 创建语音识别任务 |
 | | GET | [`/api/v1/tasks`](tasks.md#get-apiv1tasks) | 任务列表（分页） |

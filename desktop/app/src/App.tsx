@@ -285,6 +285,7 @@ function createPreviewBootstrapDownloadTask(): TaskRecord {
 
 function createPreviewSetupDiagnostics(): SetupDiagnostics {
   return {
+    platform: "windows",
     cpuName: "Intel Core Ultra 9",
     totalMemoryBytes: 32 * 1024 * 1024 * 1024,
     availableStorageBytes: 42_000_000_000,
@@ -881,8 +882,15 @@ function App() {
   const previewTaskHistory = taskHistory.length > 0 ? upsertTaskHistory(taskHistory, previewTask) : [previewTask];
   const canContinueFromInitialize = Boolean(
     setupDiagnostics &&
-      setupDiagnostics.hasNvidiaGpu &&
-      (setupDiagnostics.gpuMemoryBytes ?? 0) >= setupDiagnostics.minimumGpuMemoryBytes &&
+      // The NVIDIA GPU + VRAM gate only applies on platforms whose bootstrap
+      // depends on CUDA (currently Windows). On macOS/Linux these fields are
+      // intentionally absent in the contract, so we must not require them here
+      // or we'd block users who don't actually need a discrete GPU.
+      (setupDiagnostics.platform === "windows"
+        ? Boolean(setupDiagnostics.hasNvidiaGpu) &&
+          (setupDiagnostics.gpuMemoryBytes ?? 0) >=
+            (setupDiagnostics.minimumGpuMemoryBytes ?? 0)
+        : true) &&
       setupDiagnostics.environmentReady &&
       (setupDiagnostics.availableStorageBytes ?? 0) >= setupDiagnostics.minimumFreeStorageBytes,
   );

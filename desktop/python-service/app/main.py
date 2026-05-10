@@ -27,7 +27,7 @@ from app.models.schemas import (
     VoiceEntry,
     VoiceUpdateRequest,
 )
-from app.services.task_manager import TaskManager
+from app.services.task_manager import CudaUpgradeUnsupported, TaskManager
 from app.services import voice_library
 from app.services.bootstrap_assets import (
     bootstrap_asset_statuses,
@@ -116,7 +116,32 @@ def _detect_host_device_name() -> str | None:
     return machine or None
 
 
+def _windows_cuda_runtime_ready() -> bool:
+    """Return True only if the bundled Windows CUDA runtime overlay is installed.
+
+    The Windows installer ships without torch/torchaudio; both are downloaded
+    into ``runtime/site-packages/`` during first-run bootstrap. Importing torch
+    before that overlay exists is guaranteed to fail, and even an attempted
+    import locks the partially-populated ``.pyd`` / ``.dll`` files in the
+    runtime directory for the lifetime of the sidecar — which then prevents
+    the bootstrap installer from atomically replacing them. Defer the import
+    until the CUDA runtime is fully ready.
+    """
+
+    try:
+        from app.services.cuda_upgrade import has_runtime_complete_marker
+    except Exception:
+        return False
+    try:
+        return bool(has_runtime_complete_marker())
+    except Exception:
+        return False
+
+
 def _detect_device_info() -> tuple[str, str | None]:
+    if os.name == "nt" and not _windows_cuda_runtime_ready():
+        return "cpu", _detect_host_device_name()
+
     try:
         torch = import_torch_clean()
 
@@ -379,7 +404,19 @@ def cleanup_legacy_asr_model() -> dict[str, bool]:
 
 @app.post("/api/v1/bootstrap/upgrade-cuda", response_model=TaskRecord)
 def create_cuda_upgrade_task() -> TaskRecord:
-    return task_manager.create_cuda_upgrade_task()
+    try:
+        return task_manager.create_cuda_upgrade_task()
+    except CudaUpgradeUnsupported as exc:
+        # Translate to a typed HTTP 400 so cross-platform clients (macOS/Linux
+        # builds merged from main) can branch on the structured error code
+        # rather than parsing a generic 500 message.
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "cuda_upgrade_unsupported_platform",
+                "message": str(exc),
+            },
+        ) from exc
 
 
 @app.get("/api/v1/bootstrap/runtime-info")

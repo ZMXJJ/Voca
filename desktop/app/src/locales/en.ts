@@ -90,11 +90,15 @@ const en = {
     },
     init: {
       title: "Check Device Readiness",
-      desc: "Check whether your NVIDIA GPU, VRAM, and local runtime meet the minimum requirements.",
-      deviceTitle: "GPU And VRAM",
+      desc: "Confirm the device meets the minimum requirements before continuing the setup.",
+      deviceTitle: "Device",
+      deviceTitleCpu: "CPU And Memory",
+      deviceTitleGpu: "GPU And VRAM",
       storageTitle: "Available Storage",
       environmentTitle: "Local Runtime Environment",
-      gpuMissing: "No compatible NVIDIA GPU detected. Voca requires CUDA GPU inference on Windows.",
+      memoryHealthy: "Total memory {{memory}} meets the recommended requirement.",
+      memoryWarning: "Only {{memory}} memory detected. This is below the recommended {{recommended}} and may impact smooth performance.",
+      gpuMissing: "No compatible NVIDIA GPU detected. CUDA GPU inference is required on this build.",
       storageHealthy:
         "{{available}} is currently available and meets the minimum {{minimum}} requirement.",
       storageWarning:

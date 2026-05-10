@@ -26,6 +26,16 @@ from app.services.model_catalog import get_model_entry
 from app.services.voxcpm_bridge import DownloadProgressEvent, VoxCPMBridge
 
 
+class CudaUpgradeUnsupported(RuntimeError):
+    """Raised when the caller asks for a CUDA upgrade on a platform that
+    does not support it (currently anything other than Windows).
+
+    The Tauri/HTTP layer is expected to translate this into a typed error
+    response (`cuda_upgrade_unsupported_platform`) instead of letting it
+    bubble up as a generic HTTP 500.
+    """
+
+
 def _format_bytes(value: int) -> str:
     units = ["B", "KB", "MB", "GB", "TB"]
     size = float(max(value, 0))
@@ -262,6 +272,16 @@ class TaskManager:
         return task
 
     def create_cuda_upgrade_task(self) -> TaskRecord:
+        # The CUDA runtime overlay is a Windows-only deliverable: the wheel
+        # index, on-disk layout (`runtime/site-packages`) and self-check
+        # subprocess all assume a Win32 interpreter. Refuse early on every
+        # other host so macOS/Linux clients merged from main get a clear,
+        # typed error instead of a partial / corrupted runtime download.
+        if os.name != "nt":
+            raise CudaUpgradeUnsupported(
+                "cuda_upgrade is only supported on Windows builds"
+            )
+
         task_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
         task = TaskRecord(

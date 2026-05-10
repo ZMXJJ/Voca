@@ -210,27 +210,75 @@ function formatDownloadSummary(downloadTask: TaskRecord | null | undefined, t: T
   return null;
 }
 
+function isWindowsPlatform(setupDiagnostics: SetupDiagnostics | null | undefined): boolean {
+  // Treat the platform check as Windows-only when the backend explicitly
+  // reports it. Older builds (pre-Windows-integration) don't emit `platform`
+  // and ran on macOS, so an absent value falls back to the non-Windows path.
+  return setupDiagnostics?.platform === "windows";
+}
+
+function buildWindowsDeviceCheck(
+  setupDiagnostics: SetupDiagnostics,
+  t: Translate,
+): InitializeCheckItem {
+  const minimumGpuMemoryBytes =
+    setupDiagnostics.minimumGpuMemoryBytes ?? 6 * 1024 * 1024 * 1024;
+  const gpuMemoryBytes = setupDiagnostics.gpuMemoryBytes ?? null;
+  const hasNvidiaGpu = Boolean(setupDiagnostics.hasNvidiaGpu);
+  const gpuInsufficient =
+    !hasNvidiaGpu || gpuMemoryBytes === null || gpuMemoryBytes < minimumGpuMemoryBytes;
+
+  const summary = !hasNvidiaGpu
+    ? t("bootstrap.init.gpuMissing")
+    : [
+        setupDiagnostics.gpuName,
+        gpuMemoryBytes !== null ? formatBytes(gpuMemoryBytes) : t("bootstrap.init.detecting"),
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
+  return {
+    key: "device",
+    title: t("bootstrap.init.deviceTitleGpu"),
+    summary,
+    status: gpuInsufficient ? "blocked" : "done",
+  };
+}
+
+function buildHostDeviceCheck(
+  setupDiagnostics: SetupDiagnostics,
+  t: Translate,
+): InitializeCheckItem {
+  const recommendedMemoryBytes = setupDiagnostics.recommendedMemoryBytes ?? 12 * 1024 * 1024 * 1024;
+  const totalMemoryBytes = setupDiagnostics.totalMemoryBytes ?? null;
+  const memoryLow = totalMemoryBytes !== null && totalMemoryBytes < recommendedMemoryBytes;
+
+  const summary = [
+    setupDiagnostics.cpuName,
+    totalMemoryBytes !== null ? formatBytes(totalMemoryBytes) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ") || t("bootstrap.init.detecting");
+
+  return {
+    key: "device",
+    title: t("bootstrap.init.deviceTitleCpu"),
+    summary,
+    // Memory shortfall is informational on macOS/Linux — we surface it as a
+    // warning instead of blocking the bootstrap entirely (matching main).
+    status: memoryLow ? "warning" : "done",
+  };
+}
+
 function getInitializeChecks(
   setupDiagnostics: SetupDiagnostics | null | undefined,
   t: Translate,
 ): InitializeCheckItem[] {
-  const minimumGpuMemoryBytes = setupDiagnostics?.minimumGpuMemoryBytes ?? 6 * 1024 * 1024 * 1024;
   const minimumFreeStorageBytes = setupDiagnostics?.minimumFreeStorageBytes ?? 6_000_000_000;
-  const gpuMemoryBytes = setupDiagnostics?.gpuMemoryBytes ?? null;
   const availableStorageBytes = setupDiagnostics?.availableStorageBytes ?? null;
-  const hasNvidiaGpu = setupDiagnostics?.hasNvidiaGpu ?? false;
-  const gpuInsufficient =
-    !hasNvidiaGpu || gpuMemoryBytes === null || gpuMemoryBytes < minimumGpuMemoryBytes;
   const storageInsufficient =
     availableStorageBytes !== null && availableStorageBytes < minimumFreeStorageBytes;
 
-  const gpuSummary = setupDiagnostics
-    ? !hasNvidiaGpu
-      ? t("bootstrap.init.gpuMissing")
-      : [setupDiagnostics.gpuName, gpuMemoryBytes !== null ? formatBytes(gpuMemoryBytes) : t("bootstrap.init.detecting")]
-        .filter(Boolean)
-        .join(" · ")
-    : t("bootstrap.init.detecting");
   const storageSummary = setupDiagnostics
     ? availableStorageBytes !== null
       ? formatStorageBytes(availableStorageBytes)
@@ -244,13 +292,19 @@ function getInitializeChecks(
     environmentStatus = "blocked";
   }
 
+  const deviceCheck: InitializeCheckItem = setupDiagnostics
+    ? isWindowsPlatform(setupDiagnostics)
+      ? buildWindowsDeviceCheck(setupDiagnostics, t)
+      : buildHostDeviceCheck(setupDiagnostics, t)
+    : {
+        key: "device",
+        title: t("bootstrap.init.deviceTitle"),
+        summary: t("bootstrap.init.detecting"),
+        status: "pending",
+      };
+
   return [
-    {
-      key: "device",
-      title: t("bootstrap.init.deviceTitle"),
-      summary: gpuSummary,
-      status: setupDiagnostics ? (gpuInsufficient ? "blocked" : "done") : "pending",
-    },
+    deviceCheck,
     {
       key: "storage",
       title: t("bootstrap.init.storageTitle"),

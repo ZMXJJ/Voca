@@ -209,20 +209,40 @@ export type SetupEnvironmentStatus = "ready" | "missing" | "starting" | "error";
 
 export type TorchBackend = "cpu" | "cuda" | "mps";
 
+export type AppPlatform = "windows" | "macos" | "linux";
+
 export type SetupDiagnostics = {
+  /**
+   * Host operating system identifier emitted by the Tauri backend. Older
+   * builds (pre-Windows-integration) may not populate this field, so callers
+   * should treat it as optional and fall back gracefully.
+   */
+  platform?: AppPlatform | string | null;
   cpuName?: string | null;
   totalMemoryBytes?: number | null;
   availableStorageBytes?: number | null;
   recommendedMemoryBytes: number;
   minimumFreeStorageBytes: number;
   gpuMemoryBytes?: number | null;
-  minimumGpuMemoryBytes: number;
+  /**
+   * Minimum VRAM required for the current platform's inference path. Only
+   * populated on platforms that gate on NVIDIA GPUs (currently Windows);
+   * absent on macOS/Linux. The frontend treats `null`/`undefined` as
+   * "no GPU floor required for this platform".
+   */
+  minimumGpuMemoryBytes?: number | null;
   environmentReady: boolean;
   environmentStatus: SetupEnvironmentStatus;
   environmentReason?: string | null;
   gpuVendor?: string | null;
   gpuName?: string | null;
-  hasNvidiaGpu?: boolean;
+  /**
+   * Tri-state. `true`/`false` for platforms whose bootstrap depends on
+   * NVIDIA hardware; `null`/`undefined` on platforms where the question
+   * doesn't apply (macOS, Linux). Older clients only saw `boolean`, so we
+   * keep the type lenient.
+   */
+  hasNvidiaGpu?: boolean | null;
   activeTorchBackend?: TorchBackend | string | null;
 };
 

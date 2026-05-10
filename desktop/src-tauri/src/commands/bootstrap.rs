@@ -439,6 +439,15 @@ pub async fn start_cuda_upgrade(
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<TaskRecord, String> {
+    // The CUDA runtime overlay is a Windows-only artifact. Refuse on every
+    // other host before we even bounce the sidecar so older clients merged
+    // from main don't trigger an unnecessary restart and end up parsing a
+    // generic 400 from the Python service. The Python side enforces the same
+    // invariant via `CudaUpgradeUnsupported`.
+    if !cfg!(target_os = "windows") {
+        return Err("cuda_upgrade_unsupported_platform".into());
+    }
+
     let sidecar = restart_sidecar_clean(&app_handle, state.inner()).await?;
     if !sidecar.running {
         return Err(sidecar
@@ -524,6 +533,12 @@ fn read_active_torch_backend() -> Option<String> {
     }
 }
 
+fn host_platform_id() -> String {
+    // `std::env::consts::OS` returns "windows", "macos", "linux", etc., which
+    // matches the AppPlatform string union the frontend contract uses.
+    std::env::consts::OS.to_string()
+}
+
 #[tauri::command]
 pub async fn get_setup_diagnostics(
     app_handle: AppHandle,
@@ -535,7 +550,6 @@ pub async fn get_setup_diagnostics(
     let gpu_vendor = detect_gpu_vendor();
     let gpu_name = platform::detect_nvidia_gpu();
     let gpu_memory_bytes = platform::detect_nvidia_gpu_memory_bytes();
-    let has_nvidia_gpu = gpu_vendor.as_deref() == Some("nvidia");
     let runtime_available = sidecar_runtime_available(&app_handle);
     let sidecar = if runtime_available {
         ensure_sidecar_started(&app_handle, state.inner())
@@ -553,14 +567,28 @@ pub async fn get_setup_diagnostics(
         }
     };
 
+    // Only Windows currently gates bootstrap on an NVIDIA GPU + VRAM minimum;
+    // emitting these fields on macOS/Linux would force the frontend (or older
+    // clients merged from main) to either special-case a missing GPU or block
+    // the user on hardware that doesn't actually need CUDA.
+    let (minimum_gpu_memory_bytes, has_nvidia_gpu) = if cfg!(target_os = "windows") {
+        (
+            Some(MINIMUM_GPU_MEMORY_BYTES),
+            Some(gpu_vendor.as_deref() == Some("nvidia")),
+        )
+    } else {
+        (None, None)
+    };
+
     Ok(SetupDiagnostics {
+        platform: host_platform_id(),
         cpu_name,
         total_memory_bytes,
         available_storage_bytes,
         recommended_memory_bytes: RECOMMENDED_MEMORY_BYTES,
         minimum_free_storage_bytes: MINIMUM_FREE_STORAGE_BYTES,
         gpu_memory_bytes,
-        minimum_gpu_memory_bytes: MINIMUM_GPU_MEMORY_BYTES,
+        minimum_gpu_memory_bytes,
         environment_ready: sidecar.healthy,
         environment_status: environment_status_from_sidecar(&sidecar),
         environment_reason: sidecar.reason,
