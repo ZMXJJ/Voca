@@ -163,7 +163,12 @@ function stripVenvForRelease() {
   // importlib.metadata.version() during import, and pruning metadata breaks
   // the packaged runtime with PackageNotFoundError for transitive deps such
   // as tqdm.
-  const prunePatterns = [/^__pycache__$/, /^tests$/, /^test$/];
+  //
+  // Also prune modelscope's msdatasets subtree: it contains deeply-nested
+  // CV/NLP dataset classes (e.g. image_quality_assessment_degradation) that
+  // exceed Windows MAX_PATH during NSIS packaging and are not used by Voca's
+  // TTS runtime.
+  const prunePatterns = [/^__pycache__$/, /^tests$/, /^test$/, /^msdatasets$/];
   const stack = [sitePackagesRoot];
   let freedBytes = 0;
   while (stack.length > 0) {
