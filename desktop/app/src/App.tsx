@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   BootstrapState,
   GenerationParams,
@@ -8,6 +8,7 @@ import type {
   ServiceInfo,
   SetupDiagnostics,
   SidecarStatus,
+  StorageInfo,
   TaskRecord,
 } from "@voca/contracts";
 import { PreviewDock } from "./components/PreviewDock";
@@ -32,6 +33,7 @@ import {
   getProviderRecommendation,
   getQuickBootstrapState,
   getServiceInfo,
+  getStorageInfo,
   getSetupDiagnostics,
   getSidecarStatus,
   getTask,
@@ -336,6 +338,12 @@ function App() {
   const [auxiliaryModelCatalog, setAuxiliaryModelCatalog] = useState<ModelCatalogEntry[]>([]);
   const [downloadedAuxiliaryModelCatalog, setDownloadedAuxiliaryModelCatalog] = useState<ModelCatalogEntry[]>([]);
   const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
+  // Lazy storage usage snapshot. ``null`` until the user opens the storage
+  // details modal in Settings — at that point the modal triggers
+  // ``refreshStorageInfo`` to fetch the (potentially several-second-long)
+  // recursive directory walk. We hold the result here so it survives tab
+  // switches and stays visible on the Settings page after the modal closes.
+  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const [setupDiagnostics, setSetupDiagnostics] = useState<SetupDiagnostics | null>(null);
   const [runningTaskIds, setRunningTaskIds] = useState<Set<string>>(new Set());
   const [bootstrapDownloadTask, setBootstrapDownloadTask] = useState<TaskRecord | null>(null);
@@ -402,6 +410,13 @@ function App() {
     const info = await getServiceInfo();
     setServiceInfo(info);
   };
+
+  const refreshStorageInfo = useCallback(async () => {
+    const info = await getStorageInfo();
+    if (info) {
+      setStorageInfo(info);
+    }
+  }, []);
 
   const refreshSetupDiagnostics = async () => {
     const diagnostics = await getSetupDiagnostics();
@@ -503,15 +518,11 @@ function App() {
     return () => window.clearInterval(timer);
   }, [sidecarStatus.healthy]);
 
-  useEffect(() => {
-    if (!sidecarStatus.healthy || !shouldUseFullHealthChecks) {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      void refreshServiceInfo();
-    }, 10000);
-    return () => window.clearInterval(timer);
-  }, [sidecarStatus.healthy, shouldUseFullHealthChecks]);
+  // Note: there is intentionally no recurring poll of ``getServiceInfo``
+  // here. The health route is now a pure readiness probe (no disk walk),
+  // and storage statistics are fetched lazily via ``refreshStorageInfo``
+  // when the user opens the storage details modal. Background polling is
+  // unnecessary and would just consume IO + battery for no UI benefit.
 
   useEffect(() => {
     if (!shouldUseFullHealthChecks) {
@@ -833,9 +844,9 @@ function App() {
   };
 
   const handleCacheCleared = (
-    nextServiceInfo: ServiceInfo | null,
+    nextStorageInfo: StorageInfo | null,
     removedTaskIds: string[],
-    remainingBytes: number,
+    _remainingBytes: number,
     clearedAudioDirs: string[],
   ) => {
     const removedIdSet = new Set(removedTaskIds);
@@ -853,7 +864,9 @@ function App() {
       return next;
     });
 
-    setServiceInfo((info) => nextServiceInfo ?? (info ? { ...info, cacheBytes: remainingBytes } : info));
+    if (nextStorageInfo) {
+      setStorageInfo(nextStorageInfo);
+    }
   };
 
   const setPreviewInUrl = (mode: PreviewMode) => {
@@ -913,9 +926,11 @@ function App() {
           auxiliaryModelCatalog={auxiliaryModelCatalog}
           downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
           serviceInfo={serviceInfo}
+          storageInfo={storageInfo}
           taskHistory={previewTaskHistory}
           onPrepareModel={handlePrepareModel}
           onSubmitTask={handleSubmitTask}
+          onRefreshStorageInfo={refreshStorageInfo}
           onCacheCleared={handleCacheCleared}
         />
       );
@@ -1210,9 +1225,11 @@ function App() {
         auxiliaryModelCatalog={auxiliaryModelCatalog}
         downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
         serviceInfo={serviceInfo}
+        storageInfo={storageInfo}
         taskHistory={taskHistory}
         onPrepareModel={handlePrepareModel}
         onSubmitTask={handleSubmitTask}
+        onRefreshStorageInfo={refreshStorageInfo}
         onCacheCleared={handleCacheCleared}
       />
       {globalOverlays}

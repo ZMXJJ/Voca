@@ -4,6 +4,7 @@ use std::{
     fs::{self, OpenOptions},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::OnceLock,
     time::Duration,
 };
 
@@ -22,6 +23,23 @@ const LOG_ROTATE_BYTES: u64 = 5 * 1024 * 1024;
 const VOCA_RUNTIME_SITE_PACKAGES_ENV: &str = "VOCA_RUNTIME_SITE_PACKAGES";
 const CUDA_RUNTIME_COMPLETE_MARKER: &str = "cuda-runtime-complete.json";
 const VOCA_DEV_BUNDLE_ROOT_ENV: &str = "VOCA_DEV_BUNDLE_ROOT";
+
+/// Process-wide reqwest client shared across every sidecar HTTP call.
+///
+/// `Client::new()` is non-trivial on Windows (initializes a TLS connector and
+/// a connection pool), and the codebase used to construct a fresh one for
+/// every Tauri command. With the sidecar polled on every page switch this
+/// added up to noticeable per-click overhead. Sharing a single client also
+/// keeps the loopback connection to `127.0.0.1:8765` alive between calls.
+fn http_client() -> &'static Client {
+    static SHARED_CLIENT: OnceLock<Client> = OnceLock::new();
+    SHARED_CLIENT.get_or_init(|| {
+        Client::builder()
+            .pool_idle_timeout(Some(Duration::from_secs(60)))
+            .build()
+            .unwrap_or_else(|_| Client::new())
+    })
+}
 
 struct SidecarPaths {
     service_root: PathBuf,
@@ -210,7 +228,12 @@ async fn fetch_health(client: &Client, port: u16) -> Result<bool, String> {
     Ok(response.status().is_success())
 }
 
-async fn fetch_probe(client: &Client, port: u16) -> Result<bool, String> {
+/// Lightweight liveness probe.
+///
+/// Returns the sidecar's `instanceId` when the running process responds with
+/// the expected service name. We use this both for fast probing on every
+/// command and as a stable cache key for compatibility checks (`is_sidecar_compatible`).
+async fn fetch_probe_instance_id(client: &Client, port: u16) -> Result<Option<String>, String> {
     let response = client
         .get(format!("{}/api/v1/probe", sidecar_url(port)))
         .send()
@@ -218,7 +241,7 @@ async fn fetch_probe(client: &Client, port: u16) -> Result<bool, String> {
         .map_err(|error| error.to_string())?;
 
     if !response.status().is_success() {
-        return Ok(false);
+        return Ok(None);
     }
 
     let payload = response
@@ -226,7 +249,14 @@ async fn fetch_probe(client: &Client, port: u16) -> Result<bool, String> {
         .await
         .map_err(|error| error.to_string())?;
 
-    Ok(payload.get("service").and_then(|value| value.as_str()) == Some("voca-python-service"))
+    if payload.get("service").and_then(|value| value.as_str()) != Some("voca-python-service") {
+        return Ok(None);
+    }
+
+    Ok(payload
+        .get("instanceId")
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string()))
 }
 
 async fn fetch_openapi_spec(client: &Client, port: u16) -> Result<serde_json::Value, String> {
@@ -257,6 +287,26 @@ async fn is_sidecar_compatible(client: &Client, port: u16) -> Result<bool, Strin
     Ok(paths.contains_key("/api/v1/voices")
         && paths.contains_key("/api/v1/voices/{voice_id}")
         && paths.contains_key("/api/v1/tasks"))
+}
+
+fn cached_compatible_instance(state: &AppState) -> Option<String> {
+    state
+        .compatible_instance_id
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+}
+
+fn store_compatible_instance(state: &AppState, instance_id: &str) {
+    if let Ok(mut guard) = state.compatible_instance_id.lock() {
+        *guard = Some(instance_id.to_string());
+    }
+}
+
+fn invalidate_compatible_instance(state: &AppState) {
+    if let Ok(mut guard) = state.compatible_instance_id.lock() {
+        *guard = None;
+    }
 }
 
 fn tracked_sidecar_running(state: &AppState) -> Result<bool, String> {
@@ -354,6 +404,9 @@ pub fn shutdown_sidecar(state: &AppState) -> Result<(), String> {
         let _ = child.kill();
         let _ = child.wait();
     }
+
+    drop(guard);
+    invalidate_compatible_instance(state);
 
     Ok(())
 }
@@ -533,6 +586,10 @@ fn spawn_sidecar_if_needed(app_handle: &AppHandle, state: &AppState) -> Result<(
 
     let child = command.spawn().map_err(|error| error.to_string())?;
     guard.child = Some(child);
+    drop(guard);
+    // The just-spawned process gets a brand new instanceId; any cached
+    // compatibility result for the previous one is no longer valid.
+    invalidate_compatible_instance(state);
     Ok(())
 }
 
@@ -548,14 +605,18 @@ pub async fn ensure_sidecar_started(
         guard.port
     };
 
-    let client = Client::new();
-    if fetch_probe(&client, port).await.unwrap_or(false) {
+    let client = http_client();
+    if fetch_probe_instance_id(client, port)
+        .await
+        .unwrap_or(None)
+        .is_some()
+    {
         return Ok(healthy_sidecar_status());
     }
 
     let tracked_running = tracked_sidecar_running(state)?;
-    if fetch_health(&client, port).await.unwrap_or(false) {
-        let compatible = is_sidecar_compatible(&client, port).await.unwrap_or(false);
+    if fetch_health(client, port).await.unwrap_or(false) {
+        let compatible = is_sidecar_compatible(client, port).await.unwrap_or(false);
         if compatible {
             return Ok(healthy_sidecar_status());
         }
@@ -564,6 +625,7 @@ pub async fn ensure_sidecar_started(
             shutdown_sidecar(state)?;
         }
         kill_port_listener(port)?;
+        invalidate_compatible_instance(state);
     }
 
     match spawn_sidecar_if_needed(app_handle, state) {
@@ -580,7 +642,11 @@ pub async fn ensure_sidecar_started(
 
     for _ in 0..4 {
         tokio::time::sleep(Duration::from_millis(250)).await;
-        if fetch_probe(&client, port).await.unwrap_or(false) {
+        if fetch_probe_instance_id(client, port)
+            .await
+            .unwrap_or(None)
+            .is_some()
+        {
             return Ok(healthy_sidecar_status());
         }
     }
@@ -615,10 +681,14 @@ pub async fn restart_sidecar_clean(
         Err(error) => return Err(error),
     }
 
-    let client = Client::new();
+    let client = http_client();
     for _ in 0..8 {
         tokio::time::sleep(Duration::from_millis(250)).await;
-        if fetch_probe(&client, port).await.unwrap_or(false) {
+        if fetch_probe_instance_id(client, port)
+            .await
+            .unwrap_or(None)
+            .is_some()
+        {
             return Ok(healthy_sidecar_status());
         }
     }
@@ -642,11 +712,41 @@ pub async fn ensure_sidecar_running(
             .map_err(|_| "failed to lock sidecar state".to_string())?;
         guard.port
     };
-    let client = Client::new();
+    let client = http_client();
+
+    // Fast path: the running sidecar's instanceId matches the one we already
+    // verified to be API-compatible during a previous ensure_sidecar_running
+    // call. Skip the OpenAPI fetch entirely. This is the hot path on every
+    // Tauri command and was the dominant cost on Windows.
+    if started.healthy {
+        let cached = cached_compatible_instance(state);
+        if let Ok(Some(instance_id)) = fetch_probe_instance_id(client, port).await {
+            if cached.as_deref() == Some(instance_id.as_str()) {
+                return Ok(started);
+            }
+            // First time we see this instanceId — perform the (expensive)
+            // OpenAPI compatibility check once, then cache the result so
+            // subsequent commands take the fast path above.
+            if is_sidecar_compatible(client, port).await.unwrap_or(false) {
+                store_compatible_instance(state, &instance_id);
+                return Ok(started);
+            }
+
+            // Running but incompatible: fall through to the retry loop, which
+            // will kill + respawn the rogue process.
+            invalidate_compatible_instance(state);
+        }
+    }
 
     for _ in 0..HEALTH_RETRIES {
-        if fetch_health(&client, port).await.unwrap_or(false) {
-            if is_sidecar_compatible(&client, port).await.unwrap_or(false) {
+        if fetch_health(client, port).await.unwrap_or(false) {
+            // We have to confirm both /openapi.json compatibility and capture
+            // the (current) instanceId so the fast path above can hit on the
+            // very next call.
+            if is_sidecar_compatible(client, port).await.unwrap_or(false) {
+                if let Ok(Some(instance_id)) = fetch_probe_instance_id(client, port).await {
+                    store_compatible_instance(state, &instance_id);
+                }
                 return Ok(healthy_sidecar_status());
             }
 
@@ -674,7 +774,7 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
         guard.port
     };
 
-    let response = Client::new()
+    let response = http_client()
         .get(format!("{}{}", sidecar_url(port), path))
         .send()
         .await
@@ -696,7 +796,7 @@ pub async fn post_json<B: serde::Serialize, T: serde::de::DeserializeOwned>(
         guard.port
     };
 
-    let response = Client::new()
+    let response = http_client()
         .post(format!("{}{}", sidecar_url(port), path))
         .json(body)
         .send()
@@ -719,7 +819,7 @@ pub async fn patch_json<B: serde::Serialize, T: serde::de::DeserializeOwned>(
         guard.port
     };
 
-    let response = Client::new()
+    let response = http_client()
         .patch(format!("{}{}", sidecar_url(port), path))
         .json(body)
         .send()
@@ -738,7 +838,7 @@ pub async fn delete_ok(state: &AppState, path: &str) -> Result<(), String> {
         guard.port
     };
 
-    let response = Client::new()
+    let response = http_client()
         .delete(format!("{}{}", sidecar_url(port), path))
         .send()
         .await

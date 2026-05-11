@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ServiceInfo } from "@voca/contracts";
+import type { StorageInfo } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import { clearCache } from "../lib/tauri";
 
@@ -18,12 +18,25 @@ function formatBytes(bytes?: number | null) {
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
 }
 
+const PLACEHOLDER = "—";
+
+function renderBytes(storageInfo: StorageInfo | null, accessor: (s: StorageInfo) => number) {
+  if (!storageInfo) return PLACEHOLDER;
+  return formatBytes(accessor(storageInfo));
+}
+
 type StorageModalProps = {
-  serviceInfo: ServiceInfo | null;
+  /**
+   * Lazy storage usage snapshot. ``null`` means the parent has just
+   * triggered ``getStorageInfo()`` and the data hasn't arrived yet — we
+   * render placeholder rows in that window so the modal still appears
+   * instantly.
+   */
+  storageInfo: StorageInfo | null;
   cacheBytes: number;
   closing?: boolean;
   onCacheCleared: (
-    serviceInfo: ServiceInfo | null,
+    storageInfo: StorageInfo | null,
     removedTaskIds: string[],
     remainingBytes: number,
     clearedAudioDirs: string[],
@@ -32,7 +45,7 @@ type StorageModalProps = {
 };
 
 export function StorageModal({
-  serviceInfo,
+  storageInfo,
   cacheBytes,
   closing = false,
   onCacheCleared,
@@ -48,14 +61,16 @@ export function StorageModal({
     try {
       const result = await clearCache();
       if (result?.success) {
-        const remaining = result.serviceInfo?.cacheBytes ?? result.remainingBytes ?? 0;
+        const nextStorageInfo = result.storageInfo ?? null;
+        const remaining =
+          nextStorageInfo?.cacheBytes ?? result.remainingBytes ?? 0;
         setLocalCacheBytes(remaining);
-          onCacheCleared(
-            result.serviceInfo ?? null,
-            result.removedTaskIds ?? [],
-            remaining,
-            result.clearedAudioDirs ?? [],
-          );
+        onCacheCleared(
+          nextStorageInfo,
+          result.removedTaskIds ?? [],
+          remaining,
+          result.clearedAudioDirs ?? [],
+        );
       }
     } finally {
       setClearingCache(false);
@@ -63,11 +78,28 @@ export function StorageModal({
   };
 
   const storageItems = [
-    { label: t("settings.logs.modelSize"), value: formatBytes(serviceInfo?.modelBytes) },
-    { label: t("settings.logs.voiceLibrary"), value: formatBytes(serviceInfo?.voiceLibraryBytes) },
-    { label: t("settings.logs.downloadCache"), value: formatBytes(serviceInfo?.downloadCacheBytes) },
-    { label: t("settings.logs.logSize"), value: formatBytes(serviceInfo?.logBytes) },
+    {
+      label: t("settings.logs.modelSize"),
+      value: renderBytes(storageInfo, (s) => s.modelBytes),
+    },
+    {
+      label: t("settings.logs.voiceLibrary"),
+      value: renderBytes(storageInfo, (s) => s.voiceLibraryBytes),
+    },
+    {
+      label: t("settings.logs.downloadCache"),
+      value: renderBytes(storageInfo, (s) => s.downloadCacheBytes),
+    },
+    {
+      label: t("settings.logs.logSize"),
+      value: renderBytes(storageInfo, (s) => s.logBytes),
+    },
   ];
+
+  const summaryValue = storageInfo
+    ? formatBytes(storageInfo.managedStorageBytes)
+    : PLACEHOLDER;
+  const cacheRowValue = storageInfo ? formatBytes(localCacheBytes) : PLACEHOLDER;
 
   return (
     <div className={`storage-modal-overlay${closing ? " modal-closing-overlay" : ""}`} onClick={onClose}>
@@ -81,7 +113,7 @@ export function StorageModal({
 
         <div className="storage-modal__summary">
           <span className="storage-modal__summary-label">{t("settings.logs.managedStorage")}</span>
-          <span className="storage-modal__summary-value">{formatBytes(serviceInfo?.managedStorageBytes)}</span>
+          <span className="storage-modal__summary-value">{summaryValue}</span>
         </div>
 
         <div className="storage-modal__list">
@@ -94,12 +126,12 @@ export function StorageModal({
           <div className="storage-modal__row">
             <span className="storage-modal__row-label">{t("settings.logs.cache")}</span>
             <div className="storage-modal__row-action">
-              <span className="storage-modal__row-value">{formatBytes(localCacheBytes)}</span>
+              <span className="storage-modal__row-value">{cacheRowValue}</span>
               <button
                 className="btn btn--small btn--ghost"
                 type="button"
                 onClick={() => void handleClearCache()}
-                disabled={clearingCache}
+                disabled={clearingCache || !storageInfo}
               >
                 {t("settings.logs.clear")}
               </button>

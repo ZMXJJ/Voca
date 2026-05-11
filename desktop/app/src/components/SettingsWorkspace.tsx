@@ -6,6 +6,7 @@ import type {
   ProviderRecommendation,
   ServiceInfo,
   SidecarStatus,
+  StorageInfo,
   TaskRecord,
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
@@ -144,14 +145,16 @@ type SettingsWorkspaceProps = {
   auxiliaryModelCatalog: ModelCatalogEntry[];
   downloadedAuxiliaryModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
+  storageInfo: StorageInfo | null;
   taskHistory: TaskRecord[];
   onPrepareModel: (
     modelKey: string,
     providerPreference: "auto" | "huggingface" | "modelscope",
     ensureDownloaded: boolean,
   ) => Promise<void>;
+  onRefreshStorageInfo: () => Promise<void>;
   onCacheCleared: (
-    serviceInfo: ServiceInfo | null,
+    storageInfo: StorageInfo | null,
     removedTaskIds: string[],
     remainingBytes: number,
     clearedAudioDirs: string[],
@@ -168,8 +171,10 @@ export function SettingsWorkspace({
   auxiliaryModelCatalog,
   downloadedAuxiliaryModelCatalog,
   serviceInfo,
+  storageInfo,
   taskHistory,
   onPrepareModel,
+  onRefreshStorageInfo,
   onCacheCleared,
 }: SettingsWorkspaceProps) {
   const { t } = useTranslation();
@@ -182,7 +187,13 @@ export function SettingsWorkspace({
   const [providerPreference, setProviderPreference] = useState<"auto" | "huggingface" | "modelscope">(
     providerRecommendation?.preferred ?? "auto",
   );
-  const [cacheBytes, setCacheBytes] = useState(serviceInfo?.cacheBytes ?? 0);
+  // ``cacheBytes`` is derived from the lazy ``storageInfo`` snapshot. Until
+  // the user has opened the storage details modal at least once,
+  // ``storageInfo`` is ``null`` and we fall back to 0 — which is fine
+  // because the only place this value is rendered is the modal itself
+  // (post-fetch) and the inline summary that's only meaningful after the
+  // first refresh.
+  const [cacheBytes, setCacheBytes] = useState(storageInfo?.cacheBytes ?? 0);
   const [storageModalOpen, setStorageModalOpen] = useState(false);
   const [exportingLogs, setExportingLogs] = useState(false);
   const [openingStorageDir, setOpeningStorageDir] = useState(false);
@@ -203,8 +214,8 @@ export function SettingsWorkspace({
   const pollTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setCacheBytes(serviceInfo?.cacheBytes ?? 0);
-  }, [serviceInfo?.cacheBytes]);
+    setCacheBytes(storageInfo?.cacheBytes ?? 0);
+  }, [storageInfo?.cacheBytes]);
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
@@ -331,13 +342,13 @@ export function SettingsWorkspace({
   }, [audioDownloadPath]);
 
   const handleStorageCacheCleared = (
-    updatedServiceInfo: ServiceInfo | null,
+    updatedStorageInfo: StorageInfo | null,
     removedTaskIds: string[],
     remainingBytes: number,
     clearedAudioDirs: string[],
   ) => {
     setCacheBytes(remainingBytes);
-    onCacheCleared(updatedServiceInfo, removedTaskIds, remainingBytes, clearedAudioDirs);
+    onCacheCleared(updatedStorageInfo, removedTaskIds, remainingBytes, clearedAudioDirs);
   };
 
   return (
@@ -568,13 +579,22 @@ export function SettingsWorkspace({
           <div className="settings-divider" />
           <div className="kv-row">
             <span className="kv-row__key">{t("settings.logs.managedStorage")}</span>
-            <span className="kv-row__value">{formatBytes(serviceInfo?.managedStorageBytes)}</span>
+            <span className="kv-row__value">
+              {storageInfo ? formatBytes(storageInfo.managedStorageBytes) : "—"}
+            </span>
           </div>
           <div className="settings-actions" style={{ marginTop: 12 }}>
             <button
               className="btn btn--small btn--secondary"
               type="button"
-              onClick={() => setStorageModalOpen(true)}
+              onClick={() => {
+                // Open the modal first so the user gets immediate feedback,
+                // then kick off the (potentially slow) storage walk in the
+                // background. The modal renders a placeholder skeleton until
+                // ``storageInfo`` resolves.
+                setStorageModalOpen(true);
+                void onRefreshStorageInfo();
+              }}
             >
               {t("settings.logs.manageStorage")}
             </button>
@@ -631,7 +651,7 @@ export function SettingsWorkspace({
 
       {storageModal.mounted && (
         <StorageModal
-          serviceInfo={serviceInfo}
+          storageInfo={storageInfo}
           cacheBytes={cacheBytes}
           closing={storageModal.closing}
           onCacheCleared={handleStorageCacheCleared}

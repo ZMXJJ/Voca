@@ -11,6 +11,7 @@ import type {
   ServiceInfo,
   SetupDiagnostics,
   SidecarStatus,
+  StorageInfo,
   TaskRecord,
   VoiceCreatePayload,
   VoiceEntry,
@@ -34,6 +35,17 @@ type CacheClearResult = {
   removedTasks: number;
   removedTaskIds: string[];
   clearedAudioDirs?: string[];
+  /**
+   * Snapshot of on-disk usage immediately after clearing. Returned by the
+   * sidecar so the UI can update the storage details modal without
+   * re-fetching ``/api/v1/storage-info``.
+   */
+  storageInfo?: StorageInfo | null;
+  /**
+   * @deprecated Older sidecar builds returned the (now retired) ``serviceInfo``
+   * payload here. Kept on the type for forward compatibility but the current
+   * sidecar populates ``storageInfo`` instead.
+   */
   serviceInfo?: ServiceInfo | null;
 };
 
@@ -291,6 +303,20 @@ export async function completeOnboarding(): Promise<boolean> {
 export async function getServiceInfo(): Promise<ServiceInfo | null> {
   try {
     return await invoke<ServiceInfo>("get_service_info");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lazy fetch of disk usage statistics. The sidecar route this maps to is
+ * the only one in the service that walks the model + cache directories,
+ * which can take several seconds on Windows. Call this on demand only
+ * (e.g. when opening the storage details modal) — never poll it.
+ */
+export async function getStorageInfo(): Promise<StorageInfo | null> {
+  try {
+    return await invoke<StorageInfo>("get_storage_info");
   } catch {
     return null;
   }

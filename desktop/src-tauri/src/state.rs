@@ -152,6 +152,13 @@ pub struct SidecarProcess {
 
 pub struct AppState {
     pub sidecar: Mutex<SidecarProcess>,
+    /// Cached `instanceId` from the sidecar's `/api/v1/probe` route the last
+    /// time we successfully verified the running process exposes the expected
+    /// API surface (via `/openapi.json`). Once a given `instanceId` has been
+    /// confirmed compatible we skip the heavy OpenAPI fetch on every
+    /// subsequent Tauri command — a respawn produces a fresh `instanceId`,
+    /// so cache invalidation happens implicitly.
+    pub compatible_instance_id: Mutex<Option<String>>,
 }
 
 impl Default for AppState {
@@ -161,6 +168,7 @@ impl Default for AppState {
                 child: None,
                 port: 8765,
             }),
+            compatible_instance_id: Mutex::new(None),
         }
     }
 }

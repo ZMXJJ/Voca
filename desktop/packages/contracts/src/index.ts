@@ -262,28 +262,69 @@ export type ServiceInfo = {
   deviceName?: string;
   deviceType?: string;
   audioOutputDir?: string;
+  /**
+   * @deprecated Storage byte counters are no longer measured by the health
+   * route — the server always returns 0 here. Use ``StorageInfo`` via
+   * ``getStorageInfo()`` instead. Field retained for binary compatibility
+   * with older builds that still read it.
+   */
   cacheBytes?: number;
   logLevel?: string;
   logDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   logBytes?: number;
   storageDir?: string;
   modelDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   modelBytes?: number;
   voicesDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   voiceLibraryBytes?: number;
   huggingfaceCacheDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   huggingfaceCacheBytes?: number;
   modelscopeCacheDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   modelscopeCacheBytes?: number;
   torchCacheDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   torchCacheBytes?: number;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   downloadCacheBytes?: number;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   managedStorageBytes?: number;
   bootstrapAssets?: BootstrapAssetStatus[];
   // True when a pre-ONNX FunASR SenseVoice directory still exists on disk.
   // The desktop UI presents a blocking migration dialog until the legacy
   // directory is removed, since the new ONNX runtime cannot load it.
   legacyAsrModelPresent?: boolean;
+};
+
+/**
+ * Lazy storage usage snapshot returned by the dedicated
+ * ``GET /api/v1/storage-info`` endpoint. Computing this on Windows can take
+ * seconds, so the desktop UI requests it only when the user opens the
+ * storage details modal — the regular health probe never walks the
+ * filesystem any more.
+ */
+export type StorageInfo = {
+  audioOutputDir?: string;
+  cacheBytes: number;
+  logDir?: string;
+  logBytes: number;
+  storageDir?: string;
+  modelDir?: string;
+  modelBytes: number;
+  voicesDir?: string;
+  voiceLibraryBytes: number;
+  huggingfaceCacheDir?: string;
+  huggingfaceCacheBytes: number;
+  modelscopeCacheDir?: string;
+  modelscopeCacheBytes: number;
+  torchCacheDir?: string;
+  torchCacheBytes: number;
+  downloadCacheBytes: number;
+  managedStorageBytes: number;
 };
 
 export type VoiceSourceType = "builtin" | "user";

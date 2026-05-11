@@ -10,8 +10,9 @@ use commands::audio::{
 use commands::bootstrap::{
     cleanup_legacy_asr_model, clear_cache, complete_onboarding, export_logs,
     get_bootstrap_sidecar_status, get_bootstrap_state, get_quick_bootstrap_state, get_runtime_info,
-    get_service_info, get_setup_diagnostics, get_sidecar_status, open_external_url,
-    open_microphone_settings, open_storage_directory, start_bootstrap_download, start_cuda_upgrade,
+    get_service_info, get_setup_diagnostics, get_sidecar_status, get_storage_info,
+    open_external_url, open_microphone_settings, open_storage_directory, start_bootstrap_download,
+    start_cuda_upgrade,
 };
 use commands::models::{
     get_model_catalog, get_provider_recommendation, prepare_model, start_model_download,
@@ -32,6 +33,7 @@ pub fn run() {
             get_bootstrap_sidecar_status,
             get_sidecar_status,
             get_service_info,
+            get_storage_info,
             get_setup_diagnostics,
             complete_onboarding,
             start_bootstrap_download,

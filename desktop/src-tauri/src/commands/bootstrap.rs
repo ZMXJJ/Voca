@@ -615,6 +615,26 @@ pub async fn get_service_info(
 }
 
 #[tauri::command]
+pub async fn get_storage_info(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    // ``/api/v1/storage-info`` is the only sidecar route that walks the
+    // model + cache directories. The desktop UI deliberately gates this
+    // call behind the user opening the storage details modal so the
+    // foreground stays responsive on Windows where stat-storms can take
+    // seconds.
+    let sidecar = ensure_sidecar_running(&app_handle, state.inner()).await?;
+    if !sidecar.healthy {
+        return Err(sidecar
+            .reason
+            .unwrap_or_else(|| "python_sidecar_not_ready".into()));
+    }
+
+    get_json(state.inner(), "/api/v1/storage-info").await
+}
+
+#[tauri::command]
 pub async fn clear_cache(
     app_handle: AppHandle,
     state: State<'_, AppState>,
