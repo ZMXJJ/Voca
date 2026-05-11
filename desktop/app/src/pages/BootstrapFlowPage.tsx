@@ -72,8 +72,7 @@ type InitializeCheckItem = {
 
 type DownloadSpeedSample = {
   bytes: number;
-  eventAtMs: number;
-  receivedAtMs: number;
+  atMs: number;
   currentFile: string | null;
 };
 
@@ -179,8 +178,11 @@ function formatStorageBytes(value: number) {
 }
 
 function formatTransferRate(bytesPerSecond: number) {
-  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) {
     return null;
+  }
+  if (bytesPerSecond === 0) {
+    return "0 B/s";
   }
   return `${formatBytes(bytesPerSecond)}/s`;
 }
@@ -444,7 +446,7 @@ export function BootstrapFlowPage({
     !isDownloadErrorState && downloadStatusText
       ? t("bootstrap.download.status", { status: downloadStatusText })
       : null;
-  const speedLabel = downloadSpeedBps ? formatTransferRate(downloadSpeedBps) : null;
+  const speedLabel = downloadSpeedBps !== null ? formatTransferRate(downloadSpeedBps) : null;
   const downloadSpeedText =
     downloadTask?.status === "running" && downloadTask.downloadProgress?.phase === "downloading"
       ? t("bootstrap.download.speed", { speed: speedLabel ?? t("bootstrap.download.speedPending") })
@@ -457,7 +459,6 @@ export function BootstrapFlowPage({
     view === "download" &&
     downloadTask?.status === "running" &&
     progressInfo?.phase === "downloading";
-  const progressUpdatedAtMs = downloadTask?.updatedAt ? Date.parse(downloadTask.updatedAt) : Number.NaN;
 
   useEffect(() => {
     if (view !== "download" || !isSpeedTrackingActive) {
@@ -466,25 +467,19 @@ export function BootstrapFlowPage({
       return;
     }
 
-    if (!Number.isFinite(progressUpdatedAtMs)) {
-      return;
-    }
-
     const currentBytes = progressInfo?.downloadedBytes ?? 0;
     const currentFile = progressInfo?.currentFile ?? null;
     const previousSample = speedSampleRef.current;
-    const receivedAtMs = Date.now();
+    const now = Date.now();
 
     if (
       !previousSample ||
       currentBytes < previousSample.bytes ||
-      progressUpdatedAtMs <= previousSample.eventAtMs ||
       (currentFile !== previousSample.currentFile && currentBytes === 0)
     ) {
       speedSampleRef.current = {
         bytes: currentBytes,
-        eventAtMs: progressUpdatedAtMs,
-        receivedAtMs,
+        atMs: now,
         currentFile,
       };
       setDownloadSpeedBps(null);
@@ -492,16 +487,15 @@ export function BootstrapFlowPage({
     }
 
     const deltaBytes = currentBytes - previousSample.bytes;
-    const deltaMs = progressUpdatedAtMs - previousSample.eventAtMs;
+    const deltaMs = now - previousSample.atMs;
 
     speedSampleRef.current = {
       bytes: currentBytes,
-      eventAtMs: progressUpdatedAtMs,
-      receivedAtMs,
+      atMs: now,
       currentFile,
     };
 
-    if (deltaBytes > 0 && deltaMs > 0) {
+    if (deltaMs > 0) {
       setDownloadSpeedBps((deltaBytes / deltaMs) * 1000);
     }
   }, [
@@ -509,7 +503,6 @@ export function BootstrapFlowPage({
     isSpeedTrackingActive,
     progressInfo?.downloadedBytes,
     progressInfo?.currentFile,
-    progressUpdatedAtMs,
   ]);
 
   useEffect(() => {
@@ -525,8 +518,8 @@ export function BootstrapFlowPage({
         return;
       }
 
-      if (Date.now() - sample.receivedAtMs >= 4000) {
-        setDownloadSpeedBps(null);
+      if (Date.now() - sample.atMs >= 8000) {
+        setDownloadSpeedBps(0);
       }
     }, 800);
 
