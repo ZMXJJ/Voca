@@ -29,7 +29,7 @@ export function HealthIndicator({ sidecarStatus, serviceInfo }: HealthIndicatorP
         <div className="health-indicator__tooltip-title">{t("sidebar.inferenceService")}</div>
         <div className="health-indicator__tooltip-row">
           <span className="health-indicator__tooltip-key">{t("sidebar.device")}:</span>
-          <span className="health-indicator__tooltip-val">{formatDevice(serviceInfo)}</span>
+          <span className="health-indicator__tooltip-val" title={formatDevice(serviceInfo)}>{formatDevice(serviceInfo)}</span>
         </div>
         <div className="health-indicator__tooltip-row">
           <span className="health-indicator__tooltip-key">{t("sidebar.queue")}:</span>

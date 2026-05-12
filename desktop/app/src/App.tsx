@@ -309,6 +309,10 @@ function upsertTaskHistory(history: TaskRecord[], task: TaskRecord): TaskRecord[
   return normalizeTaskHistory([task, ...history.filter((item) => item.id !== task.id)]);
 }
 
+function normalizePath(p: string) {
+  return p.replace(/\\/g, "/");
+}
+
 function isTaskAudioUnderDirs(task: TaskRecord, clearedAudioDirs: string[]) {
   if (clearedAudioDirs.length === 0) {
     return false;
@@ -317,7 +321,11 @@ function isTaskAudioUnderDirs(task: TaskRecord, clearedAudioDirs: string[]) {
   if (!audioPath) {
     return false;
   }
-  return clearedAudioDirs.some((dir) => audioPath === dir || audioPath.startsWith(`${dir}/`));
+  const normalizedAudio = normalizePath(audioPath);
+  return clearedAudioDirs.some((dir) => {
+    const normalizedDir = normalizePath(dir);
+    return normalizedAudio === normalizedDir || normalizedAudio.startsWith(`${normalizedDir}/`);
+  });
 }
 
 function isTaskTerminal(task: TaskRecord | null) {

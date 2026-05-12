@@ -10,6 +10,7 @@ temp/
 # Desktop app build artifacts
 desktop/node_modules/
 desktop/.bundle-resources/
+desktop/.bundle-resources-win/
 desktop/app/node_modules/
 desktop/app/dist/
 desktop/src-tauri/target/
