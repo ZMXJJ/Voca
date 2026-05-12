@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 import platform
 import subprocess
+import threading
+import time
 import uuid
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -21,12 +24,13 @@ from app.models.schemas import (
     ModelValidateRequest,
     ModelValidateResponse,
     ProviderRecommendation,
+    StorageInfoResponse,
     TaskRecord,
     VoiceCreateRequest,
     VoiceEntry,
     VoiceUpdateRequest,
 )
-from app.services.task_manager import TaskManager
+from app.services.task_manager import CudaUpgradeUnsupported, TaskManager
 from app.services import voice_library
 from app.services.bootstrap_assets import (
     bootstrap_asset_statuses,
@@ -47,8 +51,9 @@ from app.services.storage_paths import (
     torch_cache_dir,
     voices_dir,
 )
+from app.services.torch_runtime import import_torch_clean, purge_torch_modules
 
-app = FastAPI(title="Voca Python Service", version="0.4.0")
+app = FastAPI(title="Voca Python Service", version="0.5.0")
 task_manager = TaskManager()
 SERVICE_LOG_LEVEL = "warning"
 SERVICE_INSTANCE_ID = str(uuid.uuid4())
@@ -65,7 +70,8 @@ def _read_command_output(command: list[str]) -> str | None:
 
 @lru_cache(maxsize=1)
 def _detect_host_device_name() -> str | None:
-    if platform.system() == "Darwin":
+    system = platform.system()
+    if system == "Darwin":
         brand = _read_command_output(["sysctl", "-n", "machdep.cpu.brand_string"])
         if brand:
             return brand
@@ -82,6 +88,29 @@ def _detect_host_device_name() -> str | None:
         if platform.machine() in ("arm64", "aarch64"):
             return "Apple Silicon"
 
+    if system == "Windows":
+        wmic_output = _read_command_output(["wmic", "cpu", "get", "Name", "/FORMAT:LIST"])
+        if wmic_output:
+            for raw_line in wmic_output.splitlines():
+                line = raw_line.strip()
+                if line.startswith("Name="):
+                    value = line.split("=", 1)[1].strip()
+                    if value:
+                        return value
+
+        powershell_output = _read_command_output([
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "(Get-CimInstance Win32_Processor).Name",
+        ])
+        if powershell_output:
+            return powershell_output
+
+        identifier = os.environ.get("PROCESSOR_IDENTIFIER", "").strip()
+        if identifier:
+            return identifier
+
     processor = platform.processor().strip() if platform.processor() else ""
     if processor:
         return processor
@@ -90,16 +119,81 @@ def _detect_host_device_name() -> str | None:
     return machine or None
 
 
-def _detect_device_info() -> tuple[str, str | None]:
+def _windows_cuda_runtime_ready() -> bool:
+    """Return True only if the bundled Windows CUDA runtime overlay is installed.
+
+    The Windows installer ships without torch/torchaudio; both are downloaded
+    into ``runtime/site-packages/`` during first-run bootstrap. Importing torch
+    before that overlay exists is guaranteed to fail, and even an attempted
+    import locks the partially-populated ``.pyd`` / ``.dll`` files in the
+    runtime directory for the lifetime of the sidecar — which then prevents
+    the bootstrap installer from atomically replacing them. Defer the import
+    until the CUDA runtime is fully ready.
+    """
+
     try:
-        import torch  # type: ignore
+        from app.services.cuda_upgrade import has_runtime_complete_marker
+    except Exception:
+        return False
+    try:
+        return bool(has_runtime_complete_marker())
+    except Exception:
+        return False
+
+
+_active_device_override: tuple[str, str | None] | None = None
+_active_device_lock = threading.Lock()
+
+
+def mark_active_device(device_type: str, device_name: str | None) -> None:
+    """Record the device that local inference actually loaded onto.
+
+    ``_detect_device_info()`` is called from the health probe, which on
+    Windows historically refused to import torch unless the runtime overlay
+    marker file was present. Cold deployments occasionally end up with the
+    overlay installed but the marker missing (Defender quarantine, partial
+    rollback, etc.), causing health to advertise CPU even though every
+    generation is actually running on CUDA. The bridge now publishes the
+    backend it successfully bound to here and ``_detect_device_info`` trusts
+    that value first.
+    """
+
+    global _active_device_override
+    cleaned_name = device_name.strip() if isinstance(device_name, str) else device_name
+    with _active_device_lock:
+        _active_device_override = (device_type, cleaned_name or None)
+
+
+def _read_active_device_override() -> tuple[str, str | None] | None:
+    with _active_device_lock:
+        return _active_device_override
+
+
+def _detect_device_info() -> tuple[str, str | None]:
+    override = _read_active_device_override()
+    if override is not None:
+        return override
+
+    # On Windows the bundled installer ships without torch; the CUDA wheels
+    # land in ``runtime/site-packages`` during first-run bootstrap. Importing
+    # torch before the overlay is fully installed locks the partially-written
+    # .pyd / .dll files and breaks the installer's atomic swap — so on
+    # Windows we still refuse to touch torch until the marker is present.
+    if os.name == "nt" and not _windows_cuda_runtime_ready():
+        return "cpu", _detect_host_device_name()
+
+    try:
+        torch = import_torch_clean()
 
         if torch.backends.mps.is_available():
             return "mps", _detect_host_device_name()
         if torch.cuda.is_available():
-            return "cuda", torch.cuda.get_device_name(0)
+            try:
+                return "cuda", torch.cuda.get_device_name(0)
+            except Exception:
+                return "cuda", None
     except Exception:
-        pass
+        purge_torch_modules()
 
     return "cpu", _detect_host_device_name()
 
@@ -127,15 +221,53 @@ def _safe_file_size(path: Path) -> int:
         return 0
 
 
+# ---------------------------------------------------------------------------
+# Directory-size cache
+#
+# Recursively walking the model + huggingface + modelscope + torch + logs +
+# voices + outputs directories on Windows + NTFS + Defender easily takes
+# seconds. After the lazy-storage refactor this only happens behind
+# ``GET /api/v1/storage-info`` (which the desktop UI now calls only when the
+# user opens the storage details modal), but a short TTL keeps repeated
+# clicks within the same window cheap.
+# ---------------------------------------------------------------------------
+
+_DIRECTORY_SIZE_TTL_SECONDS = 30.0
+_directory_size_cache: dict[str, tuple[int, float]] = {}
+_directory_size_cache_lock = threading.Lock()
+
+
 def _directory_size_bytes(path: Path) -> int:
     if not path.exists():
         return 0
+
+    cache_key = str(path)
+    now = time.monotonic()
+    with _directory_size_cache_lock:
+        cached = _directory_size_cache.get(cache_key)
+        if cached is not None and now - cached[1] < _DIRECTORY_SIZE_TTL_SECONDS:
+            return cached[0]
 
     total = 0
     for item in path.rglob("*"):
         if item.is_file():
             total += _safe_file_size(item)
+
+    with _directory_size_cache_lock:
+        _directory_size_cache[cache_key] = (total, now)
     return total
+
+
+def _invalidate_directory_size_cache() -> None:
+    """Drop all cached directory sizes.
+
+    Call after operations that materially change disk usage (cache clear,
+    bootstrap downloads completing, voice library mutations) so the next
+    storage-info response returns a fresh value instead of a stale cache.
+    """
+
+    with _directory_size_cache_lock:
+        _directory_size_cache.clear()
 
 
 def _is_within(path: Path, parent: Path) -> bool:
@@ -147,6 +279,15 @@ def _is_within(path: Path, parent: Path) -> bool:
 
 
 def _build_health_response() -> HealthResponse:
+    """Lightweight readiness response — never walks the filesystem.
+
+    Storage byte counters in this payload are intentionally fixed at ``0``;
+    the desktop UI fetches actual sizes lazily via
+    ``GET /api/v1/storage-info`` only when the storage details modal is
+    opened. This keeps the health route a true probe (called by the Tauri
+    sidecar supervisor on every command) instead of a multi-second IO storm.
+    """
+
     storage_dir = _storage_dir()
     log_dir = _logs_dir()
     output_dir = _audio_output_dir()
@@ -157,23 +298,6 @@ def _build_health_response() -> HealthResponse:
     torch_dir = torch_cache_dir()
     asset_statuses = bootstrap_asset_statuses()
     asset_ready_map = {item.modelKey: item.ready for item in asset_statuses}
-
-    cache_bytes = _directory_size_bytes(output_dir)
-    model_bytes = _directory_size_bytes(model_dir)
-    voice_library_bytes = _directory_size_bytes(voice_dir)
-    log_bytes = _directory_size_bytes(log_dir)
-    huggingface_cache_bytes = _directory_size_bytes(hf_cache_dir)
-    modelscope_cache_bytes = _directory_size_bytes(ms_cache_dir)
-    torch_cache_bytes = _directory_size_bytes(torch_dir)
-    managed_storage_bytes = _directory_size_bytes(storage_dir) + cache_bytes
-
-    for extra_dir, extra_bytes in (
-        (model_dir, model_bytes),
-        (output_dir, cache_bytes),
-    ):
-        if extra_bytes <= 0 or _is_within(extra_dir, storage_dir):
-            continue
-        managed_storage_bytes += extra_bytes
 
     device_type, device_name = _detect_device_info()
     return HealthResponse(
@@ -188,12 +312,73 @@ def _build_health_response() -> HealthResponse:
         zipEnhancerReady=asset_ready_map.get("zipenhancer_16k", False),
         speechToolsReady=all(asset_ready_map.get(key, False) for key in ("sensevoice_small", "zipenhancer_16k")),
         bootstrapAssetsReady=all(item.ready for item in asset_statuses),
-        version="0.4.0",
+        version="0.5.0",
         deviceName=device_name,
         deviceType=device_type,
         audioOutputDir=str(output_dir),
-        cacheBytes=cache_bytes,
+        # All ``*Bytes`` are deliberately left at their default ``0`` here.
+        # Real values come from ``StorageInfoResponse``.
         logLevel=SERVICE_LOG_LEVEL,
+        logDir=str(log_dir),
+        storageDir=str(storage_dir),
+        modelDir=str(model_dir),
+        voicesDir=str(voice_dir),
+        huggingfaceCacheDir=str(hf_cache_dir),
+        modelscopeCacheDir=str(ms_cache_dir),
+        torchCacheDir=str(torch_dir),
+        bootstrapAssets=asset_statuses,
+        legacyAsrModelPresent=has_legacy_sensevoice_pytorch(),
+    )
+
+
+def _build_storage_info_response() -> StorageInfoResponse:
+    """Compute on-disk usage for every managed directory.
+
+    This is the only routine left in the service that does the recursive
+    ``rglob + stat`` walk; it sits behind ``GET /api/v1/storage-info`` and
+    is gated by the desktop UI to fire only when the user opens the storage
+    details modal. Results are still memoised by ``_directory_size_bytes``
+    for ``_DIRECTORY_SIZE_TTL_SECONDS`` so rapid re-opens stay cheap.
+    """
+
+    storage_dir = _storage_dir()
+    log_dir = _logs_dir()
+    output_dir = _audio_output_dir()
+    model_dir = models_dir()
+    voice_dir = voices_dir()
+    hf_cache_dir = huggingface_hub_cache_dir()
+    ms_cache_dir = modelscope_cache_dir()
+    torch_dir = torch_cache_dir()
+
+    cache_bytes = _directory_size_bytes(output_dir)
+    model_bytes = _directory_size_bytes(model_dir)
+    voice_library_bytes = _directory_size_bytes(voice_dir)
+    log_bytes = _directory_size_bytes(log_dir)
+    huggingface_cache_bytes = _directory_size_bytes(hf_cache_dir)
+    modelscope_cache_bytes = _directory_size_bytes(ms_cache_dir)
+    torch_cache_bytes = _directory_size_bytes(torch_dir)
+
+    # Sum the components instead of recursing over ``storage_dir`` again.
+    # ``model_dir`` and ``output_dir`` may live outside ``storage_dir`` in
+    # custom configurations, but in either case we only want to count them
+    # once (their bytes are already fully captured above).
+    managed_storage_bytes = (
+        log_bytes
+        + voice_library_bytes
+        + huggingface_cache_bytes
+        + modelscope_cache_bytes
+        + torch_cache_bytes
+        + model_bytes
+        + cache_bytes
+    )
+    # Touch ``_is_within``/``storage_dir`` only to keep the historical
+    # invariant that the umbrella value is at least as large as its parts;
+    # no extra disk walk happens here.
+    _ = _is_within(model_dir, storage_dir)
+
+    return StorageInfoResponse(
+        audioOutputDir=str(output_dir),
+        cacheBytes=cache_bytes,
         logDir=str(log_dir),
         logBytes=log_bytes,
         storageDir=str(storage_dir),
@@ -209,8 +394,6 @@ def _build_health_response() -> HealthResponse:
         torchCacheBytes=torch_cache_bytes,
         downloadCacheBytes=huggingface_cache_bytes + modelscope_cache_bytes + torch_cache_bytes,
         managedStorageBytes=managed_storage_bytes,
-        bootstrapAssets=asset_statuses,
-        legacyAsrModelPresent=has_legacy_sensevoice_pytorch(),
     )
 
 
@@ -236,6 +419,43 @@ def _clear_directory_files(path: Path) -> tuple[int, int]:
     return cleared_files, cleared_bytes
 
 
+def _delayed_device_probe() -> None:
+    """Background probe that refreshes the device override after bootstrap.
+
+    The health route is intentionally conservative on Windows — it refuses
+    to import torch unless the runtime overlay marker file is present so
+    that an in-progress bootstrap can atomically swap the wheels without
+    fighting a torch DLL lock. That leaves a small edge case: the marker
+    can go missing (Defender quarantine, partial rollback, dev-mode runs
+    from a .venv) while a perfectly good CUDA install sits on disk, and
+    health then reports CPU even though every generation is running on
+    CUDA. After a 30 s grace window — long enough for any first-run
+    bootstrap to either finish or fail — we attempt one direct probe and,
+    if torch + CUDA come up cleanly, publish the result so health flips
+    to CUDA without waiting for the user to issue a generation.
+    """
+
+    if _read_active_device_override() is not None:
+        return
+    try:
+        torch = import_torch_clean()
+    except Exception:
+        purge_torch_modules()
+        return
+    try:
+        if torch.cuda.is_available():
+            try:
+                name = torch.cuda.get_device_name(0)
+            except Exception:
+                name = None
+            mark_active_device("cuda", name)
+            return
+        if torch.backends.mps.is_available():
+            mark_active_device("mps", _detect_host_device_name())
+    except Exception:
+        return
+
+
 @app.on_event("startup")
 def _on_startup_cleanup() -> None:
     try:
@@ -246,11 +466,29 @@ def _on_startup_cleanup() -> None:
         start_download_ping_dispatcher()
     except Exception:  # pragma: no cover - download pings must never break boot
         pass
+    try:
+        threading.Timer(30.0, _delayed_device_probe).start()
+    except Exception:  # pragma: no cover - probe is purely informational
+        pass
 
 
 @app.get("/api/v1/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return _build_health_response()
+
+
+@app.get("/api/v1/storage-info", response_model=StorageInfoResponse)
+def storage_info() -> StorageInfoResponse:
+    return _build_storage_info_response()
+
+
+@app.get("/api/v1/probe")
+def probe() -> dict[str, str]:
+    return {
+        "service": "voca-python-service",
+        "status": "ok",
+        "instanceId": SERVICE_INSTANCE_ID,
+    }
 
 
 @app.post("/api/v1/bootstrap/verify")
@@ -339,7 +577,39 @@ def cleanup_legacy_asr_model() -> dict[str, bool]:
     rmtree.
     """
     removed = cleanup_legacy_sensevoice_pytorch()
+    if removed:
+        _invalidate_directory_size_cache()
     return {"removed": removed}
+
+
+@app.post("/api/v1/bootstrap/upgrade-cuda", response_model=TaskRecord)
+def create_cuda_upgrade_task() -> TaskRecord:
+    try:
+        return task_manager.create_cuda_upgrade_task()
+    except CudaUpgradeUnsupported as exc:
+        # Translate to a typed HTTP 400 so cross-platform clients (macOS/Linux
+        # builds merged from main) can branch on the structured error code
+        # rather than parsing a generic 500 message.
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "cuda_upgrade_unsupported_platform",
+                "message": str(exc),
+            },
+        ) from exc
+
+
+@app.get("/api/v1/bootstrap/runtime-info")
+def bootstrap_runtime_info() -> dict[str, object]:
+    from app.services import cuda_upgrade
+
+    data = cuda_upgrade.read_runtime_json()
+    return {
+        "active": data.get("active"),
+        "lastKnownGoodBackend": data.get("lastKnownGoodBackend"),
+        "lastUpgradeAt": data.get("lastUpgradeAt"),
+        "lastUpgradeError": data.get("lastUpgradeError"),
+    }
 
 
 @app.post("/api/v1/tasks/generate", response_model=TaskRecord)
@@ -382,7 +652,10 @@ def clear_cache() -> dict[str, object]:
         next_cleared_files, next_cleared_bytes = _clear_directory_files(output_dir)
         cleared_files += next_cleared_files
         cleared_bytes += next_cleared_bytes
-    service_info = _build_health_response()
+    # Sizes on disk just changed materially; force the next storage-info
+    # response to re-scan instead of returning the (now stale) cached numbers.
+    _invalidate_directory_size_cache()
+    storage_info_payload = _build_storage_info_response()
     return {
         "success": True,
         "clearedFiles": cleared_files,
@@ -391,7 +664,7 @@ def clear_cache() -> dict[str, object]:
         "removedTasks": len(removed_task_ids),
         "removedTaskIds": removed_task_ids,
         "clearedAudioDirs": [str(path) for path in output_dirs],
-        "serviceInfo": service_info.model_dump(mode="json"),
+        "storageInfo": storage_info_payload.model_dump(mode="json"),
     }
 
 

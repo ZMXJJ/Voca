@@ -27,7 +27,8 @@ pub struct UpdateCheckResult {
 }
 
 fn normalize_version_tag(raw: &str) -> &str {
-    raw.trim().trim_start_matches(|c: char| c == 'v' || c == 'V')
+    raw.trim()
+        .trim_start_matches(|c: char| c == 'v' || c == 'V')
 }
 
 fn is_newer_than_current(latest_tag: &str, current: &str) -> bool {

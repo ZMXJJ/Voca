@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   BootstrapState,
   GenerationParams,
@@ -8,6 +8,7 @@ import type {
   ServiceInfo,
   SetupDiagnostics,
   SidecarStatus,
+  StorageInfo,
   TaskRecord,
 } from "@voca/contracts";
 import { PreviewDock } from "./components/PreviewDock";
@@ -32,6 +33,7 @@ import {
   getProviderRecommendation,
   getQuickBootstrapState,
   getServiceInfo,
+  getStorageInfo,
   getSetupDiagnostics,
   getSidecarStatus,
   getTask,
@@ -39,6 +41,7 @@ import {
   startBootstrapDownload,
   audioFileExists,
   cleanupLegacyAsrModel,
+  getBootstrapSidecarStatus,
   type UpdateCheckResult,
 } from "./lib/tauri";
 import {
@@ -223,10 +226,21 @@ function createPreviewBootstrapDownloadTask(): TaskRecord {
       downloadedBytes: 560 * 1024 * 1024,
       totalBytes: 936 * 1024 * 1024,
       totalBytesComplete: true,
-      completedFiles: 1,
-      totalFiles: 3,
+      completedFiles: 2,
+      totalFiles: 4,
     },
     bootstrapAssetProgress: [
+      {
+        modelKey: "cuda_runtime",
+        displayName: "CUDA Runtime",
+        status: "succeeded",
+        progress: 100,
+        provider: "local",
+        currentFile: "CUDA Runtime",
+        downloadedBytes: 2_500 * 1024 * 1024,
+        totalBytes: 2_500 * 1024 * 1024,
+        totalBytesComplete: true,
+      },
       {
         modelKey: "voxcpm2",
         displayName: "VoxCPM2",
@@ -273,11 +287,18 @@ function createPreviewBootstrapDownloadTask(): TaskRecord {
 
 function createPreviewSetupDiagnostics(): SetupDiagnostics {
   return {
-    cpuName: "Apple M4",
-    totalMemoryBytes: 8 * 1024 * 1024 * 1024,
+    platform: "windows",
+    cpuName: "Intel Core Ultra 9",
+    totalMemoryBytes: 32 * 1024 * 1024 * 1024,
     availableStorageBytes: 42_000_000_000,
     recommendedMemoryBytes: 12 * 1024 * 1024 * 1024,
     minimumFreeStorageBytes: 6_000_000_000,
+    gpuVendor: "nvidia",
+    gpuName: "NVIDIA GeForce RTX 4070 Laptop GPU",
+    hasNvidiaGpu: true,
+    gpuMemoryBytes: 8 * 1024 * 1024 * 1024,
+    minimumGpuMemoryBytes: 6 * 1024 * 1024 * 1024,
+    activeTorchBackend: "cuda",
     environmentReady: true,
     environmentStatus: "ready",
     environmentReason: null,
@@ -288,6 +309,10 @@ function upsertTaskHistory(history: TaskRecord[], task: TaskRecord): TaskRecord[
   return normalizeTaskHistory([task, ...history.filter((item) => item.id !== task.id)]);
 }
 
+function normalizePath(p: string) {
+  return p.replace(/\\/g, "/");
+}
+
 function isTaskAudioUnderDirs(task: TaskRecord, clearedAudioDirs: string[]) {
   if (clearedAudioDirs.length === 0) {
     return false;
@@ -296,7 +321,11 @@ function isTaskAudioUnderDirs(task: TaskRecord, clearedAudioDirs: string[]) {
   if (!audioPath) {
     return false;
   }
-  return clearedAudioDirs.some((dir) => audioPath === dir || audioPath.startsWith(`${dir}/`));
+  const normalizedAudio = normalizePath(audioPath);
+  return clearedAudioDirs.some((dir) => {
+    const normalizedDir = normalizePath(dir);
+    return normalizedAudio === normalizedDir || normalizedAudio.startsWith(`${normalizedDir}/`);
+  });
 }
 
 function isTaskTerminal(task: TaskRecord | null) {
@@ -317,6 +346,12 @@ function App() {
   const [auxiliaryModelCatalog, setAuxiliaryModelCatalog] = useState<ModelCatalogEntry[]>([]);
   const [downloadedAuxiliaryModelCatalog, setDownloadedAuxiliaryModelCatalog] = useState<ModelCatalogEntry[]>([]);
   const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
+  // Lazy storage usage snapshot. ``null`` until the user opens the storage
+  // details modal in Settings — at that point the modal triggers
+  // ``refreshStorageInfo`` to fetch the (potentially several-second-long)
+  // recursive directory walk. We hold the result here so it survives tab
+  // switches and stays visible on the Settings page after the modal closes.
+  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const [setupDiagnostics, setSetupDiagnostics] = useState<SetupDiagnostics | null>(null);
   const [runningTaskIds, setRunningTaskIds] = useState<Set<string>>(new Set());
   const [bootstrapDownloadTask, setBootstrapDownloadTask] = useState<TaskRecord | null>(null);
@@ -351,6 +386,11 @@ function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  const shouldUseFullHealthChecks = Boolean(
+    bootstrapState &&
+      ((!bootstrapState.isFirstLaunch && !bootstrapState.needsRepair) || completionAcknowledged),
+  );
+
   const refreshModelCatalogState = async () => {
     const catalog = await getModelCatalog();
     const ttsCatalog = catalog.filter((entry) => entry.assetRole === "tts");
@@ -379,13 +419,27 @@ function App() {
     setServiceInfo(info);
   };
 
+  const refreshStorageInfo = useCallback(async () => {
+    const info = await getStorageInfo();
+    if (info) {
+      setStorageInfo(info);
+      return;
+    }
+    // Surface the failure so callers (e.g. StorageModal) can render a
+    // retry affordance instead of silently leaving stale placeholders.
+    throw new Error("storage_info_unavailable");
+  }, []);
+
   const refreshSetupDiagnostics = async () => {
     const diagnostics = await getSetupDiagnostics();
     setSetupDiagnostics(diagnostics);
   };
 
   const refreshBootstrapState = async () => {
-    const [bs, ss] = await Promise.all([getBootstrapState(), getSidecarStatus()]);
+    const [bs, ss] = await Promise.all([
+      getBootstrapState(),
+      shouldUseFullHealthChecks ? getSidecarStatus() : getBootstrapSidecarStatus(),
+    ]);
     setBootstrapState(bs);
     setSidecarStatus(ss);
     if (ss.healthy && bs.currentDownloadJobId) {
@@ -403,11 +457,17 @@ function App() {
           : null;
       });
     }
+    // ``refreshServiceInfo`` is intentionally outside the
+    // ``shouldUseFullHealthChecks`` guard: during first-launch bootstrap the
+    // ready summary card needs ``serviceInfo.deviceType`` / ``deviceName`` to
+    // render the inference device, otherwise it falls back to "检查中…" forever.
     if (ss.healthy) {
+      void refreshServiceInfo();
+    }
+    if (shouldUseFullHealthChecks && ss.healthy) {
       void getProviderRecommendation("auto").then(setProviderRecommendation);
       void prepareModel(DEFAULT_BOOTSTRAP_MODEL_KEY, "auto", false).then(setPreparedModel);
       void refreshModelCatalogState();
-      void refreshServiceInfo();
     }
   };
 
@@ -476,15 +536,35 @@ function App() {
     return () => window.clearInterval(timer);
   }, [sidecarStatus.healthy]);
 
+  // Note: there is intentionally no recurring poll of ``getServiceInfo``
+  // here. The health route is now a pure readiness probe (no disk walk),
+  // and storage statistics are fetched lazily via ``refreshStorageInfo``
+  // when the user opens the storage details modal. Background polling is
+  // unnecessary and would just consume IO + battery for no UI benefit.
+
   useEffect(() => {
-    if (!sidecarStatus.healthy) {
+    if (!shouldUseFullHealthChecks) {
       return;
     }
-    const timer = window.setInterval(() => {
-      void refreshServiceInfo();
-    }, 10000);
-    return () => window.clearInterval(timer);
-  }, [sidecarStatus.healthy]);
+
+    let cancelled = false;
+    void getSidecarStatus().then((status) => {
+      if (cancelled) {
+        return;
+      }
+      setSidecarStatus(status);
+      if (status.healthy) {
+        void getProviderRecommendation("auto").then(setProviderRecommendation);
+        void prepareModel(DEFAULT_BOOTSTRAP_MODEL_KEY, "auto", false).then(setPreparedModel);
+        void refreshModelCatalogState();
+        void refreshServiceInfo();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldUseFullHealthChecks]);
 
   useEffect(() => {
     if (!initializeRequested || bootstrapStartRequested) {
@@ -611,14 +691,53 @@ function App() {
     if (bootstrapDownloadTask.status === "succeeded" && finalizedBootstrapTaskId !== bootstrapDownloadTask.id) {
       setFinalizedBootstrapTaskId(bootstrapDownloadTask.id);
       void (async () => {
-        const prepared = await prepareModel(
-          bootstrapDownloadTask.result?.modelKey ?? DEFAULT_BOOTSTRAP_MODEL_KEY,
-          "auto",
-          false,
-        );
-        setPreparedModel(prepared);
-        await refreshModelCatalogState();
-        await refreshBootstrapState();
+        try {
+          const prepared = await prepareModel(
+            bootstrapDownloadTask.result?.modelKey ?? DEFAULT_BOOTSTRAP_MODEL_KEY,
+            "auto",
+            false,
+          );
+          setPreparedModel(prepared);
+          setBootstrapState((current) =>
+            current
+              ? {
+                  ...current,
+                  phase: "ready",
+                  status: "ready",
+                  runtimeReady: true,
+                  modelReady: prepared?.configExists ?? true,
+                  sidecarReady: sidecarStatus.healthy || current.sidecarReady,
+                  currentDownloadJobId: null,
+                  lastError: null,
+                  needsRepair: false,
+                }
+              : current,
+          );
+          await refreshModelCatalogState();
+          // Pull the freshest ``serviceInfo`` immediately so the bootstrap
+          // ready summary surfaces the inference device + ASR/enhancer
+          // readiness without waiting for the next poll cycle.
+          await refreshServiceInfo();
+        } catch (error) {
+          console.error("Failed to finalize bootstrap success state", error);
+          setBootstrapState((current) =>
+            current
+              ? {
+                  ...current,
+                  phase: "ready",
+                  status: "ready",
+                  runtimeReady: true,
+                  modelReady: true,
+                  sidecarReady: sidecarStatus.healthy || current.sidecarReady,
+                  currentDownloadJobId: null,
+                  lastError: null,
+                  needsRepair: false,
+                }
+              : current,
+          );
+        } finally {
+          await refreshBootstrapState();
+        }
       })();
       return;
     }
@@ -632,7 +751,7 @@ function App() {
     if (!bootstrapState?.needsRepair) {
       return;
     }
-    const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState.modelReady;
+    const modelReady = bootstrapState.modelReady;
     if (modelReady) {
       return;
     }
@@ -651,7 +770,6 @@ function App() {
     bootstrapStartRequested,
     bootstrapState?.modelReady,
     bootstrapState?.needsRepair,
-    serviceInfo?.bootstrapAssetsReady,
     sidecarStatus.healthy,
   ]);
 
@@ -660,7 +778,7 @@ function App() {
       return;
     }
 
-    const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState?.modelReady ?? false;
+    const modelReady = bootstrapState?.modelReady ?? false;
     const repairRequested = Boolean(bootstrapState?.needsRepair);
     if (modelReady || (!bootstrapState?.isFirstLaunch && !repairRequested)) {
       setBootstrapStartRequested(false);
@@ -723,7 +841,6 @@ function App() {
     bootstrapStartRequested,
     bootstrapState?.isFirstLaunch,
     bootstrapState?.modelReady,
-    serviceInfo?.bootstrapAssetsReady,
     sidecarStatus.healthy,
   ]);
 
@@ -749,9 +866,9 @@ function App() {
   };
 
   const handleCacheCleared = (
-    nextServiceInfo: ServiceInfo | null,
+    nextStorageInfo: StorageInfo | null,
     removedTaskIds: string[],
-    remainingBytes: number,
+    _remainingBytes: number,
     clearedAudioDirs: string[],
   ) => {
     const removedIdSet = new Set(removedTaskIds);
@@ -769,7 +886,9 @@ function App() {
       return next;
     });
 
-    setServiceInfo((info) => nextServiceInfo ?? (info ? { ...info, cacheBytes: remainingBytes } : info));
+    if (nextStorageInfo) {
+      setStorageInfo(nextStorageInfo);
+    }
   };
 
   const setPreviewInUrl = (mode: PreviewMode) => {
@@ -796,6 +915,20 @@ function App() {
   const previewBootstrapDownloadTask = createPreviewBootstrapDownloadTask();
   const previewSetupDiagnostics = createPreviewSetupDiagnostics();
   const previewTaskHistory = taskHistory.length > 0 ? upsertTaskHistory(taskHistory, previewTask) : [previewTask];
+  const canContinueFromInitialize = Boolean(
+    setupDiagnostics &&
+      // The NVIDIA GPU + VRAM gate only applies on platforms whose bootstrap
+      // depends on CUDA (currently Windows). On macOS/Linux these fields are
+      // intentionally absent in the contract, so we must not require them here
+      // or we'd block users who don't actually need a discrete GPU.
+      (setupDiagnostics.platform === "windows"
+        ? Boolean(setupDiagnostics.hasNvidiaGpu) &&
+          (setupDiagnostics.gpuMemoryBytes ?? 0) >=
+            (setupDiagnostics.minimumGpuMemoryBytes ?? 0)
+        : true) &&
+      setupDiagnostics.environmentReady &&
+      (setupDiagnostics.availableStorageBytes ?? 0) >= setupDiagnostics.minimumFreeStorageBytes,
+  );
   const renderPreviewScene = (scene: SinglePreviewScene) => {
     const previewBootstrapState = createPreviewBootstrapState(bootstrapState ?? fallbackBootstrapState, scene);
     const previewSidecarStatus = createPreviewSidecarStatus(sidecarStatus, scene);
@@ -815,9 +948,11 @@ function App() {
           auxiliaryModelCatalog={auxiliaryModelCatalog}
           downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
           serviceInfo={serviceInfo}
+          storageInfo={storageInfo}
           taskHistory={previewTaskHistory}
           onPrepareModel={handlePrepareModel}
           onSubmitTask={handleSubmitTask}
+          onRefreshStorageInfo={refreshStorageInfo}
           onCacheCleared={handleCacheCleared}
         />
       );
@@ -879,14 +1014,13 @@ function App() {
   }
 
   const activeView: AppView = (() => {
-    const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState.modelReady;
+    const modelReady = bootstrapState.modelReady;
     const inRepairMode = Boolean(bootstrapState.needsRepair) && !modelReady;
+    const bootstrapTaskStatus = bootstrapDownloadTask?.status;
 
     if (!bootstrapState.isFirstLaunch && !inRepairMode) {
       return "workspace";
     }
-
-    const bootstrapTaskStatus = bootstrapDownloadTask?.status;
 
     if (bootstrapStartRequested && !modelReady) {
       return "download";
@@ -896,8 +1030,8 @@ function App() {
       return "download";
     }
 
-    if (bootstrapTaskStatus === "succeeded" && !modelReady) {
-      return "download";
+    if (bootstrapTaskStatus === "succeeded") {
+      return completionAcknowledged ? "workspace" : "complete";
     }
 
     if (bootstrapState.phase === "ready") {
@@ -927,12 +1061,6 @@ function App() {
     return "welcome";
   })();
 
-  const canContinueFromInitialize = Boolean(
-    setupDiagnostics &&
-      setupDiagnostics.environmentReady &&
-      (setupDiagnostics.availableStorageBytes ?? 0) >= setupDiagnostics.minimumFreeStorageBytes,
-  );
-
   const handleStartSetup = () => {
     setInitializeRequested(true);
     void refreshSetupDiagnostics();
@@ -940,7 +1068,7 @@ function App() {
   };
 
   const handleContinueFromInitialize = () => {
-    const modelReady = serviceInfo?.bootstrapAssetsReady ?? bootstrapState.modelReady;
+    const modelReady = bootstrapState.modelReady;
     if (!canContinueFromInitialize || modelReady || !isTaskTerminal(bootstrapDownloadTask)) {
       return;
     }
@@ -1119,9 +1247,11 @@ function App() {
         auxiliaryModelCatalog={auxiliaryModelCatalog}
         downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
         serviceInfo={serviceInfo}
+        storageInfo={storageInfo}
         taskHistory={taskHistory}
         onPrepareModel={handlePrepareModel}
         onSubmitTask={handleSubmitTask}
+        onRefreshStorageInfo={refreshStorageInfo}
         onCacheCleared={handleCacheCleared}
       />
       {globalOverlays}

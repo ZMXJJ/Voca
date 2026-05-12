@@ -371,7 +371,10 @@ export function VoiceLibrary({
       });
 
       await onReloadVoices();
-      setDetailVoiceId(null);
+      detailModal.requestClose(() => {
+        setDetailDeleteConfirm(false);
+        setDetailVoiceId(null);
+      });
     } catch (error) {
       setDetailError(formatActionError(t("studio.voiceLibrary.updateFailed"), error));
     } finally {
@@ -387,7 +390,10 @@ export function VoiceLibrary({
     try {
       await deleteVoice(detailVoice.id);
       await onReloadVoices();
-      setDetailVoiceId(null);
+      detailModal.requestClose(() => {
+        setDetailDeleteConfirm(false);
+        setDetailVoiceId(null);
+      });
     } catch (error) {
       setDetailError(formatActionError(t("studio.voiceLibrary.deleteFailed"), error));
     } finally {

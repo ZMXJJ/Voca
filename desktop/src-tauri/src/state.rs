@@ -37,14 +37,31 @@ pub struct SidecarStatus {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetupDiagnostics {
+    /// Host operating system identifier emitted to the frontend, e.g.
+    /// "windows", "macos" or "linux". Lets the UI branch on platform-specific
+    /// requirements (CUDA-only checks, MPS labels, etc.) without inspecting
+    /// other heuristics.
+    pub platform: String,
     pub cpu_name: Option<String>,
     pub total_memory_bytes: Option<u64>,
     pub available_storage_bytes: Option<u64>,
     pub recommended_memory_bytes: u64,
     pub minimum_free_storage_bytes: u64,
+    pub gpu_memory_bytes: Option<u64>,
+    /// Only populated on platforms that actually require an NVIDIA GPU
+    /// (currently Windows). Other platforms emit `None` so older or
+    /// platform-agnostic clients can treat the constraint as absent instead
+    /// of mistakenly blocking the user with a 0 / 6 GiB cutoff.
+    pub minimum_gpu_memory_bytes: Option<u64>,
     pub environment_ready: bool,
     pub environment_status: String,
     pub environment_reason: Option<String>,
+    pub gpu_vendor: Option<String>,
+    pub gpu_name: Option<String>,
+    /// Tri-state: `Some(true)` / `Some(false)` for platforms that gate on
+    /// NVIDIA hardware, `None` for platforms where the question doesn't apply.
+    pub has_nvidia_gpu: Option<bool>,
+    pub active_torch_backend: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -135,6 +152,13 @@ pub struct SidecarProcess {
 
 pub struct AppState {
     pub sidecar: Mutex<SidecarProcess>,
+    /// Cached `instanceId` from the sidecar's `/api/v1/probe` route the last
+    /// time we successfully verified the running process exposes the expected
+    /// API surface (via `/openapi.json`). Once a given `instanceId` has been
+    /// confirmed compatible we skip the heavy OpenAPI fetch on every
+    /// subsequent Tauri command — a respawn produces a fresh `instanceId`,
+    /// so cache invalidation happens implicitly.
+    pub compatible_instance_id: Mutex<Option<String>>,
 }
 
 impl Default for AppState {
@@ -144,6 +168,7 @@ impl Default for AppState {
                 child: None,
                 port: 8765,
             }),
+            compatible_instance_id: Mutex::new(None),
         }
     }
 }

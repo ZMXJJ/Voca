@@ -1,0 +1,7 @@
+# macOS-only runtime extras. Layered on top of requirements.runtime.txt.
+# torchcodec provides the default torchaudio backend on macOS; there is no
+# official Windows wheel so Windows builds fall back to soundfile instead.
+torch==2.11.0
+torchaudio==2.11.0
+torchcodec==0.11.0
+onnxruntime==1.24.4

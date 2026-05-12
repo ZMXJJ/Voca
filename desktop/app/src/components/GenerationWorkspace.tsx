@@ -10,7 +10,6 @@ import type {
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import { getTaskPlayableAudioPath } from "../lib/historyStorage";
-import { listVoices } from "../lib/tauri";
 import { AudioPlayer } from "./AudioPlayer";
 import { getAudioDownloadPath } from "./SettingsWorkspace";
 import { CustomSelect } from "./CustomSelect";
@@ -23,6 +22,16 @@ type GenerationWorkspaceProps = {
   modelCatalog: ModelCatalogEntry[];
   sidecarStatus: SidecarStatus;
   taskHistory: TaskRecord[];
+  /**
+   * Voice library state is owned by the parent (``WorkspacePage``) so it
+   * survives Studio ↔ Settings tab switches without re-fetching from the
+   * sidecar — that round-trip used to be the dominant per-click cost on
+   * Windows.
+   */
+  voices: VoiceEntry[];
+  selectedVoiceId: string | null;
+  onSelectVoice: (voiceId: string | null) => void;
+  onReloadVoices: () => Promise<VoiceEntry[]>;
   onPrepareModel: (
     modelKey: string,
     providerPreference: "auto" | "huggingface" | "modelscope",
@@ -77,28 +86,16 @@ export function GenerationWorkspace({
   modelCatalog,
   sidecarStatus,
   taskHistory,
+  voices,
+  selectedVoiceId,
+  onSelectVoice,
+  onReloadVoices,
   onSubmit,
 }: GenerationWorkspaceProps) {
   const { t, i18n } = useTranslation();
   const [targetText, setTargetText] = useState("");
   const [modelKey, setModelKey] = useState("voxcpm2");
   const [providerPreference] = useState<"auto" | "huggingface" | "modelscope">("auto");
-  const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
-  const [voices, setVoices] = useState<VoiceEntry[]>([]);
-
-  const loadVoices = useCallback(async () => {
-    const nextVoices = await listVoices();
-    setVoices(nextVoices);
-    setSelectedVoiceId((current) => {
-      if (current && nextVoices.some((voice) => voice.id === current)) return current;
-      return nextVoices[0]?.id ?? null;
-    });
-    return nextVoices;
-  }, []);
-
-  useEffect(() => {
-    void loadVoices();
-  }, [loadVoices]);
 
   const [configOpen, setConfigOpen] = useState(false);
   const configRef = useRef<HTMLDivElement>(null);
@@ -279,7 +276,7 @@ export function GenerationWorkspace({
           <CustomSelect
             className="toolbar-select"
             value={selectedVoiceId ?? ""}
-            onChange={(v) => setSelectedVoiceId(v || null)}
+            onChange={(v) => onSelectVoice(v || null)}
             options={voices.map((v) => ({ value: v.id, label: v.name }))}
             icon={<IconMicrophone size={14} />}
           />
@@ -416,8 +413,8 @@ export function GenerationWorkspace({
         <VoiceLibrary
           voices={voices}
           selectedVoiceId={selectedVoiceId}
-          onSelectVoice={setSelectedVoiceId}
-          onReloadVoices={loadVoices}
+          onSelectVoice={onSelectVoice}
+          onReloadVoices={onReloadVoices}
         />
 
         <div className="card">

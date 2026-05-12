@@ -749,7 +749,7 @@ h1, h2, h3 { margin: 0; }
 
 .summary-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(12, 1fr);
   gap: 16px;
   width: 100%;
 }
@@ -759,6 +759,39 @@ h1, h2, h3 { margin: 0; }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   padding: 20px 24px;
+  grid-column: span 3;
+  min-width: 0;
+}
+
+/* The device summary needs more breathing room than the other tiles:
+   processor/GPU names like ``Intel Core i9-14900HX`` or
+   ``GeForce RTX 4090 Laptop`` overflow a 1/4 column tile. Give it the
+   full row so the value can stay on one line at typical viewport widths. */
+.summary-card--device {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 24px;
+}
+
+.summary-card--device .summary-card__label {
+  flex-shrink: 0;
+}
+
+.summary-card--device .summary-card__value {
+  margin-top: 0;
+  flex: 1 1 auto;
+}
+
+.summary-card--device .summary-card__caption {
+  margin-top: 0;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-high);
+  color: var(--text-secondary);
 }
 
 .summary-card__label {
@@ -771,10 +804,22 @@ h1, h2, h3 { margin: 0; }
   font-family: "MiSans", Manrope, sans-serif;
   font-size: 1.05rem;
   font-weight: 600;
+  line-height: 1.35;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .summary-card__value--green {
   color: var(--accent-green);
+}
+
+.summary-card__caption {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
 }
 
 /* Action Button */
@@ -1036,6 +1081,7 @@ h1, h2, h3 { margin: 0; }
   padding: 12px 16px;
   font-size: 0.75rem;
   white-space: nowrap;
+  max-width: 280px;
   z-index: 100;
   box-shadow: var(--shadow-lg);
   opacity: 0;
@@ -1074,10 +1120,13 @@ h1, h2, h3 { margin: 0; }
 
 .health-indicator__tooltip-key {
   color: rgba(255, 255, 255, 0.6);
+  flex-shrink: 0;
 }
 
 .health-indicator__tooltip-val {
   color: var(--accent-green);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ================================================
@@ -2944,6 +2993,26 @@ h1, h2, h3 { margin: 0; }
   color: #f87171;
 }
 
+.storage-modal__retry {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.32);
+  color: #f87171;
+  border-radius: var(--radius);
+  font-size: 0.86rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.storage-modal__retry:hover {
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
 .storage-modal__summary {
   display: flex;
   justify-content: space-between;
@@ -3200,9 +3269,14 @@ h1, h2, h3 { margin: 0; }
 
 /* ================================================
    RESPONSIVE
+   ================================================
+   桌面端应用强制保持桌面布局（sidebar + 多列卡片），
+   不再根据窗口宽度切换到紧凑/移动端布局。
+   窗口最小尺寸由 tauri.conf.json 的 minWidth/minHeight 限制。
+   如需恢复紧凑布局，删除下方包裹 media query 的注释符号即可。
    ================================================ */
 
-@media (max-width: 900px) {
+/* @media (max-width: 768px) {
   .workspace {
     flex-direction: column;
   }
@@ -3266,6 +3340,17 @@ h1, h2, h3 { margin: 0; }
     grid-template-columns: 1fr;
   }
 
+  .summary-card,
+  .summary-card--device {
+    grid-column: 1 / -1;
+  }
+
+  .summary-card--device {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
   .bootstrap-asset-cards {
     grid-template-columns: 1fr;
   }
@@ -3318,7 +3403,7 @@ h1, h2, h3 { margin: 0; }
   .toolbar-spacer { display: none; }
 
   .toolbar-btn--generate { width: 100%; }
-}
+} */
 
 /* ================================================
    DOWNLOAD TOAST

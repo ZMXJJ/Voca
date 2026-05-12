@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": [
+      "../.bundle-resources-win/python-service",
+      "../.bundle-resources-win/python-runtime",
+      "../.bundle-resources-win/VoxCPM"
+    ]
+  }
+}

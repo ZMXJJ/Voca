@@ -42,7 +42,21 @@ export type AppError = {
   details?: Record<string, unknown>;
 };
 
-export type TaskType = "bootstrap" | "generate" | "clone" | "asr_transcribe";
+export type TaskType =
+  | "bootstrap"
+  | "generate"
+  | "clone"
+  | "asr_transcribe"
+  | "cuda_upgrade";
+
+export type CudaUpgradeStage = "download" | "verify" | "install" | "validate";
+
+export type CudaUpgradeRuntimeInfo = {
+  active?: TorchBackend | string | null;
+  lastKnownGoodBackend?: TorchBackend | string | null;
+  lastUpgradeAt?: string | null;
+  lastUpgradeError?: string | null;
+};
 
 export type TaskStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
@@ -55,6 +69,13 @@ export type DownloadProgress = {
   totalBytesComplete: boolean;
   completedFiles: number;
   totalFiles?: number | null;
+  /**
+   * Server-side EMA-smoothed transfer rate in bytes/second. Optional: older
+   * sidecars omit this; the renderer falls back to a local sliding-window
+   * estimate so the speed UI keeps working across versions. Only populated
+   * while ``phase === "downloading"``.
+   */
+  bytesPerSecond?: number | null;
 };
 
 export type BootstrapAssetDownloadProgress = {
@@ -67,6 +88,7 @@ export type BootstrapAssetDownloadProgress = {
   downloadedBytes: number;
   totalBytes?: number | null;
   totalBytesComplete: boolean;
+  bytesPerSecond?: number | null;
 };
 
 export type TaskRecord = {
@@ -193,15 +215,43 @@ export type SidecarStatus = {
 
 export type SetupEnvironmentStatus = "ready" | "missing" | "starting" | "error";
 
+export type TorchBackend = "cpu" | "cuda" | "mps";
+
+export type AppPlatform = "windows" | "macos" | "linux";
+
 export type SetupDiagnostics = {
+  /**
+   * Host operating system identifier emitted by the Tauri backend. Older
+   * builds (pre-Windows-integration) may not populate this field, so callers
+   * should treat it as optional and fall back gracefully.
+   */
+  platform?: AppPlatform | string | null;
   cpuName?: string | null;
   totalMemoryBytes?: number | null;
   availableStorageBytes?: number | null;
   recommendedMemoryBytes: number;
   minimumFreeStorageBytes: number;
+  gpuMemoryBytes?: number | null;
+  /**
+   * Minimum VRAM required for the current platform's inference path. Only
+   * populated on platforms that gate on NVIDIA GPUs (currently Windows);
+   * absent on macOS/Linux. The frontend treats `null`/`undefined` as
+   * "no GPU floor required for this platform".
+   */
+  minimumGpuMemoryBytes?: number | null;
   environmentReady: boolean;
   environmentStatus: SetupEnvironmentStatus;
   environmentReason?: string | null;
+  gpuVendor?: string | null;
+  gpuName?: string | null;
+  /**
+   * Tri-state. `true`/`false` for platforms whose bootstrap depends on
+   * NVIDIA hardware; `null`/`undefined` on platforms where the question
+   * doesn't apply (macOS, Linux). Older clients only saw `boolean`, so we
+   * keep the type lenient.
+   */
+  hasNvidiaGpu?: boolean | null;
+  activeTorchBackend?: TorchBackend | string | null;
 };
 
 export type ServiceInfo = {
@@ -220,28 +270,69 @@ export type ServiceInfo = {
   deviceName?: string;
   deviceType?: string;
   audioOutputDir?: string;
+  /**
+   * @deprecated Storage byte counters are no longer measured by the health
+   * route — the server always returns 0 here. Use ``StorageInfo`` via
+   * ``getStorageInfo()`` instead. Field retained for binary compatibility
+   * with older builds that still read it.
+   */
   cacheBytes?: number;
   logLevel?: string;
   logDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   logBytes?: number;
   storageDir?: string;
   modelDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   modelBytes?: number;
   voicesDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   voiceLibraryBytes?: number;
   huggingfaceCacheDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   huggingfaceCacheBytes?: number;
   modelscopeCacheDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   modelscopeCacheBytes?: number;
   torchCacheDir?: string;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   torchCacheBytes?: number;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   downloadCacheBytes?: number;
+  /** @deprecated See ``cacheBytes``; use ``StorageInfo`` instead. */
   managedStorageBytes?: number;
   bootstrapAssets?: BootstrapAssetStatus[];
   // True when a pre-ONNX FunASR SenseVoice directory still exists on disk.
   // The desktop UI presents a blocking migration dialog until the legacy
   // directory is removed, since the new ONNX runtime cannot load it.
   legacyAsrModelPresent?: boolean;
+};
+
+/**
+ * Lazy storage usage snapshot returned by the dedicated
+ * ``GET /api/v1/storage-info`` endpoint. Computing this on Windows can take
+ * seconds, so the desktop UI requests it only when the user opens the
+ * storage details modal — the regular health probe never walks the
+ * filesystem any more.
+ */
+export type StorageInfo = {
+  audioOutputDir?: string;
+  cacheBytes: number;
+  logDir?: string;
+  logBytes: number;
+  storageDir?: string;
+  modelDir?: string;
+  modelBytes: number;
+  voicesDir?: string;
+  voiceLibraryBytes: number;
+  huggingfaceCacheDir?: string;
+  huggingfaceCacheBytes: number;
+  modelscopeCacheDir?: string;
+  modelscopeCacheBytes: number;
+  torchCacheDir?: string;
+  torchCacheBytes: number;
+  downloadCacheBytes: number;
+  managedStorageBytes: number;
 };
 
 export type VoiceSourceType = "builtin" | "user";

@@ -6,6 +6,7 @@ import type {
   ProviderRecommendation,
   ServiceInfo,
   SidecarStatus,
+  StorageInfo,
   TaskRecord,
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
@@ -144,14 +145,16 @@ type SettingsWorkspaceProps = {
   auxiliaryModelCatalog: ModelCatalogEntry[];
   downloadedAuxiliaryModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
+  storageInfo: StorageInfo | null;
   taskHistory: TaskRecord[];
   onPrepareModel: (
     modelKey: string,
     providerPreference: "auto" | "huggingface" | "modelscope",
     ensureDownloaded: boolean,
   ) => Promise<void>;
+  onRefreshStorageInfo: () => Promise<void>;
   onCacheCleared: (
-    serviceInfo: ServiceInfo | null,
+    storageInfo: StorageInfo | null,
     removedTaskIds: string[],
     remainingBytes: number,
     clearedAudioDirs: string[],
@@ -168,8 +171,10 @@ export function SettingsWorkspace({
   auxiliaryModelCatalog,
   downloadedAuxiliaryModelCatalog,
   serviceInfo,
+  storageInfo,
   taskHistory,
   onPrepareModel,
+  onRefreshStorageInfo,
   onCacheCleared,
 }: SettingsWorkspaceProps) {
   const { t } = useTranslation();
@@ -182,7 +187,6 @@ export function SettingsWorkspace({
   const [providerPreference, setProviderPreference] = useState<"auto" | "huggingface" | "modelscope">(
     providerRecommendation?.preferred ?? "auto",
   );
-  const [cacheBytes, setCacheBytes] = useState(serviceInfo?.cacheBytes ?? 0);
   const [storageModalOpen, setStorageModalOpen] = useState(false);
   const [exportingLogs, setExportingLogs] = useState(false);
   const [openingStorageDir, setOpeningStorageDir] = useState(false);
@@ -197,18 +201,34 @@ export function SettingsWorkspace({
   const updateModalOpen = updateCheckPhase === "result" && (updateCheckResult?.updateAvailable ?? false);
   const updateModal = useModalTransition(updateModalOpen);
   const [downloadSpeeds, setDownloadSpeeds] = useState<Record<string, number | null>>({});
-  const speedSamplesRef = useRef<Record<string, { bytes: number; atMs: number }>>({});
+  // Sliding-window samples used for the local fallback when the sidecar
+  // does not report ``bytesPerSecond`` (older builds). Each entry keeps the
+  // last few seconds of cumulative byte counts plus the timestamp of the
+  // most recent change, which feeds the decay logic below.
+  const speedSamplesRef = useRef<
+    Record<string, { samples: { bytes: number; atMs: number }[]; lastFreshAtMs: number }>
+  >({});
   const [audioDownloadPath, setAudioDownloadPath] = useState(() => getAudioDownloadPath());
   const completedTasks = taskHistory.filter((t) => t.status === "succeeded").length;
   const pollTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setCacheBytes(serviceInfo?.cacheBytes ?? 0);
-  }, [serviceInfo?.cacheBytes]);
-
-  useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
   }, []);
+
+  // Pre-warm the storage snapshot once the sidecar is healthy and we
+  // don't already have data. On Windows the recursive directory walk can
+  // take 1~3 seconds; firing it while the user is still reading the
+  // settings page means the storage modal almost always opens instantly
+  // instead of showing a "calculating" state on first click.
+  useEffect(() => {
+    if (!sidecarStatus.healthy) return;
+    if (storageInfo !== null) return;
+    void onRefreshStorageInfo().catch(() => {
+      // Swallow here — the modal owns the user-facing retry UI when the
+      // user actually opens it.
+    });
+  }, [sidecarStatus.healthy, storageInfo, onRefreshStorageInfo]);
 
   const showUpdateToast = useCallback((message: string) => {
     setUpdateToast(message);
@@ -270,20 +290,78 @@ export function SettingsWorkspace({
           if (!updated) return;
           setDownloadingTasks((prev) => ({ ...prev, [modelKey]: updated }));
 
-          const currentBytes = updated.downloadProgress?.downloadedBytes ?? 0;
+          const progress = updated.downloadProgress;
+          const isDownloading = progress?.phase === "downloading";
+          const currentBytes = progress?.downloadedBytes ?? 0;
+          const serverBps = progress?.bytesPerSecond;
           const nowMs = Date.now();
-          const prev = speedSamplesRef.current[modelKey];
-          if (prev && currentBytes > prev.bytes) {
-            const deltaMs = nowMs - prev.atMs;
-            if (deltaMs > 0) {
-              const bps = ((currentBytes - prev.bytes) / deltaMs) * 1000;
-              setDownloadSpeeds((s) => ({
-                ...s,
-                [modelKey]: s[modelKey] ? s[modelKey]! * 0.6 + bps * 0.4 : bps,
-              }));
+
+          if (!isDownloading) {
+            // Server explicitly tells us it's listing/finalizing — leave
+            // the previous speed alone for one poll then decay it via the
+            // sliding-window timeout below. Don't snap to 0 immediately.
+            return;
+          }
+
+          if (typeof serverBps === "number" && Number.isFinite(serverBps)) {
+            // Trust the sidecar's EMA-smoothed value when available.
+            setDownloadSpeeds((s) => ({ ...s, [modelKey]: Math.max(0, serverBps) }));
+            const slot = speedSamplesRef.current[modelKey] ?? {
+              samples: [],
+              lastFreshAtMs: nowMs,
+            };
+            slot.samples.push({ bytes: currentBytes, atMs: nowMs });
+            const cutoff = nowMs - 5_000;
+            while (slot.samples.length > 1 && slot.samples[0].atMs < cutoff) {
+              slot.samples.shift();
+            }
+            slot.lastFreshAtMs = nowMs;
+            speedSamplesRef.current[modelKey] = slot;
+          } else {
+            // Local sliding window fallback for older sidecars. Use a 5s
+            // window so a single quiet poll cycle doesn't crater the
+            // displayed speed.
+            const slot = speedSamplesRef.current[modelKey] ?? {
+              samples: [],
+              lastFreshAtMs: nowMs,
+            };
+            const newest = slot.samples[slot.samples.length - 1];
+            if (!newest || currentBytes < newest.bytes) {
+              slot.samples = [{ bytes: currentBytes, atMs: nowMs }];
+              slot.lastFreshAtMs = nowMs;
+            } else {
+              if (currentBytes > newest.bytes) {
+                slot.lastFreshAtMs = nowMs;
+              }
+              slot.samples.push({ bytes: currentBytes, atMs: nowMs });
+              const cutoff = nowMs - 5_000;
+              while (slot.samples.length > 1 && slot.samples[0].atMs < cutoff) {
+                slot.samples.shift();
+              }
+            }
+            speedSamplesRef.current[modelKey] = slot;
+
+            const oldest = slot.samples[0];
+            const deltaMs = nowMs - oldest.atMs;
+            const deltaBytes = currentBytes - oldest.bytes;
+            if (deltaMs >= 200 && deltaBytes > 0) {
+              const bps = (deltaBytes / deltaMs) * 1000;
+              setDownloadSpeeds((s) => ({ ...s, [modelKey]: bps }));
+            } else {
+              const idleMs = nowMs - slot.lastFreshAtMs;
+              if (idleMs >= 8_000) {
+                setDownloadSpeeds((s) => ({ ...s, [modelKey]: 0 }));
+              } else if (idleMs >= 1_500) {
+                // Gradual decay: shrink by 25% each idle poll instead of
+                // snapping straight to 0.
+                setDownloadSpeeds((s) => {
+                  const previousValue = s[modelKey] ?? 0;
+                  const next = previousValue * 0.75;
+                  return { ...s, [modelKey]: next < 1 ? 0 : next };
+                });
+              }
             }
           }
-          speedSamplesRef.current[modelKey] = { bytes: currentBytes, atMs: nowMs };
 
           if (updated.status === "succeeded") {
             setDownloadSpeeds((s) => ({ ...s, [modelKey]: null }));
@@ -331,13 +409,12 @@ export function SettingsWorkspace({
   }, [audioDownloadPath]);
 
   const handleStorageCacheCleared = (
-    updatedServiceInfo: ServiceInfo | null,
+    updatedStorageInfo: StorageInfo | null,
     removedTaskIds: string[],
     remainingBytes: number,
     clearedAudioDirs: string[],
   ) => {
-    setCacheBytes(remainingBytes);
-    onCacheCleared(updatedServiceInfo, removedTaskIds, remainingBytes, clearedAudioDirs);
+    onCacheCleared(updatedStorageInfo, removedTaskIds, remainingBytes, clearedAudioDirs);
   };
 
   return (
@@ -568,13 +645,21 @@ export function SettingsWorkspace({
           <div className="settings-divider" />
           <div className="kv-row">
             <span className="kv-row__key">{t("settings.logs.managedStorage")}</span>
-            <span className="kv-row__value">{formatBytes(serviceInfo?.managedStorageBytes)}</span>
+            <span className="kv-row__value">
+              {storageInfo ? formatBytes(storageInfo.managedStorageBytes) : "—"}
+            </span>
           </div>
           <div className="settings-actions" style={{ marginTop: 12 }}>
             <button
               className="btn btn--small btn--secondary"
               type="button"
-              onClick={() => setStorageModalOpen(true)}
+              onClick={() => {
+                // The modal owns the refresh lifecycle now — it triggers
+                // ``onRefreshStorageInfo`` on every mount and renders an
+                // explicit loading / retry state while the walk is in
+                // flight. We just need to open it here.
+                setStorageModalOpen(true);
+              }}
             >
               {t("settings.logs.manageStorage")}
             </button>
@@ -631,9 +716,9 @@ export function SettingsWorkspace({
 
       {storageModal.mounted && (
         <StorageModal
-          serviceInfo={serviceInfo}
-          cacheBytes={cacheBytes}
+          storageInfo={storageInfo}
           closing={storageModal.closing}
+          onRefresh={onRefreshStorageInfo}
           onCacheCleared={handleStorageCacheCleared}
           onClose={() => storageModal.requestClose(() => setStorageModalOpen(false))}
         />

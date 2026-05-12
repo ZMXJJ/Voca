@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AudioTranscriptionPayload,
   BootstrapState,
+  CudaUpgradeRuntimeInfo,
   GenerationParams,
   ModelCatalogEntry,
   ModelPrepareResponse,
@@ -10,6 +11,7 @@ import type {
   ServiceInfo,
   SetupDiagnostics,
   SidecarStatus,
+  StorageInfo,
   TaskRecord,
   VoiceCreatePayload,
   VoiceEntry,
@@ -33,6 +35,17 @@ type CacheClearResult = {
   removedTasks: number;
   removedTaskIds: string[];
   clearedAudioDirs?: string[];
+  /**
+   * Snapshot of on-disk usage immediately after clearing. Returned by the
+   * sidecar so the UI can update the storage details modal without
+   * re-fetching ``/api/v1/storage-info``.
+   */
+  storageInfo?: StorageInfo | null;
+  /**
+   * @deprecated Older sidecar builds returned the (now retired) ``serviceInfo``
+   * payload here. Kept on the type for forward compatibility but the current
+   * sidecar populates ``storageInfo`` instead.
+   */
   serviceInfo?: ServiceInfo | null;
 };
 
@@ -126,6 +139,14 @@ export async function getBootstrapState(): Promise<BootstrapState> {
 export async function getSidecarStatus(): Promise<SidecarStatus> {
   try {
     return await invoke<SidecarStatus>("get_sidecar_status");
+  } catch {
+    return { running: false, healthy: false, reason: "tauri_not_available" };
+  }
+}
+
+export async function getBootstrapSidecarStatus(): Promise<SidecarStatus> {
+  try {
+    return await invoke<SidecarStatus>("get_bootstrap_sidecar_status");
   } catch {
     return { running: false, healthy: false, reason: "tauri_not_available" };
   }
@@ -255,6 +276,22 @@ export async function cleanupLegacyAsrModel(): Promise<boolean> {
   }
 }
 
+export async function startCudaUpgrade(): Promise<TaskRecord | null> {
+  try {
+    return await invoke<TaskRecord>("start_cuda_upgrade");
+  } catch (error) {
+    throw new Error(getInvokeErrorMessage(error, "Failed to start CUDA upgrade"));
+  }
+}
+
+export async function getCudaRuntimeInfo(): Promise<CudaUpgradeRuntimeInfo | null> {
+  try {
+    return await invoke<CudaUpgradeRuntimeInfo>("get_runtime_info");
+  } catch {
+    return null;
+  }
+}
+
 export async function completeOnboarding(): Promise<boolean> {
   try {
     return await invoke<boolean>("complete_onboarding");
@@ -266,6 +303,20 @@ export async function completeOnboarding(): Promise<boolean> {
 export async function getServiceInfo(): Promise<ServiceInfo | null> {
   try {
     return await invoke<ServiceInfo>("get_service_info");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lazy fetch of disk usage statistics. The sidecar route this maps to is
+ * the only one in the service that walks the model + cache directories,
+ * which can take several seconds on Windows. Call this on demand only
+ * (e.g. when opening the storage details modal) — never poll it.
+ */
+export async function getStorageInfo(): Promise<StorageInfo | null> {
+  try {
+    return await invoke<StorageInfo>("get_storage_info");
   } catch {
     return null;
   }

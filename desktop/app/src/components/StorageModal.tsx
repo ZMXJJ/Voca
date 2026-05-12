@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { ServiceInfo } from "@voca/contracts";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { StorageInfo } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
 import { clearCache } from "../lib/tauri";
 
@@ -19,11 +19,22 @@ function formatBytes(bytes?: number | null) {
 }
 
 type StorageModalProps = {
-  serviceInfo: ServiceInfo | null;
-  cacheBytes: number;
+  /**
+   * Lazy storage usage snapshot. ``null`` means we haven't received a
+   * successful response yet — the modal renders a loading placeholder
+   * row in that window so the user knows the data is being computed.
+   */
+  storageInfo: StorageInfo | null;
   closing?: boolean;
+  /**
+   * Refresh callback owned by the parent. The modal triggers it on every
+   * mount so reopening the dialog always shows up-to-date numbers. The
+   * promise should reject when the underlying request fails so the modal
+   * can render a retry affordance.
+   */
+  onRefresh: () => Promise<void>;
   onCacheCleared: (
-    serviceInfo: ServiceInfo | null,
+    storageInfo: StorageInfo | null,
     removedTaskIds: string[],
     remainingBytes: number,
     clearedAudioDirs: string[],
@@ -32,15 +43,43 @@ type StorageModalProps = {
 };
 
 export function StorageModal({
-  serviceInfo,
-  cacheBytes,
+  storageInfo,
   closing = false,
+  onRefresh,
   onCacheCleared,
   onClose,
 }: StorageModalProps) {
   const { t } = useTranslation();
-  const [localCacheBytes, setLocalCacheBytes] = useState(cacheBytes);
   const [clearingCache, setClearingCache] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errored, setErrored] = useState(false);
+
+  // ``cancelledRef`` flips to ``true`` when the modal unmounts so the
+  // in-flight refresh (which may still be running on the python sidecar)
+  // won't try to mutate state after teardown.
+  const cancelledRef = useRef(false);
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
+
+  const runRefresh = useCallback(async () => {
+    setLoading(true);
+    setErrored(false);
+    try {
+      await onRefresh();
+    } catch {
+      if (!cancelledRef.current) setErrored(true);
+    } finally {
+      if (!cancelledRef.current) setLoading(false);
+    }
+  }, [onRefresh]);
+
+  useEffect(() => {
+    void runRefresh();
+  }, [runRefresh]);
 
   const handleClearCache = async () => {
     if (clearingCache) return;
@@ -48,26 +87,57 @@ export function StorageModal({
     try {
       const result = await clearCache();
       if (result?.success) {
-        const remaining = result.serviceInfo?.cacheBytes ?? result.remainingBytes ?? 0;
-        setLocalCacheBytes(remaining);
-          onCacheCleared(
-            result.serviceInfo ?? null,
-            result.removedTaskIds ?? [],
-            remaining,
-            result.clearedAudioDirs ?? [],
-          );
+        const nextStorageInfo = result.storageInfo ?? null;
+        const remaining =
+          nextStorageInfo?.cacheBytes ?? result.remainingBytes ?? 0;
+        onCacheCleared(
+          nextStorageInfo,
+          result.removedTaskIds ?? [],
+          remaining,
+          result.clearedAudioDirs ?? [],
+        );
       }
     } finally {
       setClearingCache(false);
     }
   };
 
+  const calculatingLabel = t("settings.logs.calculating");
+
+  const renderBytes = (accessor: (s: StorageInfo) => number) => {
+    if (storageInfo) return formatBytes(accessor(storageInfo));
+    if (loading) return calculatingLabel;
+    return "—";
+  };
+
+  const summaryValue = storageInfo
+    ? formatBytes(storageInfo.managedStorageBytes)
+    : loading
+      ? calculatingLabel
+      : "—";
+
+  const cacheRowValue = renderBytes((s) => s.cacheBytes);
+
   const storageItems = [
-    { label: t("settings.logs.modelSize"), value: formatBytes(serviceInfo?.modelBytes) },
-    { label: t("settings.logs.voiceLibrary"), value: formatBytes(serviceInfo?.voiceLibraryBytes) },
-    { label: t("settings.logs.downloadCache"), value: formatBytes(serviceInfo?.downloadCacheBytes) },
-    { label: t("settings.logs.logSize"), value: formatBytes(serviceInfo?.logBytes) },
+    {
+      label: t("settings.logs.modelSize"),
+      value: renderBytes((s) => s.modelBytes),
+    },
+    {
+      label: t("settings.logs.voiceLibrary"),
+      value: renderBytes((s) => s.voiceLibraryBytes),
+    },
+    {
+      label: t("settings.logs.downloadCache"),
+      value: renderBytes((s) => s.downloadCacheBytes),
+    },
+    {
+      label: t("settings.logs.logSize"),
+      value: renderBytes((s) => s.logBytes),
+    },
   ];
+
+  const showRetryBanner = errored && !loading && !storageInfo;
 
   return (
     <div className={`storage-modal-overlay${closing ? " modal-closing-overlay" : ""}`} onClick={onClose}>
@@ -79,9 +149,19 @@ export function StorageModal({
           </button>
         </div>
 
+        {showRetryBanner && (
+          <button
+            className="storage-modal__retry"
+            type="button"
+            onClick={() => void runRefresh()}
+          >
+            {t("settings.logs.refreshFailed")}
+          </button>
+        )}
+
         <div className="storage-modal__summary">
           <span className="storage-modal__summary-label">{t("settings.logs.managedStorage")}</span>
-          <span className="storage-modal__summary-value">{formatBytes(serviceInfo?.managedStorageBytes)}</span>
+          <span className="storage-modal__summary-value">{summaryValue}</span>
         </div>
 
         <div className="storage-modal__list">
@@ -94,12 +174,12 @@ export function StorageModal({
           <div className="storage-modal__row">
             <span className="storage-modal__row-label">{t("settings.logs.cache")}</span>
             <div className="storage-modal__row-action">
-              <span className="storage-modal__row-value">{formatBytes(localCacheBytes)}</span>
+              <span className="storage-modal__row-value">{cacheRowValue}</span>
               <button
                 className="btn btn--small btn--ghost"
                 type="button"
                 onClick={() => void handleClearCache()}
-                disabled={clearingCache}
+                disabled={clearingCache || !storageInfo}
               >
                 {t("settings.logs.clear")}
               </button>

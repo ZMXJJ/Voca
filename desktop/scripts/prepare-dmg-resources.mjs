@@ -11,6 +11,7 @@ const stageRoot = path.join(desktopRoot, ".bundle-resources");
 const pythonServiceRoot = path.join(desktopRoot, "python-service");
 const voxcpmSrcRoot = path.join(repoRoot, "VoxCPM", "src");
 const runtimeRequirementsPath = path.join(pythonServiceRoot, "requirements.runtime.txt");
+const runtimeRequirementsMacPath = path.join(pythonServiceRoot, "requirements.runtime.macos.txt");
 const venvPythonPath = path.join(pythonServiceRoot, ".venv", "bin", "python");
 const runtimePythonPath = realpathSync(venvPythonPath);
 const runtimeRoot = path.resolve(path.dirname(runtimePythonPath), "..");
@@ -147,9 +148,22 @@ function buildReleaseVenv() {
   runCommand(uv, ["venv", "--python", runtimePythonPath, stageVenvRoot], {
     UV_LINK_MODE: "copy",
   });
-  runCommand(uv, ["pip", "install", "--python", stagePythonPath, "-r", runtimeRequirementsPath], {
-    UV_LINK_MODE: "copy",
-  });
+  runCommand(
+    uv,
+    [
+      "pip",
+      "install",
+      "--python",
+      stagePythonPath,
+      "-r",
+      runtimeRequirementsPath,
+      "-r",
+      runtimeRequirementsMacPath,
+    ],
+    {
+      UV_LINK_MODE: "copy",
+    },
+  );
 }
 
 function walkFiles(rootPath) {
@@ -950,6 +964,7 @@ ensureExists(path.join(pythonServiceRoot, ".venv"), "Python service virtual envi
 ensureExists(voxcpmSrcRoot, "VoxCPM src directory");
 ensureExists(runtimeRoot, "Resolved Python runtime root");
 ensureExists(runtimeRequirementsPath, "Runtime requirements file");
+ensureExists(runtimeRequirementsMacPath, "macOS runtime requirements file");
 
 rmSync(stageRoot, { recursive: true, force: true });
 mkdirSync(stageRoot, { recursive: true });

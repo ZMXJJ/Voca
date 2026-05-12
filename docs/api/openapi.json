@@ -2,21 +2,63 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Voca Python Service",
-    "version": "0.4.0",
-    "description": "Voca 推理后端 API — 本地语音克隆桌面应用的 FastAPI sidecar 服务"
+    "version": "0.5.0"
   },
   "paths": {
     "/api/v1/health": {
       "get": {
-        "operationId": "health",
-        "summary": "健康检查与诊断信息",
-        "tags": ["Health"],
+        "summary": "Health",
+        "operationId": "health_api_v1_health_get",
         "responses": {
           "200": {
-            "description": "服务运行状态",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/probe": {
+      "get": {
+        "summary": "Probe",
+        "operationId": "probe_api_v1_probe_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Probe Api V1 Probe Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bootstrap/verify": {
+      "post": {
+        "summary": "Verify Bootstrap Assets",
+        "operationId": "verify_bootstrap_assets_api_v1_bootstrap_verify_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Verify Bootstrap Assets Api V1 Bootstrap Verify Post"
+                }
               }
             }
           }
@@ -25,17 +67,19 @@
     },
     "/api/v1/models/catalog": {
       "get": {
-        "operationId": "list_models",
-        "summary": "获取模型目录列表",
-        "tags": ["Models"],
+        "summary": "List Models",
+        "operationId": "list_models_api_v1_models_catalog_get",
         "responses": {
           "200": {
-            "description": "模型目录",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ModelCatalogEntry"
+                  },
                   "type": "array",
-                  "items": { "$ref": "#/components/schemas/ModelCatalogEntry" }
+                  "title": "Response List Models Api V1 Models Catalog Get"
                 }
               }
             }
@@ -45,27 +89,43 @@
     },
     "/api/v1/providers/recommendation": {
       "get": {
-        "operationId": "get_provider_recommendation",
-        "summary": "获取下载源推荐",
-        "tags": ["Models"],
+        "summary": "Get Provider Recommendation",
+        "operationId": "get_provider_recommendation_api_v1_providers_recommendation_get",
         "parameters": [
           {
             "name": "preferred",
             "in": "query",
             "required": false,
             "schema": {
+              "enum": [
+                "auto",
+                "huggingface",
+                "modelscope"
+              ],
               "type": "string",
-              "enum": ["auto", "huggingface", "modelscope"],
-              "default": "auto"
+              "default": "auto",
+              "title": "Preferred"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "推荐结果",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ProviderRecommendation" }
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderRecommendation"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -74,23 +134,36 @@
     },
     "/api/v1/models/prepare": {
       "post": {
-        "operationId": "prepare_model",
-        "summary": "解析模型路径与准备状态",
-        "tags": ["Models"],
+        "summary": "Prepare Model",
+        "operationId": "prepare_model_api_v1_models_prepare_post",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ModelPrepareRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/ModelPrepareRequest"
+              }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "模型准备结果",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ModelPrepareResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPrepareResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -99,23 +172,36 @@
     },
     "/api/v1/models/validate": {
       "post": {
-        "operationId": "validate_model",
-        "summary": "校验模型路径有效性",
-        "tags": ["Models"],
+        "summary": "Validate Model",
+        "operationId": "validate_model_api_v1_models_validate_post",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ModelValidateRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/ModelValidateRequest"
+              }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "校验结果",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ModelValidateResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ModelValidateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -124,23 +210,36 @@
     },
     "/api/v1/models/download": {
       "post": {
-        "operationId": "create_download_task",
-        "summary": "创建模型下载任务",
-        "tags": ["Models"],
+        "summary": "Create Download Task",
+        "operationId": "create_download_task_api_v1_models_download_post",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ModelDownloadRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/ModelDownloadRequest"
+              }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "下载任务已创建",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/TaskRecord" }
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -149,23 +248,36 @@
     },
     "/api/v1/bootstrap/start": {
       "post": {
-        "operationId": "create_bootstrap_bundle_task",
-        "summary": "启动引导批量下载",
-        "tags": ["Bootstrap"],
+        "summary": "Create Bootstrap Bundle Task",
+        "operationId": "create_bootstrap_bundle_task_api_v1_bootstrap_start_post",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ModelDownloadRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/ModelDownloadRequest"
+              }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "引导任务已创建",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/TaskRecord" }
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -174,29 +286,58 @@
     },
     "/api/v1/bootstrap/cleanup-legacy-asr": {
       "post": {
-        "operationId": "cleanup_legacy_asr_model",
-        "summary": "清理旧版 PyTorch SenseVoice 目录",
-        "description": "将遗留的 `sensevoice_small/`（含 `model.pt`）移入 `.trash` 并异步删除，供升级至 ONNX 后释放空间。请求体可为空对象。",
-        "tags": ["Bootstrap"],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": { "type": "object", "additionalProperties": true }
-            }
-          }
-        },
+        "summary": "Cleanup Legacy Asr Model",
+        "description": "Remove the pre-ONNX FunASR SenseVoice directory if present.\n\nThe new ONNX runtime installs to ``models/sensevoice_small_onnx/`` while\nlegacy builds wrote to ``models/sensevoice_small/``. Any leftover legacy\ndirectory is dead weight (~936 MB) and incompatible with the new bridge;\nthis endpoint quarantines it into ``models/.trash/`` for background\nrmtree.",
+        "operationId": "cleanup_legacy_asr_model_api_v1_bootstrap_cleanup_legacy_asr_post",
         "responses": {
           "200": {
-            "description": "是否发现并处理了遗留目录",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "removed": { "type": "boolean", "description": "本次是否将遗留目录移入回收区" }
+                  "additionalProperties": {
+                    "type": "boolean"
                   },
-                  "required": ["removed"]
+                  "type": "object",
+                  "title": "Response Cleanup Legacy Asr Model Api V1 Bootstrap Cleanup Legacy Asr Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bootstrap/upgrade-cuda": {
+      "post": {
+        "summary": "Create Cuda Upgrade Task",
+        "operationId": "create_cuda_upgrade_task_api_v1_bootstrap_upgrade_cuda_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bootstrap/runtime-info": {
+      "get": {
+        "summary": "Bootstrap Runtime Info",
+        "operationId": "bootstrap_runtime_info_api_v1_bootstrap_runtime_info_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Bootstrap Runtime Info Api V1 Bootstrap Runtime Info Get"
                 }
               }
             }
@@ -206,23 +347,36 @@
     },
     "/api/v1/tasks/generate": {
       "post": {
-        "operationId": "create_generate_task",
-        "summary": "创建语音生成任务",
-        "tags": ["Tasks"],
+        "summary": "Create Generate Task",
+        "operationId": "create_generate_task_api_v1_tasks_generate_post",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/GenerationRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/GenerationRequest"
+              }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "生成任务已创建",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/TaskRecord" }
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -231,23 +385,36 @@
     },
     "/api/v1/tasks/asr": {
       "post": {
-        "operationId": "create_asr_task",
-        "summary": "创建语音识别任务",
-        "tags": ["Tasks"],
+        "summary": "Create Asr Task",
+        "operationId": "create_asr_task_api_v1_tasks_asr_post",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/AudioTranscriptionRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/AudioTranscriptionRequest"
+              }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
-            "description": "ASR 任务已创建",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/TaskRecord" }
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -256,40 +423,67 @@
     },
     "/api/v1/tasks": {
       "get": {
-        "operationId": "list_tasks",
-        "summary": "获取任务列表",
-        "tags": ["Tasks"],
+        "summary": "List Tasks",
+        "operationId": "list_tasks_api_v1_tasks_get",
         "parameters": [
           {
             "name": "limit",
             "in": "query",
             "required": false,
-            "schema": { "type": "integer", "default": 50 }
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
           },
           {
             "name": "offset",
             "in": "query",
             "required": false,
-            "schema": { "type": "integer", "default": 0 }
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Offset"
+            }
           },
           {
             "name": "status",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "enum": ["queued", "running", "succeeded", "failed", "cancelled"]
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "任务列表",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
-                  "items": { "$ref": "#/components/schemas/TaskRecord" }
+                  "items": {
+                    "$ref": "#/components/schemas/TaskRecord"
+                  },
+                  "title": "Response List Tasks Api V1 Tasks Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -299,31 +493,37 @@
     },
     "/api/v1/tasks/{task_id}": {
       "get": {
-        "operationId": "get_task",
-        "summary": "获取任务详情",
-        "tags": ["Tasks"],
+        "summary": "Get Task",
+        "operationId": "get_task_api_v1_tasks__task_id__get",
         "parameters": [
           {
             "name": "task_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "任务详情",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/TaskRecord" }
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
               }
             }
           },
-          "404": {
-            "description": "任务不存在",
+          "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -332,15 +532,18 @@
     },
     "/api/v1/cache/clear": {
       "post": {
-        "operationId": "clear_cache",
-        "summary": "清理缓存与已完成任务",
-        "tags": ["Cache"],
+        "summary": "Clear Cache",
+        "operationId": "clear_cache_api_v1_cache_clear_post",
         "responses": {
           "200": {
-            "description": "清理结果",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CacheClearResponse" }
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Clear Cache Api V1 Cache Clear Post"
+                }
               }
             }
           }
@@ -349,17 +552,19 @@
     },
     "/api/v1/voices": {
       "get": {
-        "operationId": "list_voices",
-        "summary": "获取声音列表",
-        "tags": ["Voices"],
+        "summary": "List Voices",
+        "operationId": "list_voices_api_v1_voices_get",
         "responses": {
           "200": {
-            "description": "声音列表",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VoiceEntry"
+                  },
                   "type": "array",
-                  "items": { "$ref": "#/components/schemas/VoiceEntry" }
+                  "title": "Response List Voices Api V1 Voices Get"
                 }
               }
             }
@@ -367,31 +572,36 @@
         }
       },
       "post": {
-        "operationId": "create_voice",
-        "summary": "创建自定义声音",
-        "tags": ["Voices"],
+        "summary": "Create Voice",
+        "operationId": "create_voice_api_v1_voices_post",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/VoiceCreateRequest" }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "声音已创建",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/VoiceEntry" }
+              "schema": {
+                "$ref": "#/components/schemas/VoiceCreateRequest"
               }
             }
           },
-          "400": {
-            "description": "参考音频文件不存在",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceEntry"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -400,110 +610,114 @@
     },
     "/api/v1/voices/{voice_id}": {
       "get": {
-        "operationId": "get_voice",
-        "summary": "获取声音详情",
-        "tags": ["Voices"],
+        "summary": "Get Voice",
+        "operationId": "get_voice_api_v1_voices__voice_id__get",
         "parameters": [
           {
             "name": "voice_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string",
+              "title": "Voice Id"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "声音详情",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/VoiceEntry" }
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceEntry"
+                }
               }
             }
           },
-          "404": {
-            "description": "声音不存在",
+          "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
         }
       },
       "patch": {
-        "operationId": "update_voice",
-        "summary": "更新声音信息",
-        "tags": ["Voices"],
+        "summary": "Update Voice",
+        "operationId": "update_voice_api_v1_voices__voice_id__patch",
         "parameters": [
           {
             "name": "voice_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string",
+              "title": "Voice Id"
+            }
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/VoiceUpdateRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/VoiceUpdateRequest"
+              }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "更新后的声音",
+            "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/VoiceEntry" }
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceEntry"
+                }
               }
             }
           },
-          "403": {
-            "description": "内置声音不可修改",
+          "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
-              }
-            }
-          },
-          "404": {
-            "description": "声音不存在",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
         }
       },
       "delete": {
-        "operationId": "delete_voice",
-        "summary": "删除自定义声音",
-        "tags": ["Voices"],
+        "summary": "Delete Voice",
+        "operationId": "delete_voice_api_v1_voices__voice_id__delete",
         "parameters": [
           {
             "name": "voice_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string",
+              "title": "Voice Id"
+            }
           }
         ],
         "responses": {
-          "204": { "description": "删除成功" },
-          "403": {
-            "description": "内置声音不可删除",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
-              }
-            }
+          "204": {
+            "description": "Successful Response"
           },
-          "404": {
-            "description": "声音不存在",
+          "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -513,323 +727,1629 @@
   },
   "components": {
     "schemas": {
-      "ErrorDetail": {
-        "type": "object",
-        "properties": {
-          "detail": { "type": "string" }
-        },
-        "required": ["detail"]
-      },
       "AppError": {
-        "type": "object",
         "properties": {
-          "code": { "type": "string" },
-          "message": { "type": "string", "nullable": true },
-          "userMessageKey": { "type": "string" },
-          "severity": { "type": "string", "enum": ["info", "warning", "error", "blocking"] },
-          "recoverable": { "type": "boolean", "default": true },
-          "actions": { "type": "array", "items": { "type": "string" }, "default": [] }
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "userMessageKey": {
+            "type": "string",
+            "title": "Usermessagekey"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "error",
+              "blocking"
+            ],
+            "title": "Severity"
+          },
+          "recoverable": {
+            "type": "boolean",
+            "title": "Recoverable",
+            "default": true
+          },
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Actions"
+          }
         },
-        "required": ["code", "userMessageKey", "severity"]
+        "type": "object",
+        "required": [
+          "code",
+          "userMessageKey",
+          "severity"
+        ],
+        "title": "AppError"
+      },
+      "AudioTranscriptionRequest": {
+        "properties": {
+          "audioPath": {
+            "type": "string",
+            "title": "Audiopath"
+          },
+          "modelKey": {
+            "type": "string",
+            "title": "Modelkey",
+            "default": "sensevoice_small"
+          }
+        },
+        "type": "object",
+        "required": [
+          "audioPath"
+        ],
+        "title": "AudioTranscriptionRequest"
+      },
+      "BootstrapAssetDownloadProgress": {
+        "properties": {
+          "modelKey": {
+            "type": "string",
+            "title": "Modelkey"
+          },
+          "displayName": {
+            "type": "string",
+            "title": "Displayname"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "default": "pending"
+          },
+          "progress": {
+            "type": "integer",
+            "title": "Progress",
+            "default": 0
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "huggingface",
+                  "modelscope",
+                  "local"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "currentFile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currentfile"
+          },
+          "downloadedBytes": {
+            "type": "integer",
+            "title": "Downloadedbytes",
+            "default": 0
+          },
+          "totalBytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totalbytes"
+          },
+          "totalBytesComplete": {
+            "type": "boolean",
+            "title": "Totalbytescomplete",
+            "default": false
+          },
+          "bytesPerSecond": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytespersecond",
+            "description": "EMA-smoothed transfer rate (bytes/sec); null when listing/finalizing or unsupported by the sidecar."
+          }
+        },
+        "type": "object",
+        "required": [
+          "modelKey",
+          "displayName"
+        ],
+        "title": "BootstrapAssetDownloadProgress"
       },
       "BootstrapAssetStatus": {
-        "type": "object",
         "properties": {
-          "modelKey": { "type": "string" },
-          "displayName": { "type": "string" },
-          "assetRole": { "type": "string", "enum": ["tts", "asr", "enhancer"], "default": "tts" },
-          "ready": { "type": "boolean", "default": false },
-          "bootstrapRequired": { "type": "boolean", "default": false },
-          "localDir": { "type": "string" },
-          "approxSizeLabel": { "type": "string", "nullable": true }
+          "modelKey": {
+            "type": "string",
+            "title": "Modelkey"
+          },
+          "displayName": {
+            "type": "string",
+            "title": "Displayname"
+          },
+          "assetRole": {
+            "type": "string",
+            "enum": [
+              "tts",
+              "asr",
+              "enhancer"
+            ],
+            "title": "Assetrole",
+            "default": "tts"
+          },
+          "ready": {
+            "type": "boolean",
+            "title": "Ready",
+            "default": false
+          },
+          "bootstrapRequired": {
+            "type": "boolean",
+            "title": "Bootstraprequired",
+            "default": false
+          },
+          "localDir": {
+            "type": "string",
+            "title": "Localdir"
+          },
+          "approxSizeLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approxsizelabel"
+          }
         },
-        "required": ["modelKey", "displayName", "localDir"]
+        "type": "object",
+        "required": [
+          "modelKey",
+          "displayName",
+          "localDir"
+        ],
+        "title": "BootstrapAssetStatus"
+      },
+      "DownloadProgress": {
+        "properties": {
+          "phase": {
+            "type": "string",
+            "enum": [
+              "listing",
+              "downloading",
+              "finalizing"
+            ],
+            "title": "Phase",
+            "default": "listing"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "huggingface",
+                  "modelscope",
+                  "local"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "currentFile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currentfile"
+          },
+          "downloadedBytes": {
+            "type": "integer",
+            "title": "Downloadedbytes",
+            "default": 0
+          },
+          "totalBytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totalbytes"
+          },
+          "totalBytesComplete": {
+            "type": "boolean",
+            "title": "Totalbytescomplete",
+            "default": false
+          },
+          "completedFiles": {
+            "type": "integer",
+            "title": "Completedfiles",
+            "default": 0
+          },
+          "totalFiles": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totalfiles"
+          },
+          "bytesPerSecond": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytespersecond",
+            "description": "EMA-smoothed transfer rate (bytes/sec); null when listing/finalizing or unsupported by the sidecar."
+          }
+        },
+        "type": "object",
+        "title": "DownloadProgress"
+      },
+      "GenerationRequest": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "quick_tts",
+              "voice_design",
+              "controllable_clone",
+              "ultimate_clone"
+            ],
+            "title": "Mode"
+          },
+          "targetText": {
+            "type": "string",
+            "title": "Targettext"
+          },
+          "modelKey": {
+            "type": "string",
+            "title": "Modelkey",
+            "default": "voxcpm2"
+          },
+          "providerPreference": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "huggingface",
+              "modelscope"
+            ],
+            "title": "Providerpreference",
+            "default": "auto"
+          },
+          "voiceName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voicename"
+          },
+          "controlInstruction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Controlinstruction"
+          },
+          "referenceAudioPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referenceaudiopath"
+          },
+          "promptText": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompttext"
+          },
+          "extremeClone": {
+            "type": "boolean",
+            "title": "Extremeclone",
+            "default": false
+          },
+          "cfgValue": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cfgvalue",
+            "default": 2.0
+          },
+          "inferenceTimesteps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inferencetimesteps",
+            "default": 10
+          },
+          "normalize": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalize",
+            "default": true
+          },
+          "denoise": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Denoise",
+            "default": false
+          },
+          "streaming": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Streaming",
+            "default": false
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "targetText"
+        ],
+        "title": "GenerationRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
       },
       "HealthResponse": {
-        "type": "object",
         "properties": {
-          "service": { "type": "string" },
-          "status": { "type": "string", "enum": ["ok"] },
-          "instanceId": { "type": "string", "nullable": true },
-          "startedAt": { "type": "string", "nullable": true },
-          "modelLoaded": { "type": "boolean" },
-          "asrLoaded": { "type": "boolean" },
-          "coreModelReady": { "type": "boolean", "default": false },
-          "asrModelReady": { "type": "boolean", "default": false },
-          "zipEnhancerReady": { "type": "boolean", "default": false },
-          "speechToolsReady": { "type": "boolean", "default": false },
-          "bootstrapAssetsReady": { "type": "boolean", "default": false },
-          "version": { "type": "string" },
-          "deviceName": { "type": "string", "nullable": true },
-          "deviceType": { "type": "string", "nullable": true },
-          "audioOutputDir": { "type": "string", "nullable": true },
-          "cacheBytes": { "type": "integer", "default": 0 },
-          "logLevel": { "type": "string", "nullable": true },
-          "logDir": { "type": "string", "nullable": true },
-          "logBytes": { "type": "integer", "default": 0 },
-          "storageDir": { "type": "string", "nullable": true },
-          "modelDir": { "type": "string", "nullable": true },
-          "modelBytes": { "type": "integer", "default": 0 },
-          "voicesDir": { "type": "string", "nullable": true },
-          "voiceLibraryBytes": { "type": "integer", "default": 0 },
-          "huggingfaceCacheDir": { "type": "string", "nullable": true },
-          "huggingfaceCacheBytes": { "type": "integer", "default": 0 },
-          "modelscopeCacheDir": { "type": "string", "nullable": true },
-          "modelscopeCacheBytes": { "type": "integer", "default": 0 },
-          "torchCacheDir": { "type": "string", "nullable": true },
-          "torchCacheBytes": { "type": "integer", "default": 0 },
-          "downloadCacheBytes": { "type": "integer", "default": 0 },
-          "managedStorageBytes": { "type": "integer", "default": 0 },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status"
+          },
+          "instanceId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instanceid"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "modelLoaded": {
+            "type": "boolean",
+            "title": "Modelloaded"
+          },
+          "asrLoaded": {
+            "type": "boolean",
+            "title": "Asrloaded"
+          },
+          "coreModelReady": {
+            "type": "boolean",
+            "title": "Coremodelready",
+            "default": false
+          },
+          "asrModelReady": {
+            "type": "boolean",
+            "title": "Asrmodelready",
+            "default": false
+          },
+          "zipEnhancerReady": {
+            "type": "boolean",
+            "title": "Zipenhancerready",
+            "default": false
+          },
+          "speechToolsReady": {
+            "type": "boolean",
+            "title": "Speechtoolsready",
+            "default": false
+          },
+          "bootstrapAssetsReady": {
+            "type": "boolean",
+            "title": "Bootstrapassetsready",
+            "default": false
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "deviceName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Devicename"
+          },
+          "deviceType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Devicetype"
+          },
+          "audioOutputDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audiooutputdir"
+          },
+          "cacheBytes": {
+            "type": "integer",
+            "title": "Cachebytes",
+            "default": 0
+          },
+          "logLevel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loglevel"
+          },
+          "logDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logdir"
+          },
+          "logBytes": {
+            "type": "integer",
+            "title": "Logbytes",
+            "default": 0
+          },
+          "storageDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storagedir"
+          },
+          "modelDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modeldir"
+          },
+          "modelBytes": {
+            "type": "integer",
+            "title": "Modelbytes",
+            "default": 0
+          },
+          "voicesDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voicesdir"
+          },
+          "voiceLibraryBytes": {
+            "type": "integer",
+            "title": "Voicelibrarybytes",
+            "default": 0
+          },
+          "huggingfaceCacheDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Huggingfacecachedir"
+          },
+          "huggingfaceCacheBytes": {
+            "type": "integer",
+            "title": "Huggingfacecachebytes",
+            "default": 0
+          },
+          "modelscopeCacheDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modelscopecachedir"
+          },
+          "modelscopeCacheBytes": {
+            "type": "integer",
+            "title": "Modelscopecachebytes",
+            "default": 0
+          },
+          "torchCacheDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Torchcachedir"
+          },
+          "torchCacheBytes": {
+            "type": "integer",
+            "title": "Torchcachebytes",
+            "default": 0
+          },
+          "downloadCacheBytes": {
+            "type": "integer",
+            "title": "Downloadcachebytes",
+            "default": 0
+          },
+          "managedStorageBytes": {
+            "type": "integer",
+            "title": "Managedstoragebytes",
+            "default": 0
+          },
           "bootstrapAssets": {
+            "items": {
+              "$ref": "#/components/schemas/BootstrapAssetStatus"
+            },
             "type": "array",
-            "items": { "$ref": "#/components/schemas/BootstrapAssetStatus" },
-            "default": []
+            "title": "Bootstrapassets"
           },
           "legacyAsrModelPresent": {
             "type": "boolean",
-            "default": false,
-            "description": "是否仍存在旧版 PyTorch SenseVoice 目录（sensevoice_small/model.pt）；桌面端据此提示迁移至 ONNX"
+            "title": "Legacyasrmodelpresent",
+            "default": false
           }
         },
-        "required": ["service", "status", "modelLoaded", "asrLoaded", "version"]
-      },
-      "ProviderInfo": {
         "type": "object",
-        "properties": {
-          "repoId": { "type": "string", "nullable": true },
-          "modelId": { "type": "string", "nullable": true }
-        }
+        "required": [
+          "service",
+          "status",
+          "modelLoaded",
+          "asrLoaded",
+          "version"
+        ],
+        "title": "HealthResponse"
       },
       "ModelCatalogEntry": {
-        "type": "object",
         "properties": {
-          "modelKey": { "type": "string" },
-          "displayName": { "type": "string" },
-          "description": { "type": "string", "nullable": true },
-          "descriptionKey": { "type": "string", "nullable": true },
-          "tags": { "type": "array", "items": { "type": "string" }, "default": [] },
-          "defaultProvider": { "type": "string", "enum": ["huggingface", "modelscope"] },
-          "localDir": { "type": "string" },
-          "assetRole": { "type": "string", "enum": ["tts", "asr", "enhancer"], "default": "tts" },
-          "bootstrapRequired": { "type": "boolean", "default": false },
-          "approxSizeLabel": { "type": "string", "nullable": true },
+          "modelKey": {
+            "type": "string",
+            "title": "Modelkey"
+          },
+          "displayName": {
+            "type": "string",
+            "title": "Displayname"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "descriptionKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descriptionkey"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "defaultProvider": {
+            "type": "string",
+            "enum": [
+              "huggingface",
+              "modelscope"
+            ],
+            "title": "Defaultprovider"
+          },
+          "localDir": {
+            "type": "string",
+            "title": "Localdir"
+          },
+          "assetRole": {
+            "type": "string",
+            "enum": [
+              "tts",
+              "asr",
+              "enhancer"
+            ],
+            "title": "Assetrole",
+            "default": "tts"
+          },
+          "bootstrapRequired": {
+            "type": "boolean",
+            "title": "Bootstraprequired",
+            "default": false
+          },
+          "approxSizeLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approxsizelabel"
+          },
           "providers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ProviderInfo"
+            },
             "type": "object",
-            "additionalProperties": { "$ref": "#/components/schemas/ProviderInfo" }
+            "title": "Providers"
           }
         },
-        "required": ["modelKey", "displayName", "defaultProvider", "localDir", "providers"]
-      },
-      "ProviderRecommendation": {
         "type": "object",
-        "properties": {
-          "publicIp": { "type": "string", "nullable": true },
-          "location": { "type": "string", "nullable": true },
-          "preferred": { "type": "string", "enum": ["auto", "huggingface", "modelscope"], "default": "auto" },
-          "recommended": { "type": "string", "enum": ["huggingface", "modelscope", "local"] },
-          "current": { "type": "string", "enum": ["huggingface", "modelscope", "local"] },
-          "reason": {
-            "type": "string",
-            "enum": ["ip_region_cn", "ip_region_global", "manual_override", "fallback_after_failure", "provider_health", "default_fallback"]
-          },
-          "userOverridden": { "type": "boolean", "default": false }
-        },
-        "required": ["recommended", "current", "reason"]
-      },
-      "ModelPrepareRequest": {
-        "type": "object",
-        "properties": {
-          "modelKey": { "type": "string", "default": "voxcpm2" },
-          "providerPreference": { "type": "string", "enum": ["auto", "huggingface", "modelscope"], "default": "auto" },
-          "ensureDownloaded": { "type": "boolean", "default": false }
-        }
-      },
-      "ModelPrepareResponse": {
-        "type": "object",
-        "properties": {
-          "modelKey": { "type": "string" },
-          "modelPath": { "type": "string" },
-          "provider": { "type": "string", "enum": ["huggingface", "modelscope", "local"] },
-          "existsLocally": { "type": "boolean" },
-          "configExists": { "type": "boolean" },
-          "recommendation": { "$ref": "#/components/schemas/ProviderRecommendation" }
-        },
-        "required": ["modelKey", "modelPath", "provider", "existsLocally", "configExists", "recommendation"]
-      },
-      "ModelValidateRequest": {
-        "type": "object",
-        "properties": {
-          "modelPath": { "type": "string" }
-        },
-        "required": ["modelPath"]
-      },
-      "ModelValidateResponse": {
-        "type": "object",
-        "properties": {
-          "valid": { "type": "boolean" },
-          "architecture": { "type": "string", "nullable": true },
-          "modelKey": { "type": "string", "nullable": true },
-          "version": { "type": "string", "nullable": true },
-          "error": { "$ref": "#/components/schemas/AppError", "nullable": true }
-        },
-        "required": ["valid"]
+        "required": [
+          "modelKey",
+          "displayName",
+          "defaultProvider",
+          "localDir",
+          "providers"
+        ],
+        "title": "ModelCatalogEntry"
       },
       "ModelDownloadRequest": {
-        "type": "object",
         "properties": {
-          "modelKey": { "type": "string", "default": "voxcpm2" },
-          "providerPreference": { "type": "string", "enum": ["auto", "huggingface", "modelscope"], "default": "auto" }
-        }
-      },
-      "GenerationRequest": {
-        "type": "object",
-        "properties": {
-          "mode": { "type": "string", "enum": ["quick_tts", "voice_design", "controllable_clone", "ultimate_clone"] },
-          "targetText": { "type": "string" },
-          "modelKey": { "type": "string", "default": "voxcpm2" },
-          "providerPreference": { "type": "string", "enum": ["auto", "huggingface", "modelscope"], "default": "auto" },
-          "controlInstruction": { "type": "string", "nullable": true },
-          "referenceAudioPath": { "type": "string", "nullable": true },
-          "promptText": { "type": "string", "nullable": true },
-          "extremeClone": { "type": "boolean", "default": false },
-          "cfgValue": { "type": "number", "nullable": true, "default": 2.0 },
-          "inferenceTimesteps": { "type": "integer", "nullable": true, "default": 10 },
-          "normalize": { "type": "boolean", "nullable": true, "default": true },
-          "denoise": { "type": "boolean", "nullable": true, "default": false },
-          "streaming": { "type": "boolean", "nullable": true, "default": false },
-          "seed": { "type": "integer", "nullable": true }
+          "modelKey": {
+            "type": "string",
+            "title": "Modelkey",
+            "default": "voxcpm2"
+          },
+          "providerPreference": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "huggingface",
+              "modelscope"
+            ],
+            "title": "Providerpreference",
+            "default": "auto"
+          }
         },
-        "required": ["mode", "targetText"]
-      },
-      "AudioTranscriptionRequest": {
         "type": "object",
+        "title": "ModelDownloadRequest"
+      },
+      "ModelPrepareRequest": {
         "properties": {
-          "audioPath": { "type": "string" },
-          "modelKey": { "type": "string", "default": "sensevoice_small" }
+          "modelKey": {
+            "type": "string",
+            "title": "Modelkey",
+            "default": "voxcpm2"
+          },
+          "providerPreference": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "huggingface",
+              "modelscope"
+            ],
+            "title": "Providerpreference",
+            "default": "auto"
+          },
+          "ensureDownloaded": {
+            "type": "boolean",
+            "title": "Ensuredownloaded",
+            "default": false
+          }
         },
-        "required": ["audioPath"]
-      },
-      "DownloadProgress": {
         "type": "object",
-        "properties": {
-          "phase": { "type": "string", "enum": ["listing", "downloading", "finalizing"], "default": "listing" },
-          "provider": { "type": "string", "enum": ["huggingface", "modelscope", "local"], "nullable": true },
-          "currentFile": { "type": "string", "nullable": true },
-          "downloadedBytes": { "type": "integer", "default": 0 },
-          "totalBytes": { "type": "integer", "nullable": true },
-          "totalBytesComplete": { "type": "boolean", "default": false },
-          "completedFiles": { "type": "integer", "default": 0 },
-          "totalFiles": { "type": "integer", "nullable": true }
-        }
+        "title": "ModelPrepareRequest"
       },
-      "BootstrapAssetDownloadProgress": {
-        "type": "object",
+      "ModelPrepareResponse": {
         "properties": {
-          "modelKey": { "type": "string" },
-          "displayName": { "type": "string" },
-          "status": { "type": "string", "enum": ["pending", "running", "succeeded", "failed"], "default": "pending" },
-          "progress": { "type": "integer", "default": 0 },
-          "provider": { "type": "string", "enum": ["huggingface", "modelscope", "local"], "nullable": true },
-          "currentFile": { "type": "string", "nullable": true },
-          "downloadedBytes": { "type": "integer", "default": 0 },
-          "totalBytes": { "type": "integer", "nullable": true },
-          "totalBytesComplete": { "type": "boolean", "default": false }
+          "modelKey": {
+            "type": "string",
+            "title": "Modelkey"
+          },
+          "modelPath": {
+            "type": "string",
+            "title": "Modelpath"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "huggingface",
+              "modelscope",
+              "local"
+            ],
+            "title": "Provider"
+          },
+          "existsLocally": {
+            "type": "boolean",
+            "title": "Existslocally"
+          },
+          "configExists": {
+            "type": "boolean",
+            "title": "Configexists"
+          },
+          "recommendation": {
+            "$ref": "#/components/schemas/ProviderRecommendation"
+          }
         },
-        "required": ["modelKey", "displayName"]
-      },
-      "TaskResult": {
         "type": "object",
+        "required": [
+          "modelKey",
+          "modelPath",
+          "provider",
+          "existsLocally",
+          "configExists",
+          "recommendation"
+        ],
+        "title": "ModelPrepareResponse"
+      },
+      "ModelValidateRequest": {
         "properties": {
-          "audioPath": { "type": "string", "nullable": true },
-          "rawAudioPath": { "type": "string", "nullable": true },
-          "enhancedAudioPath": { "type": "string", "nullable": true },
-          "sampleRate": { "type": "integer", "nullable": true },
-          "durationMs": { "type": "integer", "nullable": true },
-          "transcript": { "type": "string", "nullable": true },
-          "transcriptLanguage": { "type": "string", "nullable": true },
-          "modelKey": { "type": "string", "nullable": true },
-          "modelPath": { "type": "string", "nullable": true },
-          "provider": { "type": "string", "enum": ["huggingface", "modelscope", "local"], "nullable": true },
-          "completedAssets": { "type": "array", "items": { "type": "string" }, "default": [] }
-        }
+          "modelPath": {
+            "type": "string",
+            "title": "Modelpath"
+          }
+        },
+        "type": "object",
+        "required": [
+          "modelPath"
+        ],
+        "title": "ModelValidateRequest"
+      },
+      "ModelValidateResponse": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "architecture": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Architecture"
+          },
+          "modelKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modelkey"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid"
+        ],
+        "title": "ModelValidateResponse"
+      },
+      "ProviderInfo": {
+        "properties": {
+          "repoId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repoid"
+          },
+          "modelId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modelid"
+          }
+        },
+        "type": "object",
+        "title": "ProviderInfo"
+      },
+      "ProviderRecommendation": {
+        "properties": {
+          "publicIp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publicip"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "preferred": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "huggingface",
+              "modelscope"
+            ],
+            "title": "Preferred",
+            "default": "auto"
+          },
+          "recommended": {
+            "type": "string",
+            "enum": [
+              "huggingface",
+              "modelscope",
+              "local"
+            ],
+            "title": "Recommended"
+          },
+          "current": {
+            "type": "string",
+            "enum": [
+              "huggingface",
+              "modelscope",
+              "local"
+            ],
+            "title": "Current"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "ip_region_cn",
+              "ip_region_global",
+              "manual_override",
+              "fallback_after_failure",
+              "provider_health",
+              "default_fallback"
+            ],
+            "title": "Reason"
+          },
+          "userOverridden": {
+            "type": "boolean",
+            "title": "Useroverridden",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "recommended",
+          "current",
+          "reason"
+        ],
+        "title": "ProviderRecommendation"
       },
       "TaskRecord": {
-        "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "type": { "type": "string", "enum": ["bootstrap", "generate", "asr_transcribe"] },
-          "status": { "type": "string", "enum": ["queued", "running", "succeeded", "failed", "cancelled"] },
-          "createdAt": { "type": "string" },
-          "updatedAt": { "type": "string" },
-          "title": { "type": "string", "nullable": true },
-          "progress": { "type": "integer", "nullable": true },
-          "message": { "type": "string", "nullable": true },
-          "downloadProgress": { "$ref": "#/components/schemas/DownloadProgress", "nullable": true },
-          "bootstrapAssetProgress": {
-            "type": "array",
-            "items": { "$ref": "#/components/schemas/BootstrapAssetDownloadProgress" },
-            "default": []
+          "id": {
+            "type": "string",
+            "title": "Id"
           },
-          "result": { "$ref": "#/components/schemas/TaskResult", "nullable": true },
-          "error": { "$ref": "#/components/schemas/AppError", "nullable": true }
+          "type": {
+            "type": "string",
+            "enum": [
+              "bootstrap",
+              "generate",
+              "asr_transcribe",
+              "cuda_upgrade"
+            ],
+            "title": "Type"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "voiceName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voicename"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "downloadProgress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DownloadProgress"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bootstrapAssetProgress": {
+            "items": {
+              "$ref": "#/components/schemas/BootstrapAssetDownloadProgress"
+            },
+            "type": "array",
+            "title": "Bootstrapassetprogress"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         },
-        "required": ["id", "type", "status", "createdAt", "updatedAt"]
-      },
-      "VoiceEntry": {
         "type": "object",
+        "required": [
+          "id",
+          "type",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "TaskRecord"
+      },
+      "TaskResult": {
         "properties": {
-          "id": { "type": "string" },
-          "name": { "type": "string" },
-          "language": { "type": "string" },
-          "description": { "type": "string" },
-          "durationSeconds": { "type": "number", "nullable": true },
-          "referenceAudioPath": { "type": "string", "nullable": true },
-          "referenceTranscript": { "type": "string", "nullable": true },
-          "transcriptLanguage": { "type": "string", "nullable": true },
-          "sourceType": { "type": "string", "enum": ["builtin", "user"], "default": "user" },
-          "canRename": { "type": "boolean", "default": false },
-          "canDelete": { "type": "boolean", "default": false },
-          "presetKey": { "type": "string", "nullable": true },
-          "createdAt": { "type": "string" },
-          "updatedAt": { "type": "string" }
+          "audioPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audiopath"
+          },
+          "rawAudioPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rawaudiopath"
+          },
+          "enhancedAudioPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enhancedaudiopath"
+          },
+          "sampleRate": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Samplerate"
+          },
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationms"
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript"
+          },
+          "transcriptLanguage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcriptlanguage"
+          },
+          "modelKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modelkey"
+          },
+          "modelPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modelpath"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "huggingface",
+                  "modelscope",
+                  "local"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "completedAssets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Completedassets"
+          }
         },
-        "required": ["id", "name", "language", "description", "createdAt", "updatedAt"]
+        "type": "object",
+        "title": "TaskResult"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
       },
       "VoiceCreateRequest": {
-        "type": "object",
         "properties": {
-          "name": { "type": "string" },
-          "language": { "type": "string", "default": "zh" },
-          "description": { "type": "string" },
-          "referenceAudioPath": { "type": "string", "nullable": true },
-          "referenceTranscript": { "type": "string", "nullable": true },
-          "transcriptLanguage": { "type": "string", "nullable": true }
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language",
+            "default": "zh"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "referenceAudioPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referenceaudiopath"
+          },
+          "referenceTranscript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referencetranscript"
+          },
+          "transcriptLanguage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcriptlanguage"
+          }
         },
-        "required": ["name", "description"]
+        "type": "object",
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "VoiceCreateRequest"
+      },
+      "VoiceEntry": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "durationSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationseconds"
+          },
+          "referenceAudioPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referenceaudiopath"
+          },
+          "referenceTranscript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referencetranscript"
+          },
+          "transcriptLanguage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcriptlanguage"
+          },
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "builtin",
+              "user"
+            ],
+            "title": "Sourcetype",
+            "default": "user"
+          },
+          "canRename": {
+            "type": "boolean",
+            "title": "Canrename",
+            "default": false
+          },
+          "canDelete": {
+            "type": "boolean",
+            "title": "Candelete",
+            "default": false
+          },
+          "presetKey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Presetkey"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "language",
+          "description",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "VoiceEntry"
       },
       "VoiceUpdateRequest": {
-        "type": "object",
         "properties": {
-          "name": { "type": "string", "nullable": true },
-          "language": { "type": "string", "nullable": true },
-          "description": { "type": "string", "nullable": true },
-          "referenceTranscript": { "type": "string", "nullable": true },
-          "transcriptLanguage": { "type": "string", "nullable": true }
-        }
-      },
-      "CacheClearResponse": {
-        "type": "object",
-        "properties": {
-          "success": { "type": "boolean" },
-          "clearedFiles": { "type": "integer" },
-          "clearedBytes": { "type": "integer" },
-          "remainingBytes": { "type": "integer" },
-          "removedTasks": { "type": "integer" },
-          "removedTaskIds": { "type": "array", "items": { "type": "string" } },
-          "clearedAudioDirs": { "type": "array", "items": { "type": "string" } },
-          "serviceInfo": { "$ref": "#/components/schemas/HealthResponse" }
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "referenceTranscript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referencetranscript"
+          },
+          "transcriptLanguage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcriptlanguage"
+          }
         },
-        "required": ["success", "clearedFiles", "clearedBytes", "remainingBytes", "removedTasks", "removedTaskIds", "clearedAudioDirs", "serviceInfo"]
+        "type": "object",
+        "title": "VoiceUpdateRequest"
       }
     }
   }

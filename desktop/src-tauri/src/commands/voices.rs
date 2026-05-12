@@ -66,7 +66,12 @@ pub async fn update_voice(
             .unwrap_or_else(|| "python_sidecar_not_ready".into()));
     }
 
-    patch_json(state.inner(), &format!("/api/v1/voices/{voice_id}"), &payload).await
+    patch_json(
+        state.inner(),
+        &format!("/api/v1/voices/{voice_id}"),
+        &payload,
+    )
+    .await
 }
 
 #[tauri::command]

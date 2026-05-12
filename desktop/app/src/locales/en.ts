@@ -90,12 +90,15 @@ const en = {
     },
     init: {
       title: "Check Device Readiness",
-      desc: "Confirm the device meets the minimum requirements before manually starting model download.",
-      deviceTitle: "CPU And Memory",
+      desc: "Confirm the device meets the minimum requirements before continuing the setup.",
+      deviceTitle: "Device",
+      deviceTitleCpu: "CPU And Memory",
+      deviceTitleGpu: "GPU And VRAM",
       storageTitle: "Available Storage",
       environmentTitle: "Local Runtime Environment",
       memoryHealthy: "Total memory {{memory}} meets the recommended requirement.",
       memoryWarning: "Only {{memory}} memory detected. This is below the recommended {{recommended}} and may impact smooth performance.",
+      gpuMissing: "No compatible NVIDIA GPU detected. CUDA GPU inference is required on this build.",
       storageHealthy:
         "{{available}} is currently available and meets the minimum {{minimum}} requirement.",
       storageWarning:
@@ -295,6 +298,22 @@ const en = {
       recentError: "Recent Error",
       none: "None",
     },
+    inferenceBackend: {
+      title: "Inference Backend",
+      activeLabel: "Active backend",
+      gpuDetected: "NVIDIA GPU detected",
+      gpuNotDetected: "No NVIDIA GPU detected",
+      vramLabel: "GPU VRAM",
+      cpu: "CPU",
+      cuda: "CUDA",
+      mps: "MPS (Apple Silicon)",
+      downloadedCuda:
+        "On Windows, Voca downloads the CUDA inference runtime during first-run setup and then runs on GPU only.",
+      gpuRequired:
+        "An NVIDIA GPU with at least {{minimum}} of VRAM is required to download and run the CUDA inference backend.",
+      gpuInsufficient:
+        "Detected VRAM is {{memory}}, below the minimum requirement of {{minimum}}. The CUDA backend cannot start.",
+    },
     modelManagement: {
       title: "Model Management",
       count: "{{count}} models",
@@ -330,6 +349,8 @@ const en = {
       clear: "Clear",
       exportLogs: "Export Logs",
       openDir: "Open Storage Directory",
+      calculating: "Calculating…",
+      refreshFailed: "Refresh failed, click to retry",
     },
     general: {
       title: "General Settings",

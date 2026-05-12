@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import type {
   BootstrapState,
   BootstrapAssetDownloadProgress,
@@ -15,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { IconAlert, IconArrowRight, IconCheck, IconVocaLogo } from "../components/Icons";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { StepIndicator } from "../components/StepIndicator";
+import { useDownloadSpeed } from "../lib/useDownloadSpeed";
 
 type BootstrapFlowView = "welcome" | "download" | "initialize" | "complete";
 
@@ -70,12 +70,6 @@ type InitializeCheckItem = {
   status: InitializeCheckVisualStatus;
 };
 
-type DownloadSpeedSample = {
-  bytes: number;
-  atMs: number;
-  taskUpdatedAt: string | null;
-};
-
 function getFlowSteps(view: BootstrapFlowView, t: Translate) {
   const map: Record<BootstrapFlowView, [StepStatus, StepStatus, StepStatus]> = {
     welcome: ["active", "pending", "pending"],
@@ -89,6 +83,61 @@ function getFlowSteps(view: BootstrapFlowView, t: Translate) {
     { label: t("bootstrap.flow.step2"), status: statuses[1] },
     { label: t("bootstrap.flow.step3"), status: statuses[2] },
   ];
+}
+
+function formatDeviceTypeLabel(deviceType?: string | null) {
+  if (!deviceType) return null;
+  const normalised = deviceType.trim().toLowerCase();
+  if (normalised === "mps") return "MPS";
+  if (normalised === "cuda") return "CUDA";
+  if (normalised === "cpu") return "CPU";
+  return deviceType;
+}
+
+function cleanDeviceName(raw?: string | null): string | null {
+  if (!raw) return null;
+  let value = raw.replace(/\s+/g, " ").trim();
+  if (!value) return null;
+  // Strip marketing noise that bloats the card without adding information.
+  value = value.replace(/\((?:R|TM|C)\)/gi, "");
+  value = value.replace(/\b(?:Intel|NVIDIA|AMD|Advanced Micro Devices|Apple)\s+Corporation\b/gi, "");
+  // ``Intel(R) Core(TM) i9-14900HX`` → ``Intel Core i9-14900HX``
+  value = value.replace(/\bCore\s+(?:CPU|Processor)\b/gi, "Core");
+  // ``NVIDIA GeForce RTX 4090 Laptop GPU`` → ``GeForce RTX 4090 Laptop``
+  value = value.replace(/\s+(?:Graphics|GPU)$/i, "");
+  // Apple silicon labels stay as-is once trimmed.
+  value = value.replace(/\s+/g, " ").trim();
+  return value || null;
+}
+
+type DeviceSummary = {
+  primary: string;
+  secondary: string | null;
+};
+
+function formatDeviceSummary(
+  serviceInfo: ServiceInfo | null | undefined,
+  setupDiagnostics: SetupDiagnostics | null | undefined,
+  t: Translate,
+): DeviceSummary {
+  const deviceLabel = formatDeviceTypeLabel(serviceInfo?.deviceType);
+  const deviceName = cleanDeviceName(serviceInfo?.deviceName);
+  if (deviceName) {
+    return { primary: deviceName, secondary: deviceLabel };
+  }
+  if (deviceLabel) {
+    return { primary: deviceLabel, secondary: null };
+  }
+  const gpuName = cleanDeviceName(setupDiagnostics?.gpuName);
+  const gpuMemoryBytes = setupDiagnostics?.gpuMemoryBytes ?? null;
+  if (gpuName) {
+    const memory = gpuMemoryBytes !== null ? formatBytes(gpuMemoryBytes) : null;
+    return {
+      primary: gpuName,
+      secondary: memory ? `CUDA · ${memory}` : "CUDA",
+    };
+  }
+  return { primary: t("bootstrap.init.detecting"), secondary: null };
 }
 
 function formatModelDisplayName(modelKey?: string | null) {
@@ -148,8 +197,11 @@ function formatStorageBytes(value: number) {
 }
 
 function formatTransferRate(bytesPerSecond: number) {
-  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) {
     return null;
+  }
+  if (bytesPerSecond === 0) {
+    return "0 B/s";
   }
   return `${formatBytes(bytesPerSecond)}/s`;
 }
@@ -179,23 +231,75 @@ function formatDownloadSummary(downloadTask: TaskRecord | null | undefined, t: T
   return null;
 }
 
+function isWindowsPlatform(setupDiagnostics: SetupDiagnostics | null | undefined): boolean {
+  // Treat the platform check as Windows-only when the backend explicitly
+  // reports it. Older builds (pre-Windows-integration) don't emit `platform`
+  // and ran on macOS, so an absent value falls back to the non-Windows path.
+  return setupDiagnostics?.platform === "windows";
+}
+
+function buildWindowsDeviceCheck(
+  setupDiagnostics: SetupDiagnostics,
+  t: Translate,
+): InitializeCheckItem {
+  const minimumGpuMemoryBytes =
+    setupDiagnostics.minimumGpuMemoryBytes ?? 6 * 1024 * 1024 * 1024;
+  const gpuMemoryBytes = setupDiagnostics.gpuMemoryBytes ?? null;
+  const hasNvidiaGpu = Boolean(setupDiagnostics.hasNvidiaGpu);
+  const gpuInsufficient =
+    !hasNvidiaGpu || gpuMemoryBytes === null || gpuMemoryBytes < minimumGpuMemoryBytes;
+
+  const summary = !hasNvidiaGpu
+    ? t("bootstrap.init.gpuMissing")
+    : [
+        setupDiagnostics.gpuName,
+        gpuMemoryBytes !== null ? formatBytes(gpuMemoryBytes) : t("bootstrap.init.detecting"),
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
+  return {
+    key: "device",
+    title: t("bootstrap.init.deviceTitleGpu"),
+    summary,
+    status: gpuInsufficient ? "blocked" : "done",
+  };
+}
+
+function buildHostDeviceCheck(
+  setupDiagnostics: SetupDiagnostics,
+  t: Translate,
+): InitializeCheckItem {
+  const recommendedMemoryBytes = setupDiagnostics.recommendedMemoryBytes ?? 12 * 1024 * 1024 * 1024;
+  const totalMemoryBytes = setupDiagnostics.totalMemoryBytes ?? null;
+  const memoryLow = totalMemoryBytes !== null && totalMemoryBytes < recommendedMemoryBytes;
+
+  const summary = [
+    setupDiagnostics.cpuName,
+    totalMemoryBytes !== null ? formatBytes(totalMemoryBytes) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ") || t("bootstrap.init.detecting");
+
+  return {
+    key: "device",
+    title: t("bootstrap.init.deviceTitleCpu"),
+    summary,
+    // Memory shortfall is informational on macOS/Linux — we surface it as a
+    // warning instead of blocking the bootstrap entirely (matching main).
+    status: memoryLow ? "warning" : "done",
+  };
+}
+
 function getInitializeChecks(
   setupDiagnostics: SetupDiagnostics | null | undefined,
   t: Translate,
 ): InitializeCheckItem[] {
-  const recommendedMemoryBytes = setupDiagnostics?.recommendedMemoryBytes ?? 12 * 1024 * 1024 * 1024;
   const minimumFreeStorageBytes = setupDiagnostics?.minimumFreeStorageBytes ?? 6_000_000_000;
-  const totalMemoryBytes = setupDiagnostics?.totalMemoryBytes ?? null;
   const availableStorageBytes = setupDiagnostics?.availableStorageBytes ?? null;
-  const memoryLow = totalMemoryBytes !== null && totalMemoryBytes < recommendedMemoryBytes;
   const storageInsufficient =
     availableStorageBytes !== null && availableStorageBytes < minimumFreeStorageBytes;
 
-  const cpuSummary = setupDiagnostics
-    ? [setupDiagnostics.cpuName, totalMemoryBytes !== null ? formatBytes(totalMemoryBytes) : null]
-        .filter(Boolean)
-        .join(" · ")
-    : t("bootstrap.init.detecting");
   const storageSummary = setupDiagnostics
     ? availableStorageBytes !== null
       ? formatStorageBytes(availableStorageBytes)
@@ -209,13 +313,19 @@ function getInitializeChecks(
     environmentStatus = "blocked";
   }
 
+  const deviceCheck: InitializeCheckItem = setupDiagnostics
+    ? isWindowsPlatform(setupDiagnostics)
+      ? buildWindowsDeviceCheck(setupDiagnostics, t)
+      : buildHostDeviceCheck(setupDiagnostics, t)
+    : {
+        key: "device",
+        title: t("bootstrap.init.deviceTitle"),
+        summary: t("bootstrap.init.detecting"),
+        status: "pending",
+      };
+
   return [
-    {
-      key: "device",
-      title: t("bootstrap.init.deviceTitle"),
-      summary: cpuSummary,
-      status: setupDiagnostics ? (memoryLow ? "warning" : "done") : "pending",
-    },
+    deviceCheck,
     {
       key: "storage",
       title: t("bootstrap.init.storageTitle"),
@@ -246,7 +356,18 @@ function getBootstrapAssetCards(
   const shouldPreferTaskProgress = assetProgress.length > 0 && taskStatus !== null && taskStatus !== undefined;
 
   if (bootstrapAssets.length > 0) {
-    return bootstrapAssets.map((asset) => {
+    const knownAssetKeys = new Set(bootstrapAssets.map((asset) => asset.modelKey));
+    const extraTaskCards = assetProgress
+      .filter((asset) => !knownAssetKeys.has(asset.modelKey))
+      .map((asset) => ({
+        modelKey: asset.modelKey,
+        displayName: asset.displayName,
+        ready: asset.status === "succeeded",
+        progress: clampProgress(asset.progress),
+        status: asset.status,
+      }));
+
+    const bootstrapCards = bootstrapAssets.map((asset) => {
       const progress = progressByModelKey.get(asset.modelKey);
       if (shouldPreferTaskProgress) {
         const status: BootstrapAssetCardStatus =
@@ -273,6 +394,8 @@ function getBootstrapAssetCards(
         status,
       };
     });
+
+    return [...bootstrapCards, ...extraTaskCards];
   }
 
   return assetProgress.map((asset) => ({
@@ -308,13 +431,6 @@ export function BootstrapFlowPage({
   onRetryDownload,
 }: BootstrapFlowPageProps) {
   const { t } = useTranslation();
-  const speedSampleRef = useRef<DownloadSpeedSample | null>(null);
-  const stagnantSinceRef = useRef<number | null>(null);
-  const [downloadSpeedBps, setDownloadSpeedBps] = useState<number | null>(null);
-  const latestProgressRef = useRef<{ bytes: number; isActive: boolean }>({
-    bytes: 0,
-    isActive: false,
-  });
   const bootstrapAssets = serviceInfo?.bootstrapAssets ?? [];
   const initializeChecks = getInitializeChecks(setupDiagnostics, t);
   const bootstrapAssetCards = getBootstrapAssetCards(
@@ -347,76 +463,24 @@ export function BootstrapFlowPage({
     !isDownloadErrorState && downloadStatusText
       ? t("bootstrap.download.status", { status: downloadStatusText })
       : null;
-  const speedLabel = downloadSpeedBps ? formatTransferRate(downloadSpeedBps) : null;
+  const progressInfo = downloadTask?.downloadProgress;
+  const isSpeedTrackingActive =
+    view === "download" &&
+    downloadTask?.status === "running" &&
+    progressInfo?.phase === "downloading";
+  const downloadSpeedBps = useDownloadSpeed({
+    active: isSpeedTrackingActive,
+    downloadedBytes: progressInfo?.downloadedBytes,
+    serverBytesPerSecond: progressInfo?.bytesPerSecond,
+    currentFile: progressInfo?.currentFile ?? null,
+  });
+  const speedLabel = downloadSpeedBps !== null ? formatTransferRate(downloadSpeedBps) : null;
   const downloadSpeedText =
     downloadTask?.status === "running" && downloadTask.downloadProgress?.phase === "downloading"
       ? t("bootstrap.download.speed", { speed: speedLabel ?? t("bootstrap.download.speedPending") })
       : null;
   const canRetryDownload =
     downloadTask?.status === "failed" || downloadTask?.status === "cancelled";
-
-  const progressInfo = downloadTask?.downloadProgress;
-  const isSpeedTrackingActive =
-    view === "download" &&
-    downloadTask?.status === "running" &&
-    progressInfo?.phase === "downloading";
-  latestProgressRef.current = {
-    bytes: progressInfo?.downloadedBytes ?? 0,
-    isActive: !!isSpeedTrackingActive,
-  };
-
-  useEffect(() => {
-    if (view !== "download") {
-      speedSampleRef.current = null;
-      stagnantSinceRef.current = null;
-      setDownloadSpeedBps(null);
-      return;
-    }
-
-    const tick = () => {
-      const { bytes: currentBytes, isActive } = latestProgressRef.current;
-
-      if (!isActive) {
-        speedSampleRef.current = null;
-        stagnantSinceRef.current = null;
-        setDownloadSpeedBps(null);
-        return;
-      }
-
-      const nowMs = Date.now();
-      const previousSample = speedSampleRef.current;
-
-      if (!previousSample) {
-        speedSampleRef.current = { bytes: currentBytes, atMs: nowMs, taskUpdatedAt: null };
-        stagnantSinceRef.current = currentBytes > 0 ? nowMs : null;
-        return;
-      }
-
-      const deltaBytes = currentBytes - previousSample.bytes;
-      const deltaMs = nowMs - previousSample.atMs;
-
-      if (deltaBytes > 0 && deltaMs >= 250) {
-        const instantBps = (deltaBytes / deltaMs) * 1000;
-        setDownloadSpeedBps((previousSpeed) =>
-          previousSpeed && Number.isFinite(previousSpeed)
-            ? previousSpeed * 0.65 + instantBps * 0.35
-            : instantBps,
-        );
-        stagnantSinceRef.current = nowMs;
-        speedSampleRef.current = { bytes: currentBytes, atMs: nowMs, taskUpdatedAt: null };
-      } else {
-        const stagnantSince = stagnantSinceRef.current ?? previousSample.atMs;
-        stagnantSinceRef.current = stagnantSince;
-        if (nowMs - stagnantSince >= 4000) {
-          setDownloadSpeedBps(null);
-        }
-      }
-    };
-
-    tick();
-    const timer = setInterval(tick, 800);
-    return () => clearInterval(timer);
-  }, [view]);
 
   if (view === "welcome") {
     return (
@@ -559,10 +623,6 @@ export function BootstrapFlowPage({
                   </div>
                 </div>
                 <div className="summary-card">
-                  <div className="summary-card__label">{t("bootstrap.complete.deviceLabel")}</div>
-                  <div className="summary-card__value">MPS (Apple Silicon)</div>
-                </div>
-                <div className="summary-card">
                   <div className="summary-card__label">{t("bootstrap.complete.asrLabel")}</div>
                   <div className="summary-card__value">
                     {serviceInfo?.asrModelReady ? t("bootstrap.complete.assetReady") : t("bootstrap.complete.assetWaiting")}
@@ -576,6 +636,18 @@ export function BootstrapFlowPage({
                       : t("bootstrap.complete.assetWaiting")}
                   </div>
                 </div>
+                {(() => {
+                  const device = formatDeviceSummary(serviceInfo, setupDiagnostics, t);
+                  return (
+                    <div className="summary-card summary-card--device">
+                      <div className="summary-card__label">{t("bootstrap.complete.deviceLabel")}</div>
+                      <div className="summary-card__value">{device.primary}</div>
+                      {device.secondary ? (
+                        <div className="summary-card__caption">{device.secondary}</div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </>

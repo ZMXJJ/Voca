@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import threading
 import uuid
@@ -23,6 +24,16 @@ from app.services.asr_bridge import ASRBridge
 from app.services.bootstrap_assets import bootstrap_entries
 from app.services.model_catalog import get_model_entry
 from app.services.voxcpm_bridge import DownloadProgressEvent, VoxCPMBridge
+
+
+class CudaUpgradeUnsupported(RuntimeError):
+    """Raised when the caller asks for a CUDA upgrade on a platform that
+    does not support it (currently anything other than Windows).
+
+    The Tauri/HTTP layer is expected to translate this into a typed error
+    response (`cuda_upgrade_unsupported_platform`) instead of letting it
+    bubble up as a generic HTTP 500.
+    """
 
 
 def _format_bytes(value: int) -> str:
@@ -107,13 +118,24 @@ def _download_message(progress: DownloadProgress, model_name: str) -> str:
 
 
 def _create_bootstrap_asset_progress(entries) -> list[BootstrapAssetDownloadProgress]:
-    return [
+    items: list[BootstrapAssetDownloadProgress] = []
+    if os.name == "nt":
+        items.append(
+            BootstrapAssetDownloadProgress(
+                modelKey="cuda_runtime",
+                displayName="CUDA Runtime",
+            )
+        )
+    items.extend(
+        [
         BootstrapAssetDownloadProgress(
             modelKey=entry.modelKey,
             displayName=entry.displayName,
         )
         for entry in entries
-    ]
+        ]
+    )
+    return items
 
 
 def _update_bootstrap_asset_progress(
@@ -223,6 +245,7 @@ class TaskManager:
         task_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
         entries = bootstrap_entries()
+        total_files = len(entries) + (1 if os.name == "nt" else 0)
         task = TaskRecord(
             id=task_id,
             type="bootstrap",
@@ -238,7 +261,7 @@ class TaskManager:
                 totalBytes=None,
                 totalBytesComplete=False,
                 completedFiles=0,
-                totalFiles=len(entries),
+                totalFiles=total_files,
             ),
             bootstrapAssetProgress=_create_bootstrap_asset_progress(entries),
         )
@@ -247,6 +270,173 @@ class TaskManager:
 
         self._work_queue.put(lambda tid=task_id, pp=provider_preference: self._run_bootstrap_bundle_task(tid, pp))
         return task
+
+    def create_cuda_upgrade_task(self) -> TaskRecord:
+        # The CUDA runtime overlay is a Windows-only deliverable: the wheel
+        # index, on-disk layout (`runtime/site-packages`) and self-check
+        # subprocess all assume a Win32 interpreter. Refuse early on every
+        # other host so macOS/Linux clients merged from main get a clear,
+        # typed error instead of a partial / corrupted runtime download.
+        if os.name != "nt":
+            raise CudaUpgradeUnsupported(
+                "cuda_upgrade is only supported on Windows builds"
+            )
+
+        task_id = str(uuid.uuid4())
+        now = datetime.now(UTC).isoformat()
+        task = TaskRecord(
+            id=task_id,
+            type="cuda_upgrade",
+            status="queued",
+            createdAt=now,
+            updatedAt=now,
+            title="Prepare CUDA inference runtime",
+            progress=0,
+            message="Preparing CUDA inference runtime",
+            downloadProgress=DownloadProgress(
+                phase="listing",
+                downloadedBytes=0,
+                totalBytes=None,
+                totalBytesComplete=False,
+                completedFiles=0,
+                totalFiles=2,
+            ),
+        )
+        with self._lock:
+            self._tasks[task_id] = task
+
+        self._work_queue.put(lambda tid=task_id: self._run_cuda_upgrade_task(tid))
+        return task
+
+    def _run_cuda_upgrade_task(self, task_id: str) -> None:
+        from app.services import cuda_upgrade
+
+        if cuda_upgrade.has_runtime_complete_marker():
+            self._update_task(
+                task_id,
+                status="succeeded",
+                progress=100,
+                message="CUDA runtime already ready",
+            )
+            return
+
+        def on_progress(event: dict) -> None:
+            stage = event.get("stage")
+            if stage == "download":
+                downloaded = int(event.get("downloadedBytes") or 0)
+                total = event.get("totalBytes")
+                total_complete = bool(event.get("totalBytesComplete"))
+                total_files = int(event.get("totalFiles") or 2)
+                completed = int(event.get("completedFiles") or 0)
+                current_file = event.get("currentFile")
+                bytes_per_second = event.get("bytesPerSecond")
+                ratio = 0.0
+                if total_complete and total and total > 0:
+                    ratio = max(0.0, min(1.0, downloaded / total))
+                progress = int(ratio * 85)
+                self._update_task(
+                    task_id,
+                    status="running",
+                    progress=progress,
+                    message=current_file or "Downloading CUDA runtime",
+                    download_progress=DownloadProgress(
+                        phase="downloading",
+                        downloadedBytes=downloaded,
+                        totalBytes=total if total_complete else None,
+                        totalBytesComplete=total_complete,
+                        completedFiles=completed,
+                        totalFiles=total_files,
+                        currentFile=current_file,
+                        bytesPerSecond=bytes_per_second,
+                    ),
+                )
+            elif stage == "verifying":
+                self._update_task(
+                    task_id,
+                    status="running",
+                    progress=88,
+                    message="Verifying CUDA runtime",
+                )
+            elif stage == "installing":
+                self._update_task(
+                    task_id,
+                    status="running",
+                    progress=94,
+                    message="Installing CUDA runtime",
+                )
+            elif stage == "validating":
+                self._update_task(
+                    task_id,
+                    status="running",
+                    progress=98,
+                    message="Validating CUDA runtime",
+                )
+
+        self._update_task(
+            task_id,
+            status="running",
+            progress=1,
+            message="Fetching PyTorch index",
+        )
+
+        try:
+            result = cuda_upgrade.run_cuda_upgrade(progress=on_progress)
+            from app.services.torch_runtime import purge_torch_modules
+
+            purge_torch_modules()
+            self._update_task(
+                task_id,
+                status="succeeded",
+                progress=100,
+                message=f"CUDA runtime ready (torch {result.self_check.get('torch_version')})",
+            )
+        except cuda_upgrade.UpgradeLockBusy as exc:
+            self._update_task(
+                task_id,
+                status="failed",
+                progress=0,
+                message="Another CUDA upgrade is already running",
+                error=AppError(
+                    code="cuda_upgrade_busy",
+                    userMessageKey="tasks.cuda.busy",
+                    severity="error",
+                    recoverable=True,
+                    actions=["retry_later"],
+                    message=str(exc),
+                ),
+            )
+        except cuda_upgrade.CudaUpgradeError as exc:
+            logger.exception("CUDA upgrade failed")
+            self._update_task(
+                task_id,
+                status="failed",
+                progress=0,
+                message="CUDA upgrade failed",
+                error=AppError(
+                    code="cuda_upgrade_failed",
+                    userMessageKey="tasks.cuda.failed",
+                    severity="error",
+                    recoverable=True,
+                    actions=["retry"],
+                    message=str(exc),
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("CUDA upgrade failed unexpectedly")
+            self._update_task(
+                task_id,
+                status="failed",
+                progress=0,
+                message="CUDA upgrade failed unexpectedly",
+                error=AppError(
+                    code="cuda_upgrade_unexpected",
+                    userMessageKey="tasks.cuda.failed",
+                    severity="error",
+                    recoverable=True,
+                    actions=["retry"],
+                    message=str(exc),
+                ),
+            )
 
     def get_task(self, task_id: str) -> TaskRecord | None:
         with self._lock:
@@ -458,9 +648,17 @@ class TaskManager:
                     totalBytesComplete=event.total_bytes_complete,
                     completedFiles=event.completed_files,
                     totalFiles=event.total_files,
+                    bytesPerSecond=event.bytes_per_second,
                 )
                 progress_value = _derive_download_progress(latest_download_progress)
                 message = _download_message(latest_download_progress, entry.displayName)
+                # NOTE: ``bytesPerSecond`` is intentionally excluded from the
+                # dedup signature. Every EMA tick produces a slightly
+                # different float, so including it would defeat the
+                # signature-based deduplication that exists to throttle
+                # ``_update_task`` writes. The renderer polls the task at
+                # 600 ms anyway, which is finer than the EMA's noticeable
+                # change rate (~tau=3s).
                 signature = (
                     latest_download_progress.phase,
                     latest_download_progress.provider,
@@ -603,7 +801,8 @@ class TaskManager:
     def _run_bootstrap_bundle_task(self, task_id: str, provider_preference: str) -> None:
         entries = bootstrap_entries()
         completed_assets: list[str] = []
-        total_assets = len(entries)
+        requires_cuda_runtime = os.name == "nt"
+        total_assets = len(entries) + (1 if requires_cuda_runtime else 0)
         latest_progress: DownloadProgress | None = None
         asset_progress = _create_bootstrap_asset_progress(entries)
 
@@ -624,6 +823,181 @@ class TaskManager:
                 bootstrap_asset_progress=asset_progress,
             )
 
+            completed_units = 0
+
+            if requires_cuda_runtime:
+                from app.services import cuda_upgrade
+
+                if cuda_upgrade.has_runtime_complete_marker():
+                    completed_assets.append("cuda_runtime")
+                    completed_units += 1
+                    latest_progress = DownloadProgress(
+                        phase="finalizing",
+                        provider="local",
+                        currentFile="CUDA Runtime",
+                        downloadedBytes=0,
+                        totalBytes=None,
+                        totalBytesComplete=True,
+                        completedFiles=completed_units,
+                        totalFiles=total_assets,
+                    )
+                    asset_progress = _update_bootstrap_asset_progress(
+                        asset_progress,
+                        "cuda_runtime",
+                        status="succeeded",
+                        progress=100,
+                        provider="local",
+                        currentFile="CUDA Runtime",
+                        downloadedBytes=0,
+                        totalBytes=None,
+                        totalBytesComplete=True,
+                    )
+                    self._update_task(
+                        task_id,
+                        status="running",
+                        progress=min(int((completed_units / max(total_assets, 1)) * 100), 99),
+                        message="CUDA runtime is ready",
+                        download_progress=latest_progress,
+                        bootstrap_asset_progress=asset_progress,
+                    )
+                else:
+                    def handle_cuda_progress(event: dict) -> None:
+                        nonlocal asset_progress, latest_progress
+                        stage = event.get("stage")
+                        if stage == "download":
+                            downloaded = int(event.get("downloadedBytes") or 0)
+                            total = event.get("totalBytes")
+                            total_complete = bool(event.get("totalBytesComplete"))
+                            total_files = int(event.get("totalFiles") or 2)
+                            completed = int(event.get("completedFiles") or 0)
+                            current_file = event.get("currentFile") or "CUDA Runtime"
+                            bytes_per_second = event.get("bytesPerSecond")
+                            ratio = 0.0
+                            if total_complete and total and total > 0:
+                                ratio = max(0.0, min(1.0, downloaded / total))
+                            visible_floor = 0
+                            if downloaded > 0:
+                                # Keep early progress visually responsive while the first large
+                                # CUDA wheel is still far from 1% of its full size.
+                                visible_floor = min(5, int(downloaded // (8 * 1024 * 1024)) + 1)
+                            per_asset_progress = max(int(ratio * 85), visible_floor)
+                            computed_overall_progress = min(
+                                99,
+                                int(((completed_units + (per_asset_progress / 100.0)) / max(total_assets, 1)) * 100),
+                            )
+                            overall_progress = max(computed_overall_progress, 1 if downloaded > 0 else 0)
+                            latest_progress = DownloadProgress(
+                                phase="downloading",
+                                provider="local",
+                                currentFile=current_file,
+                                downloadedBytes=downloaded,
+                                totalBytes=total if total_complete else None,
+                                totalBytesComplete=total_complete,
+                                completedFiles=completed_units,
+                                totalFiles=total_assets,
+                                bytesPerSecond=bytes_per_second,
+                            )
+                            asset_progress = _update_bootstrap_asset_progress(
+                                asset_progress,
+                                "cuda_runtime",
+                                status="running",
+                                progress=per_asset_progress,
+                                provider="local",
+                                currentFile=current_file,
+                                downloadedBytes=downloaded,
+                                totalBytes=total,
+                                totalBytesComplete=total_complete,
+                                bytesPerSecond=bytes_per_second,
+                            )
+                            self._update_task(
+                                task_id,
+                                status="running",
+                                progress=overall_progress,
+                                message=current_file,
+                                download_progress=latest_progress,
+                                bootstrap_asset_progress=asset_progress,
+                            )
+                            return
+
+                        progress_map = {
+                            "verifying": (88, "Verifying CUDA runtime"),
+                            "installing": (94, "Installing CUDA runtime"),
+                            "validating": (98, "Validating CUDA runtime"),
+                        }
+                        per_asset_progress, message = progress_map.get(
+                            stage,
+                            (1, "Preparing CUDA runtime"),
+                        )
+                        overall_progress = min(
+                            99,
+                            int(((completed_units + (per_asset_progress / 100.0)) / max(total_assets, 1)) * 100),
+                        )
+                        latest_progress = DownloadProgress(
+                            phase="finalizing" if stage == "validating" else "listing",
+                            provider="local",
+                            currentFile="CUDA Runtime",
+                            downloadedBytes=latest_progress.downloadedBytes if latest_progress else 0,
+                            totalBytes=latest_progress.totalBytes if latest_progress else None,
+                            totalBytesComplete=latest_progress.totalBytesComplete if latest_progress else False,
+                            completedFiles=completed_units,
+                            totalFiles=total_assets,
+                        )
+                        asset_progress = _update_bootstrap_asset_progress(
+                            asset_progress,
+                            "cuda_runtime",
+                            status="running",
+                            progress=per_asset_progress,
+                            provider="local",
+                            currentFile="CUDA Runtime",
+                            downloadedBytes=latest_progress.downloadedBytes if latest_progress else 0,
+                            totalBytes=latest_progress.totalBytes if latest_progress else None,
+                            totalBytesComplete=latest_progress.totalBytesComplete if latest_progress else False,
+                        )
+                        self._update_task(
+                            task_id,
+                            status="running",
+                            progress=overall_progress,
+                            message=message,
+                            download_progress=latest_progress,
+                            bootstrap_asset_progress=asset_progress,
+                        )
+
+                    cuda_result = cuda_upgrade.run_cuda_upgrade(progress=handle_cuda_progress)
+                    from app.services.torch_runtime import purge_torch_modules
+
+                    purge_torch_modules()
+                    completed_assets.append("cuda_runtime")
+                    completed_units += 1
+                    latest_progress = DownloadProgress(
+                        phase="finalizing",
+                        provider="local",
+                        currentFile="CUDA Runtime",
+                        downloadedBytes=latest_progress.downloadedBytes if latest_progress else 0,
+                        totalBytes=latest_progress.totalBytes if latest_progress else None,
+                        totalBytesComplete=latest_progress.totalBytesComplete if latest_progress else False,
+                        completedFiles=completed_units,
+                        totalFiles=total_assets,
+                    )
+                    asset_progress = _update_bootstrap_asset_progress(
+                        asset_progress,
+                        "cuda_runtime",
+                        status="succeeded",
+                        progress=100,
+                        provider="local",
+                        currentFile=f"CUDA Runtime ({cuda_result.self_check.get('torch_version', 'ready')})",
+                        downloadedBytes=latest_progress.downloadedBytes,
+                        totalBytes=latest_progress.totalBytes,
+                        totalBytesComplete=True,
+                    )
+                    self._update_task(
+                        task_id,
+                        status="running",
+                        progress=min(int((completed_units / max(total_assets, 1)) * 100), 99),
+                        message="CUDA runtime is ready",
+                        download_progress=latest_progress,
+                        bootstrap_asset_progress=asset_progress,
+                    )
+
             for index, entry in enumerate(entries):
                 preferred_provider = provider_preference
 
@@ -638,11 +1012,12 @@ class TaskManager:
                         totalBytesComplete=event.total_bytes_complete,
                         completedFiles=event.completed_files,
                         totalFiles=event.total_files,
+                        bytesPerSecond=event.bytes_per_second,
                     )
                     per_asset_progress = _derive_download_progress(current_asset_progress)
                     overall_progress = min(
                         99,
-                        int(((asset_index + (per_asset_progress / 100.0)) / max(total_assets, 1)) * 100),
+                        int((((completed_units + asset_index) + (per_asset_progress / 100.0)) / max(total_assets, 1)) * 100),
                     )
                     latest_progress = DownloadProgress(
                         phase=event.phase,
@@ -651,8 +1026,9 @@ class TaskManager:
                         downloadedBytes=event.downloaded_bytes,
                         totalBytes=event.total_bytes,
                         totalBytesComplete=event.total_bytes_complete,
-                        completedFiles=asset_index,
+                        completedFiles=completed_units + asset_index,
                         totalFiles=total_assets,
+                        bytesPerSecond=event.bytes_per_second,
                     )
                     asset_progress = _update_bootstrap_asset_progress(
                         asset_progress,
@@ -664,6 +1040,7 @@ class TaskManager:
                         downloadedBytes=event.downloaded_bytes,
                         totalBytes=event.total_bytes,
                         totalBytesComplete=event.total_bytes_complete,
+                        bytesPerSecond=event.bytes_per_second,
                     )
                     self._update_task(
                         task_id,
@@ -681,6 +1058,7 @@ class TaskManager:
                     on_download_progress=handle_download_progress,
                 )
                 completed_assets.append(entry.modelKey)
+                completed_units += 1
                 latest_progress = DownloadProgress(
                     phase="finalizing",
                     provider=prepared.provider,
@@ -688,7 +1066,7 @@ class TaskManager:
                     downloadedBytes=latest_progress.downloadedBytes if latest_progress else 0,
                     totalBytes=latest_progress.totalBytes if latest_progress else None,
                     totalBytesComplete=latest_progress.totalBytesComplete if latest_progress else False,
-                    completedFiles=index + 1,
+                    completedFiles=completed_units,
                     totalFiles=total_assets,
                 )
                 asset_progress = _update_bootstrap_asset_progress(
@@ -707,7 +1085,7 @@ class TaskManager:
                 self._update_task(
                     task_id,
                     status="running",
-                    progress=min(int(((index + 1) / max(total_assets, 1)) * 100), 99),
+                    progress=min(int((completed_units / max(total_assets, 1)) * 100), 99),
                     message=f"{entry.displayName} is ready",
                     download_progress=latest_progress,
                     bootstrap_asset_progress=asset_progress,
@@ -756,22 +1134,29 @@ class TaskManager:
                     current_message = existing_task.message or current_message
                     latest_progress = existing_task.downloadProgress
                     current_asset_progress = existing_task.bootstrapAssetProgress or current_asset_progress
-            if entries and len(completed_assets) < total_assets:
-                failed_entry = entries[len(completed_assets)]
+            if len(completed_assets) < total_assets:
+                if requires_cuda_runtime and "cuda_runtime" not in completed_assets:
+                    failed_key = "cuda_runtime"
+                    failed_display_name = "CUDA Runtime"
+                else:
+                    failed_index = max(0, len(completed_assets) - (1 if requires_cuda_runtime else 0))
+                    failed_entry = entries[min(failed_index, max(len(entries) - 1, 0))]
+                    failed_key = failed_entry.modelKey
+                    failed_display_name = failed_entry.displayName
                 failed_progress = next(
                     (
                         item.progress
                         for item in current_asset_progress
-                        if item.modelKey == failed_entry.modelKey
+                        if item.modelKey == failed_key
                     ),
                     0,
                 )
                 current_asset_progress = _update_bootstrap_asset_progress(
                     current_asset_progress,
-                    failed_entry.modelKey,
+                    failed_key,
                     status="failed",
                     progress=max(failed_progress, 1),
-                    currentFile=latest_progress.currentFile if latest_progress else failed_entry.displayName,
+                    currentFile=latest_progress.currentFile if latest_progress else failed_display_name,
                 )
             self._update_task(
                 task_id,

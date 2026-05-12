@@ -1,0 +1,5 @@
+# Windows-only runtime extras. Layered on top of requirements.runtime.txt.
+# The installer intentionally ships without torch/torchaudio; the first-run
+# bootstrap downloads the CUDA runtime into the bundled venv before any local
+# inference is allowed.
+onnxruntime-gpu==1.24.4

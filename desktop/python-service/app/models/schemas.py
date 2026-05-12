@@ -30,6 +30,13 @@ class HealthResponse(BaseModel):
     deviceName: str | None = None
     deviceType: str | None = None
     audioOutputDir: str | None = None
+    # NOTE: the ``*Bytes`` fields below are retained for binary compatibility
+    # with older desktop builds, but the health route no longer measures
+    # them — it's now a strictly cheap readiness probe. Frontend code that
+    # needs real storage numbers must call ``GET /api/v1/storage-info`` (see
+    # ``StorageInfoResponse``). The server fills these with ``0``; older
+    # clients reading them will see zero-sized usage but still parse the
+    # response correctly.
     cacheBytes: int = 0
     logLevel: str | None = None
     logDir: str | None = None
@@ -52,6 +59,35 @@ class HealthResponse(BaseModel):
     # disk. The desktop UI must present a blocking migration dialog until the
     # legacy directory is removed, since the new runtime cannot load it.
     legacyAsrModelPresent: bool = False
+
+
+class StorageInfoResponse(BaseModel):
+    """Lazy storage usage snapshot.
+
+    Returned by ``GET /api/v1/storage-info`` and intentionally separate from
+    ``/api/v1/health`` so that the lightweight health/probe path never has
+    to walk the on-disk model + cache directories. Computing this response
+    can take seconds on Windows + NTFS + Defender; the frontend only
+    requests it when the user explicitly opens the storage details modal.
+    """
+
+    audioOutputDir: str | None = None
+    cacheBytes: int = 0
+    logDir: str | None = None
+    logBytes: int = 0
+    storageDir: str | None = None
+    modelDir: str | None = None
+    modelBytes: int = 0
+    voicesDir: str | None = None
+    voiceLibraryBytes: int = 0
+    huggingfaceCacheDir: str | None = None
+    huggingfaceCacheBytes: int = 0
+    modelscopeCacheDir: str | None = None
+    modelscopeCacheBytes: int = 0
+    torchCacheDir: str | None = None
+    torchCacheBytes: int = 0
+    downloadCacheBytes: int = 0
+    managedStorageBytes: int = 0
 
 
 class BootstrapAssetStatus(BaseModel):
@@ -198,6 +234,12 @@ class DownloadProgress(BaseModel):
     totalBytesComplete: bool = False
     completedFiles: int = 0
     totalFiles: int | None = None
+    # Server-side EMA-smoothed transfer rate (bytes/sec). Optional for
+    # backwards compatibility: older sidecars omit this field and the desktop
+    # client falls back to a local sliding-window estimate. Only populated
+    # while ``phase == "downloading"``; cleared during listing/finalizing so
+    # the UI can render an explicit "waiting" state instead of stale numbers.
+    bytesPerSecond: float | None = None
 
 
 class BootstrapAssetDownloadProgress(BaseModel):
@@ -210,6 +252,7 @@ class BootstrapAssetDownloadProgress(BaseModel):
     downloadedBytes: int = 0
     totalBytes: int | None = None
     totalBytesComplete: bool = False
+    bytesPerSecond: float | None = None
 
 
 class TaskResult(BaseModel):
@@ -228,7 +271,7 @@ class TaskResult(BaseModel):
 
 class TaskRecord(BaseModel):
     id: str
-    type: Literal["bootstrap", "generate", "asr_transcribe"]
+    type: Literal["bootstrap", "generate", "asr_transcribe", "cuda_upgrade"]
     status: Literal["queued", "running", "succeeded", "failed", "cancelled"]
     createdAt: str
     updatedAt: str

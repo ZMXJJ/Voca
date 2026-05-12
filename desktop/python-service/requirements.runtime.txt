@@ -1,20 +1,20 @@
-# Desktop release runtime only.
+# Cross-platform desktop runtime baseline.
 # This intentionally excludes training, dataset tooling, and Gradio/demo dependencies.
+# Platform-specific extras (e.g. torchcodec on macOS) live in
+# requirements.runtime.macos.txt / requirements.runtime.windows.txt and are
+# layered on top of this file by the prepare scripts.
 fastapi==0.135.3
 huggingface-hub==1.10.1
 modelscope==1.35.4
-numpy==2.4.4
+numpy==2.4.3
 pydantic==2.12.5
 safetensors==0.7.0
 soundfile==0.13.1
-torch==2.11.0
-torchaudio==2.11.0
-torchcodec==0.11.0
 transformers==5.5.3
+tqdm==4.66.5
 uvicorn==0.44.0
 wetext==0.1.2
 einops==0.8.2
 inflect==7.5.0
 # ASR backend: self-contained SenseVoiceSmall ONNX inference stack.
-onnxruntime==1.24.4
 kaldi-native-fbank==1.22.3
