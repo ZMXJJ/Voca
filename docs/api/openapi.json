@@ -870,6 +870,18 @@
             "type": "boolean",
             "title": "Totalbytescomplete",
             "default": false
+          },
+          "bytesPerSecond": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytespersecond",
+            "description": "EMA-smoothed transfer rate (bytes/sec); null when listing/finalizing or unsupported by the sidecar."
           }
         },
         "type": "object",
@@ -1008,6 +1020,18 @@
               }
             ],
             "title": "Totalfiles"
+          },
+          "bytesPerSecond": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytespersecond",
+            "description": "EMA-smoothed transfer rate (bytes/sec); null when listing/finalizing or unsupported by the sidecar."
           }
         },
         "type": "object",

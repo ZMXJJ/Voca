@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
+from pathlib import Path
 from types import ModuleType
 
 _TORCH_MODULE_PREFIXES = (
@@ -11,6 +13,31 @@ _TORCH_MODULE_PREFIXES = (
     "functorch",
     "torio",
 )
+
+
+def _ensure_runtime_overlay_on_path() -> None:
+    """Add the Windows CUDA runtime overlay to ``sys.path`` if it exists
+    but hasn't been injected yet.
+
+    The Tauri launcher only adds ``runtime/site-packages`` to ``PYTHONPATH``
+    when the overlay is already present at sidecar start-up. When the CUDA
+    runtime is installed *during* the same sidecar session (first-run
+    bootstrap), the directory is missing from ``sys.path`` and ``import
+    torch`` fails. This function closes that gap by checking the env-var
+    ``VOCA_RUNTIME_SITE_PACKAGES`` (always set by the launcher on Windows)
+    and inserting the directory at the front of ``sys.path`` when the marker
+    file confirms the install is complete.
+    """
+    overlay = os.environ.get("VOCA_RUNTIME_SITE_PACKAGES", "").strip()
+    if not overlay:
+        return
+    overlay_path = Path(overlay)
+    if not (overlay_path / "torch").exists():
+        return
+    resolved = str(overlay_path.resolve())
+    if resolved not in sys.path:
+        sys.path.insert(0, resolved)
+        importlib.invalidate_caches()
 
 
 def purge_torch_modules() -> None:
@@ -32,6 +59,7 @@ def _loaded_module(name: str, *, required_attr: str | None = None) -> ModuleType
 
 
 def import_torch_clean(*, attempts: int = 2, force_reload: bool = False) -> ModuleType:
+    _ensure_runtime_overlay_on_path()
     last_error: BaseException | None = None
     loaded_torch = _loaded_module("torch", required_attr="_C")
     if loaded_torch is not None:

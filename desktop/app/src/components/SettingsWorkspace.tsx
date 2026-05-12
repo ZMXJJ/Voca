@@ -201,7 +201,13 @@ export function SettingsWorkspace({
   const updateModalOpen = updateCheckPhase === "result" && (updateCheckResult?.updateAvailable ?? false);
   const updateModal = useModalTransition(updateModalOpen);
   const [downloadSpeeds, setDownloadSpeeds] = useState<Record<string, number | null>>({});
-  const speedSamplesRef = useRef<Record<string, { bytes: number; atMs: number }>>({});
+  // Sliding-window samples used for the local fallback when the sidecar
+  // does not report ``bytesPerSecond`` (older builds). Each entry keeps the
+  // last few seconds of cumulative byte counts plus the timestamp of the
+  // most recent change, which feeds the decay logic below.
+  const speedSamplesRef = useRef<
+    Record<string, { samples: { bytes: number; atMs: number }[]; lastFreshAtMs: number }>
+  >({});
   const [audioDownloadPath, setAudioDownloadPath] = useState(() => getAudioDownloadPath());
   const completedTasks = taskHistory.filter((t) => t.status === "succeeded").length;
   const pollTimerRef = useRef<number | null>(null);
@@ -284,20 +290,78 @@ export function SettingsWorkspace({
           if (!updated) return;
           setDownloadingTasks((prev) => ({ ...prev, [modelKey]: updated }));
 
-          const currentBytes = updated.downloadProgress?.downloadedBytes ?? 0;
+          const progress = updated.downloadProgress;
+          const isDownloading = progress?.phase === "downloading";
+          const currentBytes = progress?.downloadedBytes ?? 0;
+          const serverBps = progress?.bytesPerSecond;
           const nowMs = Date.now();
-          const prev = speedSamplesRef.current[modelKey];
-          if (prev && currentBytes > prev.bytes) {
-            const deltaMs = nowMs - prev.atMs;
-            if (deltaMs > 0) {
-              const bps = ((currentBytes - prev.bytes) / deltaMs) * 1000;
-              setDownloadSpeeds((s) => ({
-                ...s,
-                [modelKey]: s[modelKey] ? s[modelKey]! * 0.6 + bps * 0.4 : bps,
-              }));
+
+          if (!isDownloading) {
+            // Server explicitly tells us it's listing/finalizing — leave
+            // the previous speed alone for one poll then decay it via the
+            // sliding-window timeout below. Don't snap to 0 immediately.
+            return;
+          }
+
+          if (typeof serverBps === "number" && Number.isFinite(serverBps)) {
+            // Trust the sidecar's EMA-smoothed value when available.
+            setDownloadSpeeds((s) => ({ ...s, [modelKey]: Math.max(0, serverBps) }));
+            const slot = speedSamplesRef.current[modelKey] ?? {
+              samples: [],
+              lastFreshAtMs: nowMs,
+            };
+            slot.samples.push({ bytes: currentBytes, atMs: nowMs });
+            const cutoff = nowMs - 5_000;
+            while (slot.samples.length > 1 && slot.samples[0].atMs < cutoff) {
+              slot.samples.shift();
+            }
+            slot.lastFreshAtMs = nowMs;
+            speedSamplesRef.current[modelKey] = slot;
+          } else {
+            // Local sliding window fallback for older sidecars. Use a 5s
+            // window so a single quiet poll cycle doesn't crater the
+            // displayed speed.
+            const slot = speedSamplesRef.current[modelKey] ?? {
+              samples: [],
+              lastFreshAtMs: nowMs,
+            };
+            const newest = slot.samples[slot.samples.length - 1];
+            if (!newest || currentBytes < newest.bytes) {
+              slot.samples = [{ bytes: currentBytes, atMs: nowMs }];
+              slot.lastFreshAtMs = nowMs;
+            } else {
+              if (currentBytes > newest.bytes) {
+                slot.lastFreshAtMs = nowMs;
+              }
+              slot.samples.push({ bytes: currentBytes, atMs: nowMs });
+              const cutoff = nowMs - 5_000;
+              while (slot.samples.length > 1 && slot.samples[0].atMs < cutoff) {
+                slot.samples.shift();
+              }
+            }
+            speedSamplesRef.current[modelKey] = slot;
+
+            const oldest = slot.samples[0];
+            const deltaMs = nowMs - oldest.atMs;
+            const deltaBytes = currentBytes - oldest.bytes;
+            if (deltaMs >= 200 && deltaBytes > 0) {
+              const bps = (deltaBytes / deltaMs) * 1000;
+              setDownloadSpeeds((s) => ({ ...s, [modelKey]: bps }));
+            } else {
+              const idleMs = nowMs - slot.lastFreshAtMs;
+              if (idleMs >= 8_000) {
+                setDownloadSpeeds((s) => ({ ...s, [modelKey]: 0 }));
+              } else if (idleMs >= 1_500) {
+                // Gradual decay: shrink by 25% each idle poll instead of
+                // snapping straight to 0.
+                setDownloadSpeeds((s) => {
+                  const previousValue = s[modelKey] ?? 0;
+                  const next = previousValue * 0.75;
+                  return { ...s, [modelKey]: next < 1 ? 0 : next };
+                });
+              }
             }
           }
-          speedSamplesRef.current[modelKey] = { bytes: currentBytes, atMs: nowMs };
 
           if (updated.status === "succeeded") {
             setDownloadSpeeds((s) => ({ ...s, [modelKey]: null }));

@@ -69,6 +69,13 @@ export type DownloadProgress = {
   totalBytesComplete: boolean;
   completedFiles: number;
   totalFiles?: number | null;
+  /**
+   * Server-side EMA-smoothed transfer rate in bytes/second. Optional: older
+   * sidecars omit this; the renderer falls back to a local sliding-window
+   * estimate so the speed UI keeps working across versions. Only populated
+   * while ``phase === "downloading"``.
+   */
+  bytesPerSecond?: number | null;
 };
 
 export type BootstrapAssetDownloadProgress = {
@@ -81,6 +88,7 @@ export type BootstrapAssetDownloadProgress = {
   downloadedBytes: number;
   totalBytes?: number | null;
   totalBytesComplete: boolean;
+  bytesPerSecond?: number | null;
 };
 
 export type TaskRecord = {

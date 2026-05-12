@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import threading
+import time
 import wave
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ from app.services.model_integrity import (
     verify_quick,
     write_manifest,
 )
+from app.services._speed import EmaSpeedTracker
 from app.services.provider_router import recommend_provider
 from app.services.storage_paths import audio_output_dir
 from app.services.torch_runtime import import_torch_clean, purge_torch_modules
@@ -73,6 +75,11 @@ class DownloadProgressEvent:
     total_bytes_complete: bool = False
     completed_files: int = 0
     total_files: int | None = None
+    # EMA-smoothed transfer rate in bytes/second. ``None`` whenever there is
+    # not enough history yet (first sample) or the phase is not actively
+    # transferring bytes (``listing`` / ``finalizing``). Renderers display
+    # an explicit "waiting" state in that case rather than a stale value.
+    bytes_per_second: float | None = None
 
 
 DownloadProgressCallback = Callable[[DownloadProgressEvent], None]
@@ -87,6 +94,15 @@ class _TransferState:
 
 
 class _DownloadProgressAggregator:
+    # Minimum wall-clock interval between progress emissions. The HuggingFace
+    # / ModelScope download paths invoke ``advance_transfer`` every chunk
+    # (~1 MiB), which used to flood the task_manager dedup signature and
+    # spend non-trivial CPU on dict copies. 200 ms is fine-grained enough
+    # for the 600 ms client poll while keeping the producer cheap. Phase
+    # transitions and file completion always bypass the throttle so the UI
+    # never sticks on a stale ``listing`` state.
+    _MIN_EMIT_INTERVAL = 0.2
+
     def __init__(
         self,
         provider: Literal["huggingface", "modelscope"],
@@ -101,13 +117,23 @@ class _DownloadProgressAggregator:
         self._total_files: int | None = None
         self._has_explicit_total_files = False
         self._transfers: dict[str, _TransferState] = {}
+        self._speed_tracker = EmaSpeedTracker()
+        self._last_emit_at: float = 0.0
+        self._last_emit_phase: DownloadPhase | None = None
+        self._last_emit_completed_files: int = -1
 
     def set_phase(self, phase: DownloadPhase, current_file: str | None = None) -> None:
         with self._lock:
+            phase_changed = phase != self._phase
             self._phase = phase
             if current_file is not None:
                 self._current_file = current_file
-            self._emit_unlocked()
+            if phase != "downloading":
+                # No bytes are flowing in listing/finalizing; drop the EMA
+                # history so the next downloading run starts fresh and the
+                # client sees a clean "waiting" state in between.
+                self._speed_tracker.reset()
+            self._emit_unlocked(force=phase_changed)
 
     def set_file_counts(self, *, completed_files: int | None = None, total_files: int | None = None) -> None:
         with self._lock:
@@ -139,13 +165,16 @@ class _DownloadProgressAggregator:
                 state.downloaded_bytes = max(state.downloaded_bytes, normalized_initial)
                 if normalized_total is not None:
                     state.total_bytes = normalized_total
+            phase_changed = self._phase != "downloading"
             self._phase = "downloading"
             self._current_file = current_file
             if self._total_files is None:
                 self._total_files = len(self._transfers)
             else:
                 self._total_files = max(self._total_files, len(self._transfers))
-            self._emit_unlocked()
+            # Registering a transfer changes which file is "active" — force
+            # an emit so the UI updates the current-file label immediately.
+            self._emit_unlocked(force=phase_changed)
 
     def advance_transfer(
         self,
@@ -178,17 +207,29 @@ class _DownloadProgressAggregator:
             state.current_file = current_file
             if state.total_bytes is not None:
                 state.downloaded_bytes = max(state.downloaded_bytes, state.total_bytes)
-            if not state.completed:
+            file_completed = not state.completed
+            if file_completed:
                 state.completed = True
                 self._completed_files += 1
             self._phase = "downloading"
             self._current_file = current_file
             if self._total_files is None:
                 self._total_files = len(self._transfers)
-            self._emit_unlocked()
+            # Completing a file is a meaningful UI event — always emit, even
+            # if we're inside the throttle window.
+            self._emit_unlocked(force=file_completed)
 
-    def _emit_unlocked(self) -> None:
+    def _emit_unlocked(self, *, force: bool = False) -> None:
         if self._callback is None:
+            return
+
+        now = time.monotonic()
+        if (
+            not force
+            and self._last_emit_phase == self._phase
+            and self._completed_files == self._last_emit_completed_files
+            and (now - self._last_emit_at) < self._MIN_EMIT_INTERVAL
+        ):
             return
 
         transfers = list(self._transfers.values())
@@ -210,6 +251,14 @@ class _DownloadProgressAggregator:
 
         downloaded_bytes = sum(max(state.downloaded_bytes, 0) for state in transfers)
 
+        # Only feed the EMA while bytes are actively flowing. During
+        # ``listing``/``finalizing`` the byte count is stale but should not
+        # decay the smoothed rate to zero — the client treats ``None`` as
+        # "waiting" and renders a different label.
+        bytes_per_second: float | None = None
+        if self._phase == "downloading":
+            bytes_per_second = self._speed_tracker.update(downloaded_bytes, now=now)
+
         event = DownloadProgressEvent(
             phase=self._phase,
             provider=self._provider,
@@ -219,7 +268,11 @@ class _DownloadProgressAggregator:
             total_bytes_complete=total_bytes_complete,
             completed_files=self._completed_files,
             total_files=self._total_files,
+            bytes_per_second=bytes_per_second,
         )
+        self._last_emit_at = now
+        self._last_emit_phase = self._phase
+        self._last_emit_completed_files = self._completed_files
         self._callback(event)
 
 
@@ -720,7 +773,42 @@ class VoxCPMBridge:
         )
         self._loaded_model_key = model_key
         self._loaded_model_path = model_path
+        self._publish_active_device()
         return self._model
+
+    def _publish_active_device(self) -> None:
+        """Publish the backend the model actually bound to.
+
+        ``GET /api/v1/health`` reads this override first, so once a
+        generation has successfully loaded VoxCPM onto CUDA the desktop UI
+        reports CUDA even if the runtime overlay marker file ever goes
+        missing on disk.
+        """
+
+        try:
+            from app.main import mark_active_device  # local import avoids cycles at module import time
+        except Exception:
+            return
+
+        device_type = "cpu"
+        device_name: str | None = None
+        try:
+            torch = import_torch_clean()
+            if torch.cuda.is_available():
+                device_type = "cuda"
+                try:
+                    device_name = torch.cuda.get_device_name(0)
+                except Exception:
+                    device_name = None
+            elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                device_type = "mps"
+        except Exception:
+            return
+
+        try:
+            mark_active_device(device_type, device_name)
+        except Exception:
+            pass
 
     def _download_model(
         self,

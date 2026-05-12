@@ -329,6 +329,7 @@ class TaskManager:
                 total_files = int(event.get("totalFiles") or 2)
                 completed = int(event.get("completedFiles") or 0)
                 current_file = event.get("currentFile")
+                bytes_per_second = event.get("bytesPerSecond")
                 ratio = 0.0
                 if total_complete and total and total > 0:
                     ratio = max(0.0, min(1.0, downloaded / total))
@@ -346,6 +347,7 @@ class TaskManager:
                         completedFiles=completed,
                         totalFiles=total_files,
                         currentFile=current_file,
+                        bytesPerSecond=bytes_per_second,
                     ),
                 )
             elif stage == "verifying":
@@ -646,9 +648,17 @@ class TaskManager:
                     totalBytesComplete=event.total_bytes_complete,
                     completedFiles=event.completed_files,
                     totalFiles=event.total_files,
+                    bytesPerSecond=event.bytes_per_second,
                 )
                 progress_value = _derive_download_progress(latest_download_progress)
                 message = _download_message(latest_download_progress, entry.displayName)
+                # NOTE: ``bytesPerSecond`` is intentionally excluded from the
+                # dedup signature. Every EMA tick produces a slightly
+                # different float, so including it would defeat the
+                # signature-based deduplication that exists to throttle
+                # ``_update_task`` writes. The renderer polls the task at
+                # 600 ms anyway, which is finer than the EMA's noticeable
+                # change rate (~tau=3s).
                 signature = (
                     latest_download_progress.phase,
                     latest_download_progress.provider,
@@ -861,6 +871,7 @@ class TaskManager:
                             total_files = int(event.get("totalFiles") or 2)
                             completed = int(event.get("completedFiles") or 0)
                             current_file = event.get("currentFile") or "CUDA Runtime"
+                            bytes_per_second = event.get("bytesPerSecond")
                             ratio = 0.0
                             if total_complete and total and total > 0:
                                 ratio = max(0.0, min(1.0, downloaded / total))
@@ -884,6 +895,7 @@ class TaskManager:
                                 totalBytesComplete=total_complete,
                                 completedFiles=completed_units,
                                 totalFiles=total_assets,
+                                bytesPerSecond=bytes_per_second,
                             )
                             asset_progress = _update_bootstrap_asset_progress(
                                 asset_progress,
@@ -895,6 +907,7 @@ class TaskManager:
                                 downloadedBytes=downloaded,
                                 totalBytes=total,
                                 totalBytesComplete=total_complete,
+                                bytesPerSecond=bytes_per_second,
                             )
                             self._update_task(
                                 task_id,
@@ -999,6 +1012,7 @@ class TaskManager:
                         totalBytesComplete=event.total_bytes_complete,
                         completedFiles=event.completed_files,
                         totalFiles=event.total_files,
+                        bytesPerSecond=event.bytes_per_second,
                     )
                     per_asset_progress = _derive_download_progress(current_asset_progress)
                     overall_progress = min(
@@ -1014,6 +1028,7 @@ class TaskManager:
                         totalBytesComplete=event.total_bytes_complete,
                         completedFiles=completed_units + asset_index,
                         totalFiles=total_assets,
+                        bytesPerSecond=event.bytes_per_second,
                     )
                     asset_progress = _update_bootstrap_asset_progress(
                         asset_progress,
@@ -1025,6 +1040,7 @@ class TaskManager:
                         downloadedBytes=event.downloaded_bytes,
                         totalBytes=event.total_bytes,
                         totalBytesComplete=event.total_bytes_complete,
+                        bytesPerSecond=event.bytes_per_second,
                     )
                     self._update_task(
                         task_id,

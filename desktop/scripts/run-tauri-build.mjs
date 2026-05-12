@@ -54,8 +54,12 @@ function cleanTauriStaging() {
     if (!existsSync(targetPath)) {
       continue;
     }
-    rmSync(targetPath, { recursive: true, force: true });
-    console.log(`Removed stale Tauri staging: ${path.relative(desktopRoot, targetPath)}`);
+    try {
+      rmSync(targetPath, { recursive: true, force: true });
+      console.log(`Removed stale Tauri staging: ${path.relative(desktopRoot, targetPath)}`);
+    } catch (err) {
+      console.warn(`Warning: could not remove ${path.relative(desktopRoot, targetPath)}: ${err.message} (continuing anyway)`);
+    }
   }
 }
 

@@ -234,6 +234,12 @@ class DownloadProgress(BaseModel):
     totalBytesComplete: bool = False
     completedFiles: int = 0
     totalFiles: int | None = None
+    # Server-side EMA-smoothed transfer rate (bytes/sec). Optional for
+    # backwards compatibility: older sidecars omit this field and the desktop
+    # client falls back to a local sliding-window estimate. Only populated
+    # while ``phase == "downloading"``; cleared during listing/finalizing so
+    # the UI can render an explicit "waiting" state instead of stale numbers.
+    bytesPerSecond: float | None = None
 
 
 class BootstrapAssetDownloadProgress(BaseModel):
@@ -246,6 +252,7 @@ class BootstrapAssetDownloadProgress(BaseModel):
     downloadedBytes: int = 0
     totalBytes: int | None = None
     totalBytesComplete: bool = False
+    bytesPerSecond: float | None = None
 
 
 class TaskResult(BaseModel):

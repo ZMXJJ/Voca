@@ -141,7 +141,44 @@ def _windows_cuda_runtime_ready() -> bool:
         return False
 
 
+_active_device_override: tuple[str, str | None] | None = None
+_active_device_lock = threading.Lock()
+
+
+def mark_active_device(device_type: str, device_name: str | None) -> None:
+    """Record the device that local inference actually loaded onto.
+
+    ``_detect_device_info()`` is called from the health probe, which on
+    Windows historically refused to import torch unless the runtime overlay
+    marker file was present. Cold deployments occasionally end up with the
+    overlay installed but the marker missing (Defender quarantine, partial
+    rollback, etc.), causing health to advertise CPU even though every
+    generation is actually running on CUDA. The bridge now publishes the
+    backend it successfully bound to here and ``_detect_device_info`` trusts
+    that value first.
+    """
+
+    global _active_device_override
+    cleaned_name = device_name.strip() if isinstance(device_name, str) else device_name
+    with _active_device_lock:
+        _active_device_override = (device_type, cleaned_name or None)
+
+
+def _read_active_device_override() -> tuple[str, str | None] | None:
+    with _active_device_lock:
+        return _active_device_override
+
+
 def _detect_device_info() -> tuple[str, str | None]:
+    override = _read_active_device_override()
+    if override is not None:
+        return override
+
+    # On Windows the bundled installer ships without torch; the CUDA wheels
+    # land in ``runtime/site-packages`` during first-run bootstrap. Importing
+    # torch before the overlay is fully installed locks the partially-written
+    # .pyd / .dll files and breaks the installer's atomic swap — so on
+    # Windows we still refuse to touch torch until the marker is present.
     if os.name == "nt" and not _windows_cuda_runtime_ready():
         return "cpu", _detect_host_device_name()
 
@@ -151,7 +188,10 @@ def _detect_device_info() -> tuple[str, str | None]:
         if torch.backends.mps.is_available():
             return "mps", _detect_host_device_name()
         if torch.cuda.is_available():
-            return "cuda", torch.cuda.get_device_name(0)
+            try:
+                return "cuda", torch.cuda.get_device_name(0)
+            except Exception:
+                return "cuda", None
     except Exception:
         purge_torch_modules()
 
@@ -379,6 +419,43 @@ def _clear_directory_files(path: Path) -> tuple[int, int]:
     return cleared_files, cleared_bytes
 
 
+def _delayed_device_probe() -> None:
+    """Background probe that refreshes the device override after bootstrap.
+
+    The health route is intentionally conservative on Windows — it refuses
+    to import torch unless the runtime overlay marker file is present so
+    that an in-progress bootstrap can atomically swap the wheels without
+    fighting a torch DLL lock. That leaves a small edge case: the marker
+    can go missing (Defender quarantine, partial rollback, dev-mode runs
+    from a .venv) while a perfectly good CUDA install sits on disk, and
+    health then reports CPU even though every generation is running on
+    CUDA. After a 30 s grace window — long enough for any first-run
+    bootstrap to either finish or fail — we attempt one direct probe and,
+    if torch + CUDA come up cleanly, publish the result so health flips
+    to CUDA without waiting for the user to issue a generation.
+    """
+
+    if _read_active_device_override() is not None:
+        return
+    try:
+        torch = import_torch_clean()
+    except Exception:
+        purge_torch_modules()
+        return
+    try:
+        if torch.cuda.is_available():
+            try:
+                name = torch.cuda.get_device_name(0)
+            except Exception:
+                name = None
+            mark_active_device("cuda", name)
+            return
+        if torch.backends.mps.is_available():
+            mark_active_device("mps", _detect_host_device_name())
+    except Exception:
+        return
+
+
 @app.on_event("startup")
 def _on_startup_cleanup() -> None:
     try:
@@ -388,6 +465,10 @@ def _on_startup_cleanup() -> None:
     try:
         start_download_ping_dispatcher()
     except Exception:  # pragma: no cover - download pings must never break boot
+        pass
+    try:
+        threading.Timer(30.0, _delayed_device_probe).start()
+    except Exception:  # pragma: no cover - probe is purely informational
         pass
 
 

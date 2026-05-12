@@ -749,7 +749,7 @@ h1, h2, h3 { margin: 0; }
 
 .summary-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(12, 1fr);
   gap: 16px;
   width: 100%;
 }
@@ -759,6 +759,39 @@ h1, h2, h3 { margin: 0; }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   padding: 20px 24px;
+  grid-column: span 3;
+  min-width: 0;
+}
+
+/* The device summary needs more breathing room than the other tiles:
+   processor/GPU names like ``Intel Core i9-14900HX`` or
+   ``GeForce RTX 4090 Laptop`` overflow a 1/4 column tile. Give it the
+   full row so the value can stay on one line at typical viewport widths. */
+.summary-card--device {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 24px;
+}
+
+.summary-card--device .summary-card__label {
+  flex-shrink: 0;
+}
+
+.summary-card--device .summary-card__value {
+  margin-top: 0;
+  flex: 1 1 auto;
+}
+
+.summary-card--device .summary-card__caption {
+  margin-top: 0;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-high);
+  color: var(--text-secondary);
 }
 
 .summary-card__label {
@@ -771,10 +804,22 @@ h1, h2, h3 { margin: 0; }
   font-family: "MiSans", Manrope, sans-serif;
   font-size: 1.05rem;
   font-weight: 600;
+  line-height: 1.35;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .summary-card__value--green {
   color: var(--accent-green);
+}
+
+.summary-card__caption {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
 }
 
 /* Action Button */
@@ -3293,6 +3338,17 @@ h1, h2, h3 { margin: 0; }
 
   .summary-cards {
     grid-template-columns: 1fr;
+  }
+
+  .summary-card,
+  .summary-card--device {
+    grid-column: 1 / -1;
+  }
+
+  .summary-card--device {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
 
   .bootstrap-asset-cards {

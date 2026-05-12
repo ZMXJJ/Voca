@@ -54,6 +54,7 @@ try:
 except Exception:  # pragma: no cover - requests is a transitive dep of huggingface_hub
     requests = None  # type: ignore
 
+from app.services._speed import EmaSpeedTracker
 from app.services.storage_paths import app_support_dir
 from app.services.provider_router import prefer_cn_downloads
 
@@ -1255,6 +1256,12 @@ class DownloadStage:
     ) -> None:
         self._progress = progress
         self._cancel_check = cancel_check
+        # Single tracker spanning both wheels — what the UI cares about is
+        # the aggregate transfer rate, not the per-wheel rate. The 32-way
+        # segmented producer already throttles emissions to
+        # ``PROGRESS_EMIT_INTERVAL_SECONDS`` so the EMA receives roughly
+        # one sample per 200 ms regardless of chunk pacing.
+        self._speed_tracker = EmaSpeedTracker()
 
     def run(self) -> DownloadResult:
         specs = discover_wheels()
@@ -1314,6 +1321,7 @@ class DownloadStage:
         downloaded = sum(seen.values())
         total_sum = sum(totals.values()) if totals else 0
         total: int | None = total_sum if totals and len(totals) == file_count else None
+        bytes_per_second = self._speed_tracker.update(downloaded)
         self._progress(
             {
                 "stage": "download",
@@ -1325,6 +1333,7 @@ class DownloadStage:
                     1 for name, done in seen.items() if done and totals.get(name) and done >= totals[name]
                 ),
                 "totalFiles": file_count,
+                "bytesPerSecond": bytes_per_second,
             }
         )
 
