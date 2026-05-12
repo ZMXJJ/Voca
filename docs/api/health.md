@@ -14,7 +14,7 @@
 {
   "service": "voca-python-service",
   "status": "ok",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "instanceId": "a1b2c3d4",
   "startedAt": "2025-01-01T00:00:00Z",
   "modelLoaded": true,

@@ -537,7 +537,7 @@ fn spawn_sidecar_if_needed(app_handle: &AppHandle, state: &AppState) -> Result<(
         .env("HF_HUB_CACHE", &hf_hub_cache)
         .env("MODELSCOPE_CACHE", &modelscope_cache)
         .env("TORCH_HOME", &torch_home)
-        .env("VOCA_REQUIRE_CUDA", "1")
+        .env("VOCA_REQUIRE_CUDA", if cfg!(target_os = "windows") { "1" } else { "0" })
         // Disable .pyc generation so Python never writes __pycache__ folders
         // into the bundled service / VoxCPM source trees. This both avoids
         // cluttering the install directory and removes the short-lived write

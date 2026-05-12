@@ -335,6 +335,8 @@ const zhCN = {
       clear: "清除",
       exportLogs: "导出日志",
       openDir: "打开存储目录",
+      calculating: "正在计算...",
+      refreshFailed: "刷新失败，点击重试",
     },
     general: {
       title: "通用设置",

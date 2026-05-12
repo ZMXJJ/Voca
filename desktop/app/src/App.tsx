@@ -423,7 +423,11 @@ function App() {
     const info = await getStorageInfo();
     if (info) {
       setStorageInfo(info);
+      return;
     }
+    // Surface the failure so callers (e.g. StorageModal) can render a
+    // retry affordance instead of silently leaving stale placeholders.
+    throw new Error("storage_info_unavailable");
   }, []);
 
   const refreshSetupDiagnostics = async () => {
@@ -453,11 +457,17 @@ function App() {
           : null;
       });
     }
+    // ``refreshServiceInfo`` is intentionally outside the
+    // ``shouldUseFullHealthChecks`` guard: during first-launch bootstrap the
+    // ready summary card needs ``serviceInfo.deviceType`` / ``deviceName`` to
+    // render the inference device, otherwise it falls back to "检查中…" forever.
+    if (ss.healthy) {
+      void refreshServiceInfo();
+    }
     if (shouldUseFullHealthChecks && ss.healthy) {
       void getProviderRecommendation("auto").then(setProviderRecommendation);
       void prepareModel(DEFAULT_BOOTSTRAP_MODEL_KEY, "auto", false).then(setPreparedModel);
       void refreshModelCatalogState();
-      void refreshServiceInfo();
     }
   };
 
@@ -704,6 +714,10 @@ function App() {
               : current,
           );
           await refreshModelCatalogState();
+          // Pull the freshest ``serviceInfo`` immediately so the bootstrap
+          // ready summary surfaces the inference device + ASR/enhancer
+          // readiness without waiting for the next poll cycle.
+          await refreshServiceInfo();
         } catch (error) {
           console.error("Failed to finalize bootstrap success state", error);
           setBootstrapState((current) =>

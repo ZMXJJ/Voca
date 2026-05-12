@@ -187,13 +187,6 @@ export function SettingsWorkspace({
   const [providerPreference, setProviderPreference] = useState<"auto" | "huggingface" | "modelscope">(
     providerRecommendation?.preferred ?? "auto",
   );
-  // ``cacheBytes`` is derived from the lazy ``storageInfo`` snapshot. Until
-  // the user has opened the storage details modal at least once,
-  // ``storageInfo`` is ``null`` and we fall back to 0 — which is fine
-  // because the only place this value is rendered is the modal itself
-  // (post-fetch) and the inline summary that's only meaningful after the
-  // first refresh.
-  const [cacheBytes, setCacheBytes] = useState(storageInfo?.cacheBytes ?? 0);
   const [storageModalOpen, setStorageModalOpen] = useState(false);
   const [exportingLogs, setExportingLogs] = useState(false);
   const [openingStorageDir, setOpeningStorageDir] = useState(false);
@@ -214,12 +207,22 @@ export function SettingsWorkspace({
   const pollTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setCacheBytes(storageInfo?.cacheBytes ?? 0);
-  }, [storageInfo?.cacheBytes]);
-
-  useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
   }, []);
+
+  // Pre-warm the storage snapshot once the sidecar is healthy and we
+  // don't already have data. On Windows the recursive directory walk can
+  // take 1~3 seconds; firing it while the user is still reading the
+  // settings page means the storage modal almost always opens instantly
+  // instead of showing a "calculating" state on first click.
+  useEffect(() => {
+    if (!sidecarStatus.healthy) return;
+    if (storageInfo !== null) return;
+    void onRefreshStorageInfo().catch(() => {
+      // Swallow here — the modal owns the user-facing retry UI when the
+      // user actually opens it.
+    });
+  }, [sidecarStatus.healthy, storageInfo, onRefreshStorageInfo]);
 
   const showUpdateToast = useCallback((message: string) => {
     setUpdateToast(message);
@@ -347,7 +350,6 @@ export function SettingsWorkspace({
     remainingBytes: number,
     clearedAudioDirs: string[],
   ) => {
-    setCacheBytes(remainingBytes);
     onCacheCleared(updatedStorageInfo, removedTaskIds, remainingBytes, clearedAudioDirs);
   };
 
@@ -588,12 +590,11 @@ export function SettingsWorkspace({
               className="btn btn--small btn--secondary"
               type="button"
               onClick={() => {
-                // Open the modal first so the user gets immediate feedback,
-                // then kick off the (potentially slow) storage walk in the
-                // background. The modal renders a placeholder skeleton until
-                // ``storageInfo`` resolves.
+                // The modal owns the refresh lifecycle now — it triggers
+                // ``onRefreshStorageInfo`` on every mount and renders an
+                // explicit loading / retry state while the walk is in
+                // flight. We just need to open it here.
                 setStorageModalOpen(true);
-                void onRefreshStorageInfo();
               }}
             >
               {t("settings.logs.manageStorage")}
@@ -652,8 +653,8 @@ export function SettingsWorkspace({
       {storageModal.mounted && (
         <StorageModal
           storageInfo={storageInfo}
-          cacheBytes={cacheBytes}
           closing={storageModal.closing}
+          onRefresh={onRefreshStorageInfo}
           onCacheCleared={handleStorageCacheCleared}
           onClose={() => storageModal.requestClose(() => setStorageModalOpen(false))}
         />

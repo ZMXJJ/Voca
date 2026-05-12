@@ -2948,6 +2948,26 @@ h1, h2, h3 { margin: 0; }
   color: #f87171;
 }
 
+.storage-modal__retry {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.32);
+  color: #f87171;
+  border-radius: var(--radius);
+  font-size: 0.86rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.storage-modal__retry:hover {
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
 .storage-modal__summary {
   display: flex;
   justify-content: space-between;
@@ -3204,9 +3224,14 @@ h1, h2, h3 { margin: 0; }
 
 /* ================================================
    RESPONSIVE
+   ================================================
+   桌面端应用强制保持桌面布局（sidebar + 多列卡片），
+   不再根据窗口宽度切换到紧凑/移动端布局。
+   窗口最小尺寸由 tauri.conf.json 的 minWidth/minHeight 限制。
+   如需恢复紧凑布局，删除下方包裹 media query 的注释符号即可。
    ================================================ */
 
-@media (max-width: 900px) {
+/* @media (max-width: 768px) {
   .workspace {
     flex-direction: column;
   }
@@ -3322,7 +3347,7 @@ h1, h2, h3 { margin: 0; }
   .toolbar-spacer { display: none; }
 
   .toolbar-btn--generate { width: 100%; }
-}
+} */
 
 /* ================================================
    DOWNLOAD TOAST

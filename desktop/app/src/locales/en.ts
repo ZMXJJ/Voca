@@ -349,6 +349,8 @@ const en = {
       clear: "Clear",
       exportLogs: "Export Logs",
       openDir: "Open Storage Directory",
+      calculating: "Calculating…",
+      refreshFailed: "Refresh failed, click to retry",
     },
     general: {
       title: "General Settings",

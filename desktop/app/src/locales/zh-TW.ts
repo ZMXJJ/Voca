@@ -335,6 +335,8 @@ const zhTW = {
       clear: "清除",
       exportLogs: "匯出日誌",
       openDir: "開啟儲存目錄",
+      calculating: "正在計算...",
+      refreshFailed: "重新整理失敗，點擊重試",
     },
     general: {
       title: "通用設定",
