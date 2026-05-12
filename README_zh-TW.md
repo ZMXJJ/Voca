@@ -24,8 +24,14 @@
 <p align="center">
   <br />
   <a href="https://github.com/ZMXJJ/Voca/releases/latest">
-    <img src="https://img.shields.io/badge/下載_macOS_版本-7c3aed?style=for-the-badge&logo=apple&logoColor=white" alt="下載 Voca" />
+    <img src="https://img.shields.io/badge/下載_macOS_版本-7c3aed?style=for-the-badge&logo=apple&logoColor=white" alt="下載 macOS 版" />
   </a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/ZMXJJ/Voca/releases/latest">
+    <img src="https://img.shields.io/badge/下載_Windows_版本-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="下載 Windows 版" />
+  </a>
+  <br />
+  <sub>Windows 推理僅支援 NVIDIA 顯示卡</sub>
 </p>
 
 ---
@@ -64,17 +70,26 @@
 
 ### 系統要求
 
-| 專案 | 要求 |
-|------|------|
-| 作業系統 | macOS 14.0 (Sonoma) 及以上 |
-| 晶片 | Apple Silicon (M1/M2/M3/M4) |
-| 磁碟空間 | 約 6 GB（應用 + 模型） |
+| 項目 | macOS | Windows |
+|------|-------|---------|
+| 版本 | macOS 14.0 (Sonoma) 及以上 | Windows 10 22H2 / Windows 11（x86_64） |
+| 晶片 | Apple Silicon (M1/M2/M3/M4) | Intel/AMD x86_64（NVIDIA GPU 可選） |
+| 磁碟空間 | 約 6 GB（應用 + 模型） | CPU 版約 6 GB；如升級到 CUDA 再增加約 2.5 GB |
+| 推理後端 | 預設 MPS（Apple Silicon） | 預設 CPU；可在設定中按需升級到 CUDA |
 
 ### 安裝
+
+**macOS**
 
 1. 前往 [Releases](https://github.com/ZMXJJ/Voca/releases) 頁面，下載最新版本的 `.dmg` 檔案
 2. 開啟 DMG，將 Voca 拖入「應用程式」資料夾
 3. 首次開啟時，按照引導完成模型下載即可開始使用
+
+**Windows**
+
+1. 前往 [Releases](https://github.com/ZMXJJ/Voca/releases) 頁面，下載最新的 `Voca-x.y.z-x64-setup.exe`
+2. 雙擊安裝包（按使用者安裝，無需管理員權限），安裝完成後從開始功能表啟動 Voca
+3. 預設發佈的是 CPU 版；若偵測到 NVIDIA 顯示卡，可在「設定 → 推理後端」中一鍵升級到 CUDA（下載約 2.5 GB，支援斷點續傳，失敗會自動回退）
 
 > **關於 App 簽名與公證**
 >
@@ -147,7 +162,8 @@ Voca 內建了完整的初始化引導流程：
 - [x] **更輕量的模型推理後端** — 已將 ASR 從 PyTorch/FunASR 遷移至 ONNX Runtime（`iic/SenseVoiceSmall-onnx`，INT8），大幅減少 App 體積和模型下載大小
 - [ ] **量化模型支援** — 引入 INT8 等量化推理，降低記憶體佔用與磁碟空間需求
 - [ ] **更豐富的 TTS 功能** — 支援更多 TTS 模型和更豐富的語音合成能力
-- [ ] Windows 平台支援
+- [ ] **Windows 端更輕量的資源佔用** — 降低 Windows 端的磁碟與記憶體佔用，優化整體體積
+- [x] Windows 平台支援（x86_64，NSIS 安裝器，可選 CUDA 升級）
 
 有想法或建議？歡迎透過 [Issues](https://github.com/ZMXJJ/Voca/issues) 告訴我們。
 
@@ -163,7 +179,7 @@ Voca 內建了完整的初始化引導流程：
 
 ## 已知限制
 
-- 目前僅支援 macOS (Apple Silicon)，Windows 支援在規劃中
+- 目前支援 macOS（Apple Silicon）和 Windows x86_64；Linux 暫無支援計畫
 - 首次啟動需聯網下載模型（約 1-2 GB），之後可完全離線使用
 - 語音複製效果受參考音訊品質影響較大，建議使用清晰、無背景噪聲的音訊
 

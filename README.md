@@ -24,8 +24,14 @@
 <p align="center">
   <br />
   <a href="https://github.com/ZMXJJ/Voca/releases/latest">
-    <img src="https://img.shields.io/badge/Download_for_macOS-7c3aed?style=for-the-badge&logo=apple&logoColor=white" alt="Download Voca" />
+    <img src="https://img.shields.io/badge/Download_for_macOS-7c3aed?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" />
   </a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/ZMXJJ/Voca/releases/latest">
+    <img src="https://img.shields.io/badge/Download_for_Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" />
+  </a>
+  <br />
+  <sub>Windows inference requires an NVIDIA GPU</sub>
 </p>
 
 ---
@@ -156,6 +162,7 @@ Check for new versions in Settings. When an update is available, the app opens t
 - [x] **Lighter inference backend** — ASR migrated from PyTorch/FunASR to ONNX Runtime (`iic/SenseVoiceSmall-onnx`, INT8), significantly reducing app size and model download size
 - [ ] **Quantized model support** — INT8 and other quantized inference to lower memory and disk usage
 - [ ] **Richer TTS capabilities** — Support for more TTS models and expanded speech synthesis features
+- [ ] **Lighter Windows footprint** — Reduce disk and memory usage on Windows for a more lightweight experience
 - [x] Windows support (x86_64, NSIS installer, optional CUDA upgrade)
 
 Have ideas or suggestions? Let us know via [Issues](https://github.com/ZMXJJ/Voca/issues).

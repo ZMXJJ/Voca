@@ -24,8 +24,14 @@
 <p align="center">
   <br />
   <a href="https://github.com/ZMXJJ/Voca/releases/latest">
-    <img src="https://img.shields.io/badge/下载_macOS_版本-7c3aed?style=for-the-badge&logo=apple&logoColor=white" alt="下载 Voca" />
+    <img src="https://img.shields.io/badge/下载_macOS_版本-7c3aed?style=for-the-badge&logo=apple&logoColor=white" alt="下载 macOS 版" />
   </a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/ZMXJJ/Voca/releases/latest">
+    <img src="https://img.shields.io/badge/下载_Windows_版本-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="下载 Windows 版" />
+  </a>
+  <br />
+  <sub>Windows 推理仅支持 NVIDIA 显卡</sub>
 </p>
 
 ---
@@ -156,6 +162,7 @@ Voca 内置了完整的初始化引导流程：
 - [x] **更轻量的模型推理后端** — 已将 ASR 从 PyTorch/FunASR 迁移至 ONNX Runtime（`iic/SenseVoiceSmall-onnx`，INT8），大幅减少 App 体积和模型下载大小
 - [ ] **量化模型支持** — 引入 INT8 等量化推理，降低内存占用与磁盘空间需求
 - [ ] **更丰富的 TTS 功能** — 支持更多 TTS 模型和更丰富的语音合成能力
+- [ ] **Windows 端更轻量的资源占用** — 降低 Windows 端的磁盘与内存占用，优化整体体积
 - [x] Windows 平台支持（x86_64，NSIS 安装器，可选 CUDA 升级）
 
 有想法或建议？欢迎通过 [Issues](https://github.com/ZMXJJ/Voca/issues) 告诉我们。
