@@ -73,9 +73,9 @@
 | Item | macOS | Windows |
 |------|-------|---------|
 | Version | macOS 14.0 (Sonoma) or later | Windows 10 22H2 / Windows 11 (x86_64) |
-| Chip | Apple Silicon (M1/M2/M3/M4) | Intel/AMD x86_64 (NVIDIA GPU optional) |
-| Disk Space | ~6 GB (app + models) | ~6 GB CPU build, +2.5 GB if upgrading to CUDA |
-| Inference Backend | MPS (Apple Silicon) by default | CPU by default; can be upgraded to CUDA on demand |
+| Chip | Apple Silicon (M1/M2/M3/M4) | Intel/AMD x86_64 with NVIDIA GPU |
+| Disk Space | ~6 GB (app + models) | ~11 GB (app + models + CUDA runtime; runtime download ~2.5 GB) |
+| Inference Backend | MPS (Apple Silicon) by default | CUDA (NVIDIA GPU required) |
 
 ### Installation
 
@@ -89,7 +89,9 @@
 
 1. Go to the [Releases](https://github.com/ZMXJJ/Voca/releases) page and download the latest `Voca-x.y.z-x64-setup.exe`
 2. Run the installer (per-user install, no admin rights needed) and launch Voca from the Start menu
-3. The CPU build ships with PyTorch CPU. If an NVIDIA GPU is detected, Settings → Inference Backend offers a one-click CUDA upgrade (~2.5 GB download with resumable transfer and automatic rollback on failure)
+3. On first launch, the guided setup will automatically download the CUDA runtime (~2.5 GB download with resumable transfer)
+
+> **Note:** The CUDA runtime installation requires approximately **5 GB** of additional free disk space. Please ensure sufficient space is available before proceeding.
 
 > **About App Signing & Notarization**
 >
