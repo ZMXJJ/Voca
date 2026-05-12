@@ -74,7 +74,7 @@
 |------|-------|---------|
 | 版本 | macOS 14.0 (Sonoma) 及以上 | Windows 10 22H2 / Windows 11（x86_64） |
 | 芯片 | Apple Silicon (M1/M2/M3/M4) | Intel/AMD x86_64（NVIDIA GPU 可选） |
-| 磁盘空间 | 约 6 GB（应用 + 模型） | CPU 版约 6 GB；如升级到 CUDA 再增加约 2.5 GB |
+| 磁盘空间 | 约 6 GB（应用 + 模型） | CPU 版约 6 GB；升级到 CUDA 需额外约 5 GB 磁盘空间（下载约 2.5 GB） |
 | 推理后端 | 默认 MPS（Apple Silicon） | 默认 CPU；可在设置中按需升级到 CUDA |
 
 ### 安装
@@ -90,6 +90,8 @@
 1. 前往 [Releases](https://github.com/ZMXJJ/Voca/releases) 页面，下载最新的 `Voca-x.y.z-x64-setup.exe`
 2. 双击安装包（按用户安装，无需管理员权限），安装完成后从开始菜单启动 Voca
 3. 默认发布的是 CPU 版；若检测到 NVIDIA 显卡，可在「设置 → 推理后端」中一键升级到 CUDA（下载约 2.5 GB，支持断点续传，失败会自动回退）
+
+> **注意：** CUDA runtime 安装需要约 **5 GB** 的额外可用磁盘空间，升级前请确保磁盘空间充足。
 
 > **关于 App 签名与公证**
 >
