@@ -28,7 +28,7 @@
   </a>
   &nbsp;&nbsp;
   <a href="https://github.com/ZMXJJ/Voca/releases/latest">
-    <img src="https://img.shields.io/badge/下载_Windows_版本-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="下载 Windows 版" />
+    <img src="https://img.shields.io/badge/下载_Windows_版本-0078D4?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDMuNDk1bDkuODQtMS4zOFYxMS4wNUgwVjMuNDk1ek0wIDEyLjk1aDkuODR2OC45MzVMMCwyMC41MDVWMTIuOTV6TTEwLjk1IDEuOTc1TDI0IDB2MTEuMDVIMTAuOTVWMS45NzV6TTEwLjk1IDEyLjk1SDI0VjI0bC0xMy4wNS0xLjk3NVYxMi45NXoiLz48L3N2Zz4=&logoColor=white" alt="下载 Windows 版" />
   </a>
   <br />
   <sub>Windows 推理仅支持 NVIDIA 显卡</sub>
