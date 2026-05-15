@@ -77,7 +77,7 @@ def _default_onnx_providers(ort: Any) -> list[str]:
     available = set(ort.get_available_providers())
     if "CUDAExecutionProvider" not in available:
         raise RuntimeError(
-            "The bundled Windows runtime now requires CUDA for ASR inference, "
+            "This build requires CUDA for ASR inference, "
             "but onnxruntime-gpu did not expose CUDAExecutionProvider. "
             "Please check the NVIDIA driver and bundled CUDA dependencies."
         )

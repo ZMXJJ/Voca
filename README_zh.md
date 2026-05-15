@@ -30,8 +30,12 @@
   <a href="https://github.com/ZMXJJ/Voca/releases/latest">
     <img src="https://img.shields.io/badge/下载_Windows_版本-0078D4?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDMuNDk1bDkuODQtMS4zOFYxMS4wNUgwVjMuNDk1ek0wIDEyLjk1aDkuODR2OC45MzVMMCwyMC41MDVWMTIuOTV6TTEwLjk1IDEuOTc1TDI0IDB2MTEuMDVIMTAuOTVWMS45NzV6TTEwLjk1IDEyLjk1SDI0VjI0bC0xMy4wNS0xLjk3NVYxMi45NXoiLz48L3N2Zz4=&logoColor=white" alt="下载 Windows 版" />
   </a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/ZMXJJ/Voca/releases/latest">
+    <img src="https://img.shields.io/badge/下载_Linux_版本-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="下载 Linux 版" />
+  </a>
   <br />
-  <sub>Windows 推理仅支持 NVIDIA 显卡</sub>
+  <sub>Windows 推理仅支持 NVIDIA 显卡；Linux 支持 CPU 与 NVIDIA GPU 构建</sub>
 </p>
 
 ---
@@ -70,12 +74,12 @@
 
 ### 系统要求
 
-| 项目 | macOS | Windows |
-|------|-------|---------|
-| 版本 | macOS 14.0 (Sonoma) 及以上 | Windows 10 22H2 / Windows 11（x86_64） |
-| 芯片 | Apple Silicon (M1/M2/M3/M4) | Intel/AMD x86_64（需 NVIDIA GPU） |
-| 磁盘空间 | 约 6 GB（应用 + 模型） | 约 11 GB（应用 + 模型 + CUDA runtime；runtime 下载约 2.5 GB） |
-| 推理后端 | 默认 MPS（Apple Silicon） | CUDA（需 NVIDIA GPU） |
+| 项目 | macOS | Windows | Linux |
+|------|-------|---------|-------|
+| 版本 | macOS 14.0 (Sonoma) 及以上 | Windows 10 22H2 / Windows 11（x86_64） | 现代 x86_64 桌面 Linux，需 WebKitGTK 运行库 |
+| 芯片 | Apple Silicon (M1/M2/M3/M4) | Intel/AMD x86_64（需 NVIDIA GPU） | Intel/AMD x86_64 CPU，可选 NVIDIA GPU |
+| 磁盘空间 | 约 6 GB（应用 + 模型） | 约 11 GB（应用 + 模型 + CUDA runtime；runtime 下载约 2.5 GB） | CPU 构建约 6 GB；NVIDIA 构建需额外 CUDA wheel 空间 |
+| 推理后端 | 默认 MPS（Apple Silicon） | CUDA（需 NVIDIA GPU） | 默认 CPU；使用 `VOCA_LINUX_ACCELERATOR=nvidia` 构建时启用 CUDA |
 
 ### 安装
 
@@ -92,6 +96,12 @@
 3. 首次启动时，引导流程会自动下载 CUDA runtime（下载约 2.5 GB，支持断点续传）
 
 > **注意：** CUDA runtime 安装需要约 **5 GB** 的额外可用磁盘空间，请确保安装前磁盘空间充足。
+
+**Linux**
+
+1. 前往 [Releases](https://github.com/ZMXJJ/Voca/releases) 页面，下载最新的 `.deb` 或 `.AppImage`
+2. 通用设备请选择 CPU 构建；带兼容 NVIDIA 驱动的设备可选择 NVIDIA 构建以启用 CUDA 推理
+3. 首次打开时，按照引导完成模型下载即可开始使用
 
 > **关于 App 签名与公证**
 >

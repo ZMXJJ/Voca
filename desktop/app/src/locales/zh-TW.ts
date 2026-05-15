@@ -297,6 +297,8 @@ const zhTW = {
       cuda: "CUDA",
       mps: "MPS（Apple Silicon）",
       downloadedCuda: "Windows 版本會在首次準備時自動下載 CUDA 推理執行階段，完成後預設只使用 GPU 推理。",
+      linuxCpuAvailable: "Linux CPU 構建無需 NVIDIA 硬體即可執行；如需 CUDA，請安裝 NVIDIA 構建並使用相容驅動。",
+      linuxNvidiaAvailable: "Linux 已偵測到 NVIDIA GPU。使用 VOCA_LINUX_ACCELERATOR=nvidia 構建時會啟用 CUDA；CPU 構建仍使用 CPU。",
       gpuRequired: "需要 NVIDIA GPU，且顯存至少為 {{minimum}}，才能下載並執行 CUDA 推理後端。",
       gpuInsufficient: "目前偵測到的顯存為 {{memory}}，低於最低要求 {{minimum}}，無法啟用 CUDA 推理。",
     },

@@ -49,17 +49,16 @@ pub struct SetupDiagnostics {
     pub minimum_free_storage_bytes: u64,
     pub gpu_memory_bytes: Option<u64>,
     /// Only populated on platforms that actually require an NVIDIA GPU
-    /// (currently Windows). Other platforms emit `None` so older or
-    /// platform-agnostic clients can treat the constraint as absent instead
-    /// of mistakenly blocking the user with a 0 / 6 GiB cutoff.
+    /// (currently Windows). Other platforms emit `None` so clients treat the
+    /// constraint as absent instead of blocking CPU-capable Linux/macOS users.
     pub minimum_gpu_memory_bytes: Option<u64>,
     pub environment_ready: bool,
     pub environment_status: String,
     pub environment_reason: Option<String>,
     pub gpu_vendor: Option<String>,
     pub gpu_name: Option<String>,
-    /// Tri-state: `Some(true)` / `Some(false)` for platforms that gate on
-    /// NVIDIA hardware, `None` for platforms where the question doesn't apply.
+    /// Tri-state: `Some(true)` / `Some(false)` for platforms with NVIDIA
+    /// diagnostics (Windows/Linux), `None` for platforms where it doesn't apply.
     pub has_nvidia_gpu: Option<bool>,
     pub active_torch_backend: Option<String>,
 }

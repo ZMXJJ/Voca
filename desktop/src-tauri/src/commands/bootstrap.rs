@@ -567,15 +567,16 @@ pub async fn get_setup_diagnostics(
         }
     };
 
-    // Only Windows currently gates bootstrap on an NVIDIA GPU + VRAM minimum;
-    // emitting these fields on macOS/Linux would force the frontend (or older
-    // clients merged from main) to either special-case a missing GPU or block
-    // the user on hardware that doesn't actually need CUDA.
+    // Windows still gates bootstrap on an NVIDIA GPU + VRAM minimum. Linux can
+    // run either CPU or NVIDIA bundles, so it reports NVIDIA presence for
+    // diagnostics without adding a GPU floor that would block CPU users.
     let (minimum_gpu_memory_bytes, has_nvidia_gpu) = if cfg!(target_os = "windows") {
         (
             Some(MINIMUM_GPU_MEMORY_BYTES),
             Some(gpu_vendor.as_deref() == Some("nvidia")),
         )
+    } else if cfg!(target_os = "linux") {
+        (None, Some(gpu_vendor.as_deref() == Some("nvidia")))
     } else {
         (None, None)
     };

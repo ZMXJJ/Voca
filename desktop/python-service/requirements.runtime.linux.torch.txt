@@ -1,0 +1,4 @@
+# Linux PyTorch runtime extras. The prepare script installs these from the
+# CPU or CUDA PyTorch wheel index selected for the bundle.
+torch==2.11.0
+torchaudio==2.11.0

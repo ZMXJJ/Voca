@@ -30,8 +30,12 @@
   <a href="https://github.com/ZMXJJ/Voca/releases/latest">
     <img src="https://img.shields.io/badge/Download_for_Windows-0078D4?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDMuNDk1bDkuODQtMS4zOFYxMS4wNUgwVjMuNDk1ek0wIDEyLjk1aDkuODR2OC45MzVMMCwyMC41MDVWMTIuOTV6TTEwLjk1IDEuOTc1TDI0IDB2MTEuMDVIMTAuOTVWMS45NzV6TTEwLjk1IDEyLjk1SDI0VjI0bC0xMy4wNS0xLjk3NVYxMi45NXoiLz48L3N2Zz4=&logoColor=white" alt="Download for Windows" />
   </a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/ZMXJJ/Voca/releases/latest">
+    <img src="https://img.shields.io/badge/Download_for_Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Download for Linux" />
+  </a>
   <br />
-  <sub>Windows inference requires an NVIDIA GPU</sub>
+  <sub>Windows inference requires an NVIDIA GPU; Linux supports CPU and NVIDIA GPU builds</sub>
 </p>
 
 ---
@@ -70,12 +74,12 @@
 
 ### System Requirements
 
-| Item | macOS | Windows |
-|------|-------|---------|
-| Version | macOS 14.0 (Sonoma) or later | Windows 10 22H2 / Windows 11 (x86_64) |
-| Chip | Apple Silicon (M1/M2/M3/M4) | Intel/AMD x86_64 with NVIDIA GPU |
-| Disk Space | ~6 GB (app + models) | ~11 GB (app + models + CUDA runtime; runtime download ~2.5 GB) |
-| Inference Backend | MPS (Apple Silicon) by default | CUDA (NVIDIA GPU required) |
+| Item | macOS | Windows | Linux |
+|------|-------|---------|-------|
+| Version | macOS 14.0 (Sonoma) or later | Windows 10 22H2 / Windows 11 (x86_64) | Modern x86_64 desktop Linux with WebKitGTK runtime libraries |
+| Chip | Apple Silicon (M1/M2/M3/M4) | Intel/AMD x86_64 with NVIDIA GPU | Intel/AMD x86_64 CPU, optional NVIDIA GPU |
+| Disk Space | ~6 GB (app + models) | ~11 GB (app + models + CUDA runtime; runtime download ~2.5 GB) | ~6 GB for CPU builds; NVIDIA builds require additional CUDA wheel space |
+| Inference Backend | MPS (Apple Silicon) by default | CUDA (NVIDIA GPU required) | CPU by default, CUDA when built with `VOCA_LINUX_ACCELERATOR=nvidia` |
 
 ### Installation
 
@@ -92,6 +96,12 @@
 3. On first launch, the guided setup will automatically download the CUDA runtime (~2.5 GB download with resumable transfer)
 
 > **Note:** The CUDA runtime installation requires approximately **5 GB** of additional free disk space. Please ensure sufficient space is available before proceeding.
+
+**Linux**
+
+1. Go to the [Releases](https://github.com/ZMXJJ/Voca/releases) page and download the latest `.deb` or `.AppImage`
+2. Choose the CPU build for broad compatibility, or the NVIDIA build for CUDA inference on systems with a compatible NVIDIA driver
+3. On first launch, follow the guided setup to download models and start using the app
 
 > **About App Signing & Notarization**
 >
@@ -155,7 +165,7 @@ Check for new versions in Settings. When an update is available, the app opens t
 | Inference Service | Python (FastAPI + Uvicorn) sidecar |
 | Speech Engine | VoxCPM |
 | Runtime | Python 3.11+ |
-| Platform | macOS 14.0+ (Apple Silicon) |
+| Platform | macOS 14.0+ (Apple Silicon), Windows x86_64, Linux x86_64 |
 
 ## Roadmap
 
@@ -166,6 +176,7 @@ Check for new versions in Settings. When an update is available, the app opens t
 - [ ] **Richer TTS capabilities** — Support for more TTS models and expanded speech synthesis features
 - [ ] **Lighter Windows footprint** — Reduce disk and memory usage on Windows for a more lightweight experience
 - [x] Windows support (x86_64, NSIS installer, optional CUDA upgrade)
+- [x] Linux support (x86_64 CPU and NVIDIA GPU bundles)
 
 Have ideas or suggestions? Let us know via [Issues](https://github.com/ZMXJJ/Voca/issues).
 

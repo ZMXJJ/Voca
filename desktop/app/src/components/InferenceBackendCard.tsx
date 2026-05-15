@@ -36,12 +36,12 @@ function formatBytes(value: number) {
 export function InferenceBackendCard({ setupDiagnostics }: Props) {
   const { t } = useTranslation();
   const activeBackend = setupDiagnostics?.activeTorchBackend ?? null;
-  // The CUDA-aware GPU/VRAM panel only applies to Windows builds. On
-  // macOS/Linux we render a slim card describing the active backend and skip
-  // any "no NVIDIA GPU detected" warning that would otherwise mislead users.
-  const isWindows = setupDiagnostics?.platform === "windows";
+  const platform = setupDiagnostics?.platform;
+  // Windows requires CUDA, while Linux can run either CPU or NVIDIA bundles.
+  // macOS keeps the slim backend-only card.
+  const showsNvidiaDiagnostics = platform === "windows" || platform === "linux";
 
-  if (!isWindows) {
+  if (!showsNvidiaDiagnostics) {
     return (
       <div className="settings-section">
         <div className="settings-section__title">{t("settings.inferenceBackend.title")}</div>
@@ -59,10 +59,30 @@ export function InferenceBackendCard({ setupDiagnostics }: Props) {
 
   const hasNvidiaGpu = Boolean(setupDiagnostics?.hasNvidiaGpu);
   const gpuMemoryBytes = setupDiagnostics?.gpuMemoryBytes ?? null;
-  const minimumGpuMemoryBytes =
-    setupDiagnostics?.minimumGpuMemoryBytes ?? 6 * 1024 * 1024 * 1024;
+  const minimumGpuMemoryBytes = setupDiagnostics?.minimumGpuMemoryBytes ?? null;
+  const hasGpuFloor = minimumGpuMemoryBytes !== null;
   const gpuReady =
-    hasNvidiaGpu && gpuMemoryBytes !== null && gpuMemoryBytes >= minimumGpuMemoryBytes;
+    hasNvidiaGpu &&
+    (!hasGpuFloor || (gpuMemoryBytes !== null && gpuMemoryBytes >= minimumGpuMemoryBytes));
+  const backendDescription = (() => {
+    if (platform === "linux") {
+      return hasNvidiaGpu
+        ? t("settings.inferenceBackend.linuxNvidiaAvailable")
+        : t("settings.inferenceBackend.linuxCpuAvailable");
+    }
+    if (gpuReady) {
+      return t("settings.inferenceBackend.downloadedCuda");
+    }
+    if (hasNvidiaGpu && hasGpuFloor) {
+      return t("settings.inferenceBackend.gpuInsufficient", {
+        memory: gpuMemoryBytes !== null ? formatBytes(gpuMemoryBytes) : "—",
+        minimum: formatBytes(minimumGpuMemoryBytes ?? 0),
+      });
+    }
+    return t("settings.inferenceBackend.gpuRequired", {
+      minimum: formatBytes(minimumGpuMemoryBytes ?? 6 * 1024 * 1024 * 1024),
+    });
+  })();
 
   return (
     <div className="settings-section">
@@ -92,16 +112,7 @@ export function InferenceBackendCard({ setupDiagnostics }: Props) {
         </div>
         <div>
           <p style={{ fontSize: 13, lineHeight: 1.5, margin: 0 }}>
-            {gpuReady
-              ? t("settings.inferenceBackend.downloadedCuda")
-              : hasNvidiaGpu
-                ? t("settings.inferenceBackend.gpuInsufficient", {
-                    memory: gpuMemoryBytes !== null ? formatBytes(gpuMemoryBytes) : "—",
-                    minimum: formatBytes(minimumGpuMemoryBytes),
-                  })
-                : t("settings.inferenceBackend.gpuRequired", {
-                    minimum: formatBytes(minimumGpuMemoryBytes),
-                  })}
+            {backendDescription}
           </p>
         </div>
       </div>

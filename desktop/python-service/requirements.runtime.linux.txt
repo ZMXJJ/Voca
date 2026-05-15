@@ -1,0 +1,3 @@
+# Linux-only runtime extras shared by CPU and NVIDIA bundles.
+# PyTorch wheels are installed separately by scripts/prepare-linux-resources.mjs
+# so the script can select the CPU or CUDA wheel index explicitly.

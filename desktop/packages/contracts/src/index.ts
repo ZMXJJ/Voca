@@ -235,8 +235,7 @@ export type SetupDiagnostics = {
   /**
    * Minimum VRAM required for the current platform's inference path. Only
    * populated on platforms that gate on NVIDIA GPUs (currently Windows);
-   * absent on macOS/Linux. The frontend treats `null`/`undefined` as
-   * "no GPU floor required for this platform".
+   * absent on macOS/Linux so CPU-capable platforms do not get blocked.
    */
   minimumGpuMemoryBytes?: number | null;
   environmentReady: boolean;
@@ -245,10 +244,8 @@ export type SetupDiagnostics = {
   gpuVendor?: string | null;
   gpuName?: string | null;
   /**
-   * Tri-state. `true`/`false` for platforms whose bootstrap depends on
-   * NVIDIA hardware; `null`/`undefined` on platforms where the question
-   * doesn't apply (macOS, Linux). Older clients only saw `boolean`, so we
-   * keep the type lenient.
+   * Tri-state. `true`/`false` for platforms that expose NVIDIA diagnostics
+   * (Windows/Linux); `null`/`undefined` where the question doesn't apply.
    */
   hasNvidiaGpu?: boolean | null;
   activeTorchBackend?: TorchBackend | string | null;

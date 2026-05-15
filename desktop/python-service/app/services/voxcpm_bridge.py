@@ -738,7 +738,7 @@ class VoxCPMBridge:
             except Exception as exc:  # pragma: no cover - environment-specific dependency issue
                 purge_torch_modules()
                 raise RuntimeError(
-                    "The bundled Windows runtime requires CUDA-enabled PyTorch, "
+                    "This build requires CUDA-enabled PyTorch, "
                     "but torch could not be imported."
                 ) from exc
 
@@ -747,14 +747,14 @@ class VoxCPMBridge:
             except Exception as exc:
                 purge_torch_modules()
                 raise RuntimeError(
-                    "The bundled Windows runtime imported PyTorch, but the CUDA extension "
+                    "This build imported PyTorch, but the CUDA extension "
                     "did not initialize cleanly."
                 ) from exc
 
             if not cuda_available:
                 raise RuntimeError(
-                    "The bundled Windows build requires an NVIDIA GPU with at least 6 GB of VRAM "
-                    "and a working CUDA runtime. CPU fallback has been disabled."
+                    "This build requires an NVIDIA GPU with a working CUDA runtime. "
+                    "CPU fallback has been disabled."
                 )
 
         try:

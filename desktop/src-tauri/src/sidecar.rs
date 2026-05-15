@@ -126,6 +126,49 @@ fn runtime_overlay_ready(app_support_dir: &Path) -> bool {
         && site_packages.join("torchaudio").exists()
 }
 
+fn parse_bool_env(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn linux_bundle_requests_cuda(sidecar_paths: &SidecarPaths) -> bool {
+    let manifest_path = sidecar_paths.service_root.join("manifest.json");
+    let Ok(content) = fs::read_to_string(manifest_path) else {
+        return false;
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return false;
+    };
+
+    parsed
+        .get("torchBackend")
+        .or_else(|| parsed.get("accelerator"))
+        .and_then(|value| value.as_str())
+        .map(|value| matches!(value, "cuda" | "nvidia"))
+        .unwrap_or(false)
+}
+
+fn resolve_require_cuda(sidecar_paths: &SidecarPaths) -> &'static str {
+    if cfg!(target_os = "windows") {
+        return "1";
+    }
+
+    if let Ok(raw) = env::var("VOCA_REQUIRE_CUDA") {
+        if let Some(enabled) = parse_bool_env(&raw) {
+            return if enabled { "1" } else { "0" };
+        }
+    }
+
+    if cfg!(target_os = "linux") && linux_bundle_requests_cuda(sidecar_paths) {
+        return "1";
+    }
+
+    "0"
+}
+
 fn resolve_dev_sidecar_paths() -> SidecarPaths {
     let service_root = desktop_root().join("python-service");
     let voxcpm_src = repo_root().join("VoxCPM").join("src");
@@ -152,8 +195,10 @@ fn bundled_resource_roots(resource_dir: &Path) -> Vec<PathBuf> {
         resource_dir.to_path_buf(),
         resource_dir.join(".bundle-resources"),
         resource_dir.join(".bundle-resources-win"),
+        resource_dir.join(".bundle-resources-linux"),
         resource_dir.join("_up_").join(".bundle-resources"),
         resource_dir.join("_up_").join(".bundle-resources-win"),
+        resource_dir.join("_up_").join(".bundle-resources-linux"),
     ];
     roots.dedup();
     roots
@@ -537,7 +582,7 @@ fn spawn_sidecar_if_needed(app_handle: &AppHandle, state: &AppState) -> Result<(
         .env("HF_HUB_CACHE", &hf_hub_cache)
         .env("MODELSCOPE_CACHE", &modelscope_cache)
         .env("TORCH_HOME", &torch_home)
-        .env("VOCA_REQUIRE_CUDA", if cfg!(target_os = "windows") { "1" } else { "0" })
+        .env("VOCA_REQUIRE_CUDA", resolve_require_cuda(&sidecar_paths))
         // Disable .pyc generation so Python never writes __pycache__ folders
         // into the bundled service / VoxCPM source trees. This both avoids
         // cluttering the install directory and removes the short-lived write
