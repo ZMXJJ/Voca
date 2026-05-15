@@ -6,6 +6,7 @@ import type {
   ModelPrepareResponse,
   ProviderRecommendation,
   ServiceInfo,
+  SetupDiagnostics,
   SidecarStatus,
   StorageInfo,
   TaskRecord,
@@ -29,6 +30,7 @@ type WorkspacePageProps = {
   auxiliaryModelCatalog: ModelCatalogEntry[];
   downloadedAuxiliaryModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
+  setupDiagnostics: SetupDiagnostics | null;
   storageInfo: StorageInfo | null;
   taskHistory: TaskRecord[];
   onPrepareModel: (
@@ -56,6 +58,7 @@ export function WorkspacePage({
   auxiliaryModelCatalog,
   downloadedAuxiliaryModelCatalog,
   serviceInfo,
+  setupDiagnostics,
   storageInfo,
   taskHistory,
   onPrepareModel,
@@ -104,6 +107,7 @@ export function WorkspacePage({
             auxiliaryModelCatalog={auxiliaryModelCatalog}
             downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
             serviceInfo={serviceInfo}
+            setupDiagnostics={setupDiagnostics}
             storageInfo={storageInfo}
             taskHistory={taskHistory}
             onPrepareModel={onPrepareModel}
@@ -145,6 +149,7 @@ export function WorkspacePage({
     providerRecommendation,
     selectedVoiceId,
     serviceInfo,
+    setupDiagnostics,
     sidecarStatus,
     storageInfo,
     taskHistory,

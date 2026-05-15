@@ -305,6 +305,19 @@ function createPreviewSetupDiagnostics(): SetupDiagnostics {
   };
 }
 
+function createPreviewLinuxSetupDiagnostics(): SetupDiagnostics {
+  return {
+    ...createPreviewSetupDiagnostics(),
+    platform: "linux",
+    gpuVendor: "nvidia",
+    gpuName: "NVIDIA GeForce RTX 4090",
+    gpuMemoryBytes: 24 * 1024 * 1024 * 1024,
+    minimumGpuMemoryBytes: null,
+    hasNvidiaGpu: true,
+    activeTorchBackend: "cuda",
+  };
+}
+
 function upsertTaskHistory(history: TaskRecord[], task: TaskRecord): TaskRecord[] {
   return normalizeTaskHistory([task, ...history.filter((item) => item.id !== task.id)]);
 }
@@ -914,6 +927,7 @@ function App() {
   const previewTask = createPreviewTask(null);
   const previewBootstrapDownloadTask = createPreviewBootstrapDownloadTask();
   const previewSetupDiagnostics = createPreviewSetupDiagnostics();
+  const previewLinuxSetupDiagnostics = createPreviewLinuxSetupDiagnostics();
   const previewTaskHistory = taskHistory.length > 0 ? upsertTaskHistory(taskHistory, previewTask) : [previewTask];
   const canContinueFromInitialize = Boolean(
     setupDiagnostics &&
@@ -948,6 +962,7 @@ function App() {
           auxiliaryModelCatalog={auxiliaryModelCatalog}
           downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
           serviceInfo={serviceInfo}
+          setupDiagnostics={previewLinuxSetupDiagnostics}
           storageInfo={storageInfo}
           taskHistory={previewTaskHistory}
           onPrepareModel={handlePrepareModel}
@@ -1247,6 +1262,7 @@ function App() {
         auxiliaryModelCatalog={auxiliaryModelCatalog}
         downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
         serviceInfo={serviceInfo}
+        setupDiagnostics={setupDiagnostics}
         storageInfo={storageInfo}
         taskHistory={taskHistory}
         onPrepareModel={handlePrepareModel}

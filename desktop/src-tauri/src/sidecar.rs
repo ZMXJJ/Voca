@@ -169,6 +169,54 @@ fn resolve_require_cuda(sidecar_paths: &SidecarPaths) -> &'static str {
     "0"
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_sidecar_paths(manifest: Option<&str>) -> SidecarPaths {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        let root = env::temp_dir().join(format!("voca-sidecar-test-{unique}"));
+        fs::create_dir_all(&root).expect("create temp sidecar root");
+        if let Some(content) = manifest {
+            fs::write(root.join("manifest.json"), content).expect("write manifest");
+        }
+
+        SidecarPaths {
+            service_root: root,
+            python_executable: PathBuf::new(),
+            python_path_entries: Vec::new(),
+            bundle_resource_dir: None,
+            voxcpm_src: PathBuf::new(),
+        }
+    }
+
+    #[test]
+    fn parses_boolean_env_flags() {
+        assert_eq!(parse_bool_env("1"), Some(true));
+        assert_eq!(parse_bool_env("ON"), Some(true));
+        assert_eq!(parse_bool_env("false"), Some(false));
+        assert_eq!(parse_bool_env("disabled"), None);
+    }
+
+    #[test]
+    fn linux_bundle_manifest_can_request_cuda() {
+        let paths = temp_sidecar_paths(Some(r#"{"platform":"linux-x64","torchBackend":"cuda"}"#));
+        assert!(linux_bundle_requests_cuda(&paths));
+        let _ = fs::remove_dir_all(paths.service_root);
+    }
+
+    #[test]
+    fn linux_cpu_bundle_manifest_does_not_request_cuda() {
+        let paths = temp_sidecar_paths(Some(r#"{"platform":"linux-x64","torchBackend":"cpu"}"#));
+        assert!(!linux_bundle_requests_cuda(&paths));
+        let _ = fs::remove_dir_all(paths.service_root);
+    }
+}
+
 fn resolve_dev_sidecar_paths() -> SidecarPaths {
     let service_root = desktop_root().join("python-service");
     let voxcpm_src = repo_root().join("VoxCPM").join("src");

@@ -68,7 +68,15 @@ function main() {
     ...resolveMacDevEnv(),
   };
   const invocation = resolveTauriInvocation();
-  const tauriArgs = [...invocation.argsPrefix, "dev", ...process.argv.slice(2)];
+  const userArgs = process.argv.slice(2);
+  const hasConfigOverride = userArgs.includes("--config") || userArgs.some((arg) => arg.startsWith("--config="));
+  const devResourceConfig = JSON.stringify({ bundle: { resources: [] } });
+  const tauriArgs = [
+    ...invocation.argsPrefix,
+    "dev",
+    ...(hasConfigOverride ? [] : ["--config", devResourceConfig]),
+    ...userArgs,
+  ];
 
   run(invocation.command, tauriArgs, {
     cwd: desktopRoot,
