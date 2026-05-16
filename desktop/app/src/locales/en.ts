@@ -298,26 +298,6 @@ const en = {
       recentError: "Recent Error",
       none: "None",
     },
-    inferenceBackend: {
-      title: "Inference Backend",
-      activeLabel: "Active backend",
-      gpuDetected: "NVIDIA GPU detected",
-      gpuNotDetected: "No NVIDIA GPU detected",
-      vramLabel: "GPU VRAM",
-      cpu: "CPU",
-      cuda: "CUDA",
-      mps: "MPS (Apple Silicon)",
-      downloadedCuda:
-        "On Windows, Voca downloads the CUDA inference runtime during first-run setup and then runs on GPU only.",
-      linuxCpuAvailable:
-        "Linux CPU bundles run without NVIDIA hardware. Install the NVIDIA bundle to use CUDA on a compatible driver.",
-      linuxNvidiaAvailable:
-        "Linux detected an NVIDIA GPU. CUDA is used when this app was built with VOCA_LINUX_ACCELERATOR=nvidia; CPU bundles continue to run on CPU.",
-      gpuRequired:
-        "An NVIDIA GPU with at least {{minimum}} of VRAM is required to download and run the CUDA inference backend.",
-      gpuInsufficient:
-        "Detected VRAM is {{memory}}, below the minimum requirement of {{minimum}}. The CUDA backend cannot start.",
-    },
     modelManagement: {
       title: "Model Management",
       count: "{{count}} models",

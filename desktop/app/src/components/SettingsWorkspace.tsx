@@ -28,7 +28,6 @@ import { IconCheck, IconChevronDown, IconDownload, IconHeart } from "./Icons";
 import { UpdateAvailableModal } from "./UpdateAvailableModal";
 import { CustomSelect } from "./CustomSelect";
 import { StorageModal } from "./StorageModal";
-import { InferenceBackendCard } from "./InferenceBackendCard";
 
 const DEFAULT_AUDIO_DOWNLOAD_PATH = "~/Downloads/Voca";
 const AUDIO_DOWNLOAD_PATH_KEY = "voca.audioDownloadPath";
@@ -70,7 +69,10 @@ function getModelPageUrl(
   return null;
 }
 
-function formatInferenceDevice(serviceInfo: ServiceInfo | null) {
+function formatInferenceDevice(
+  serviceInfo: ServiceInfo | null,
+  setupDiagnostics: SetupDiagnostics | null,
+) {
   const deviceName = serviceInfo?.deviceName?.trim();
   const deviceType = serviceInfo?.deviceType?.trim();
 
@@ -78,7 +80,24 @@ function formatInferenceDevice(serviceInfo: ServiceInfo | null) {
     return `${deviceName} [${deviceType}]`;
   }
 
-  return deviceName || deviceType || "—";
+  if (deviceName || deviceType) {
+    return deviceName || deviceType || "—";
+  }
+
+  const backend = setupDiagnostics?.activeTorchBackend?.toString().trim();
+  const fallbackDeviceName =
+    backend === "cuda"
+      ? setupDiagnostics?.gpuName?.trim()
+      : setupDiagnostics?.cpuName?.trim();
+
+  if (fallbackDeviceName && backend) {
+    return `${fallbackDeviceName} [${backend}]`;
+  }
+  if (backend) {
+    return backend;
+  }
+
+  return "—";
 }
 
 function formatBytes(bytes?: number | null) {
@@ -444,7 +463,7 @@ export function SettingsWorkspace({
             </div>
             <div className="kv-row">
               <span className="kv-row__key">{t("settings.serviceStatus.device")}</span>
-              <span className="kv-row__value">{formatInferenceDevice(serviceInfo)}</span>
+              <span className="kv-row__value">{formatInferenceDevice(serviceInfo, setupDiagnostics)}</span>
             </div>
           </div>
           <div>
@@ -467,8 +486,6 @@ export function SettingsWorkspace({
           </div>
         </div>
       </div>
-
-      <InferenceBackendCard setupDiagnostics={setupDiagnostics} />
 
       {/* Model Management */}
       <div className="settings-section">
