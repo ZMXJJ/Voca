@@ -128,7 +128,13 @@ def _resolve_gguf_models(model_path: str) -> tuple[Path, Path]:
         matches = sorted(model_dir.glob(pattern))
         return matches[0] if matches else None
 
-    base = _find("*BaseLM*.gguf") or _find("*base*.gguf")
+    # Prefer the Q8_0 BaseLM (smaller + slightly faster) when both it and the
+    # F16 are present in the model dir; fall back to F16, then any BaseLM.
+    base = (
+        _find("*BaseLM*Q8*.gguf")
+        or _find("*BaseLM*.gguf")
+        or _find("*base*.gguf")
+    )
     acoustic = _find("*Acoustic*.gguf") or _find("*acoustic*.gguf")
     if base is None or acoustic is None:
         raise CppBackendError(
@@ -234,18 +240,32 @@ def generate(
     except OSError as exc:
         raise CppBackendError(f"Failed to launch voxcpm2-cli: {exc}") from exc
 
-    if completed.returncode != 0:
+    # A patched binary exits 0. An unpatched binary can still abort during
+    # Metal teardown (exit 134) *after* the WAV is fully written, so treat a
+    # valid output file as success even on a nonzero exit, and only fail when
+    # no usable audio was produced.
+    if not output_path.is_file():
         tail = (completed.stderr or completed.stdout or "").strip()[-2000:]
         raise CppBackendError(
-            f"voxcpm2-cli failed (exit {completed.returncode}): {tail}"
-        )
-    if not output_path.is_file():
-        raise CppBackendError(
-            "voxcpm2-cli reported success but produced no output file at "
-            f"{output_path}"
+            f"voxcpm2-cli produced no output (exit {completed.returncode}): {tail}"
         )
 
-    sample_rate, frame_count = _read_wav_meta(output_path)
+    try:
+        sample_rate, frame_count = _read_wav_meta(output_path)
+    except Exception as exc:
+        tail = (completed.stderr or completed.stdout or "").strip()[-2000:]
+        raise CppBackendError(
+            f"voxcpm2-cli output is not a valid WAV (exit {completed.returncode}): {exc}; {tail}"
+        ) from exc
+
+    if completed.returncode != 0:
+        logger.warning(
+            "voxcpm2-cli exited %s but wrote a valid WAV; accepting. This is the "
+            "known Metal teardown abort — rebuild the binary with the residency-set "
+            "fix to get a clean exit 0.",
+            completed.returncode,
+        )
+
     duration_ms = int((frame_count / sample_rate) * 1000) if sample_rate > 0 else 0
     return CppGenerationResult(
         audio_path=str(output_path),

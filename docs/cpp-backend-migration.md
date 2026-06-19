@@ -183,3 +183,27 @@ Original VoxCPM has 4 conditioning modes (`VoxCPM/src/voxcpm/model/voxcpm2.py:76
 - **Integration:** confirm `llama-tts-server` over per-call CLI for production (perf).
 - **Windows:** CUDA build of the native binaries + ggml; confirm Metal/CUDA bundling story per platform.
 - **Submodule:** keep `VoxCPM/` (Python) only as the GGUF conversion source, removed from the shipped runtime.
+
+---
+
+## 9. Implementation progress — GPU enablement & GGUF weights (this branch)
+
+**Goal refinement:** the target is **GPU inference (Metal / CUDA / Vulkan)**, not CPU — CPU is too slow (measured RTF ~2.56). The work below makes VoxCPM2 run on the GPU and publishes ready-to-use GGUF weights.
+
+### Done & verified (Apple M4 Pro / Metal)
+- **GGUF conversion.** Converted local VoxCPM2 weights (`model.safetensors` + `audiovae.pth` + `config.json`) → `VoxCPM2-BaseLM-F16.gguf` (3.0 GB) + `VoxCPM2-Acoustic-F16.gguf` (1.7 GB) via `convert_voxcpm2_to_gguf.py` (needs `gguf` pip pkg).
+- **Q8_0 quantization.** `llama-quantize` BaseLM F16 → **Q8_0 (1.6 GB)**, directly from F16 (the README's "F32 required" is conservative). Acoustic kept F16.
+- **Published to HF (public):** **https://huggingface.co/DennisHuang648/VoxCPM2-GGUF** — F16 BaseLM, Q8_0 BaseLM, F16 Acoustic, + model card.
+- **Metal GPU works after two fixes in the local `llama.cpp-omni` fork:**
+  1. **PAD op** (`voxcpm2_audiovae.cpp`, +26/-2): AudioVAE causal conv left-pads dim0; the Metal PAD kernel only does right-padding and aborted (`unsupported op 'PAD'`). Replaced with an equivalent `ggml_concat` of a zero block (Metal-supported). **ggml core untouched.**
+  2. **Residency-set teardown** (`ggml-metal-device.m`, ~+8): `ggml_metal_rsets_free` asserted all resources freed, aborting at process exit (134) *after* the WAV was written. Tolerate stragglers at teardown → **clean exit 0 with residency sets on (full speed).**
+- **Measured RTF (Metal GPU, lower = faster):** Q8 BaseLM **~1.6–1.76**, F16 BaseLM **~1.94**, vs CPU **~2.56**. All produce valid 48 kHz mono WAV of identical length to the CPU reference (sample diffs ~0.4%, expected CPU↔GPU FP divergence through the diffusion sampler).
+
+### Voca backend updates (this branch)
+- `cpp_tts_backend.py` prefers the **Q8_0 BaseLM** when present (env overrides still win), and now **accepts a valid WAV even on a nonzero exit code** (covers the teardown abort on an unpatched binary) — fails only when no usable audio is produced.
+
+### Still open
+- **Multi-backend builds:** Metal verified. CUDA (`-DGGML_CUDA=ON`) and Vulkan (`-DGGML_VULKAN=ON`) builds + per-platform bundling of the native binary and ggml libs still to do. The same PAD fix applies to all backends (it removed a non-portable op); the residency fix is Metal-only.
+- **Model catalog / bootstrap rework:** point a GGUF catalog entry at `DennisHuang648/VoxCPM2-GGUF` and adapt `bootstrap_assets` readiness (2× GGUF instead of safetensors). Not yet wired — current catalog still describes the safetensors layout.
+- **Upstreaming:** the two C++ fixes live on the local fork branches; offer them back to `llama.cpp-omni`.
+- **A/B audio validation** of extreme-clone (§6) now possible with these weights.
