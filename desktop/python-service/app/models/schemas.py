@@ -107,6 +107,11 @@ class ModelValidateRequest(BaseModel):
 class ProviderInfo(BaseModel):
     repoId: str | None = None
     modelId: str | None = None
+    # Optional fnmatch-style globs to fetch only a subset of a repo (e.g. pull
+    # just the Q8 BaseLM + Acoustic GGUF files instead of the whole repo).
+    # None = download everything (backward-compatible default).
+    allowPatterns: list[str] | None = None
+    ignorePatterns: list[str] | None = None
 
 
 class ModelCatalogEntry(BaseModel):

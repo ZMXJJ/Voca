@@ -627,12 +627,26 @@ class VoxCPMBridge:
         task_id: str,
         payload: GenerationRequest,
     ) -> tuple[str, int, int, str, str, str, str | None, str | None]:
+        # When the C++ backend is active, route the requested model to its GGUF
+        # catalog variant (e.g. voxcpm2 -> voxcpm2_gguf) so the GGUF weights dir
+        # is prepared/loaded instead of the safetensors one. Keeps the frontend
+        # selection and the default model key unchanged.
+        effective_model_key = payload.modelKey
+        if cpp_tts_backend.is_selected():
+            effective_model_key = cpp_tts_backend.resolve_model_key(payload.modelKey)
         prepared = self.prepare_model(
-            model_key=payload.modelKey,
+            model_key=effective_model_key,
             provider_preference=payload.providerPreference,
             ensure_downloaded=False,
         )
         if not prepared.configExists:
+            if cpp_tts_backend.is_selected() and effective_model_key != payload.modelKey:
+                raise RuntimeError(
+                    "GGUF model assets are not ready for the C++ backend. Download the "
+                    f"'{effective_model_key}' model (e.g. the \"VoxCPM2 (GGUF)\" entry) from "
+                    "Model Management before generating. "
+                    f"model_path={prepared.modelPath}"
+                )
             raise RuntimeError(
                 "Model assets are not ready. Please prepare the model before generating. "
                 f"recommended_provider={prepared.recommendation.recommended}, "
@@ -847,6 +861,8 @@ class VoxCPMBridge:
                     repo_id=provider_info.repoId,
                     local_dir=str(local_dir),
                     local_dir_use_symlinks=False,
+                    allow_patterns=provider_info.allowPatterns,
+                    ignore_patterns=provider_info.ignorePatterns,
                     tqdm_class=_create_hf_snapshot_tqdm_class(aggregator),
                 )
             aggregator.set_phase("finalizing")
@@ -862,11 +878,18 @@ class VoxCPMBridge:
 
             aggregator = _DownloadProgressAggregator("modelscope", on_download_progress)
             aggregator.set_phase("listing")
-            ms_snapshot_download(
-                provider_info.modelId,
-                local_dir=str(local_dir),
-                progress_callbacks=_create_modelscope_progress_callbacks(aggregator),
-            )
+            # Pass allow/ignore patterns only when set, so existing ModelScope
+            # downloads call exactly as before (some ModelScope versions don't
+            # accept these kwargs).
+            ms_kwargs: dict[str, Any] = {
+                "local_dir": str(local_dir),
+                "progress_callbacks": _create_modelscope_progress_callbacks(aggregator),
+            }
+            if provider_info.allowPatterns:
+                ms_kwargs["allow_patterns"] = provider_info.allowPatterns
+            if provider_info.ignorePatterns:
+                ms_kwargs["ignore_patterns"] = provider_info.ignorePatterns
+            ms_snapshot_download(provider_info.modelId, **ms_kwargs)
             aggregator.set_phase("finalizing")
             return
 

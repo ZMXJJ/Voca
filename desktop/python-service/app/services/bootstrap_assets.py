@@ -51,6 +51,18 @@ def _has_any_file(local_dir: Path, candidates: tuple[str, ...]) -> bool:
 
 
 def _is_voxcpm_ready(local_dir: Path) -> bool:
+    # GGUF delivery (C++ / llama.cpp-omni backend): a BaseLM + Acoustic .gguf
+    # pair is the complete asset — the safetensors + config + tokenizer layout
+    # below does not apply. Require both halves to avoid a half-download passing.
+    gguf_files = [path.name.lower() for path in local_dir.glob("*.gguf")]
+    if gguf_files:
+        has_base = any("baselm" in name for name in gguf_files)
+        has_acoustic = any("acoustic" in name for name in gguf_files)
+        if has_base and has_acoustic:
+            return True
+        # Otherwise fall through: a safetensors dir that happens to contain a
+        # stray/partial .gguf should still qualify via the checks below.
+
     if not all((local_dir / required_file).exists() for required_file in _VOXCPM_REQUIRED_FILES):
         return False
     if not _has_any_file(local_dir, _VOXCPM_AUDIO_VAE_FILES):

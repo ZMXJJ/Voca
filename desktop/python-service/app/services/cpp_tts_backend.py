@@ -63,6 +63,20 @@ def is_selected() -> bool:
     return os.environ.get("VOCA_TTS_BACKEND", "python").strip().lower() == "cpp"
 
 
+# When the C++ backend is active, a request for a torch/safetensors model key is
+# transparently routed to its GGUF catalog variant, so the same UI selection and
+# the same default (``voxcpm2``) keep working without any frontend change.
+_GGUF_MODEL_KEY_MAP = {
+    "voxcpm2": "voxcpm2_gguf",
+}
+
+
+def resolve_model_key(model_key: str) -> str:
+    """Map a model key to its GGUF catalog variant (identity if none exists)."""
+
+    return _GGUF_MODEL_KEY_MAP.get(model_key, model_key)
+
+
 def _resolve_cli_binary() -> Path:
     """Locate the ``voxcpm2-cli`` executable.
 

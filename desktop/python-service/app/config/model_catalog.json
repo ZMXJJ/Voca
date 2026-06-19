@@ -21,6 +21,23 @@
       }
     },
     {
+      "modelKey": "voxcpm2_gguf",
+      "displayName": "VoxCPM2 (GGUF)",
+      "descriptionKey": "settings.modelManagement.desc.voxcpm2_gguf",
+      "tags": ["2B", "GGUF", "Q8_0", "settings.modelManagement.tag.langs30", "48kHz"],
+      "defaultProvider": "huggingface",
+      "localDirName": "voxcpm2_gguf",
+      "assetRole": "tts",
+      "bootstrapRequired": false,
+      "approxSizeLabel": "~3.3 GB",
+      "providers": {
+        "huggingface": {
+          "repoId": "DennisHuang648/VoxCPM2-GGUF",
+          "allowPatterns": ["*BaseLM*Q8_0*.gguf", "*Acoustic*.gguf"]
+        }
+      }
+    },
+    {
       "modelKey": "voxcpm1_5",
       "displayName": "VoxCPM1.5",
       "descriptionKey": "settings.modelManagement.desc.voxcpm1_5",

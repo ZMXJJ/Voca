@@ -323,6 +323,7 @@ const en = {
       roleEnhancer: "Enhancer",
       desc: {
         voxcpm2: "High-quality TTS with emotion & style control",
+        voxcpm2_gguf: "VoxCPM2 in GGUF format — lightweight GPU (Metal/CUDA/Vulkan) inference",
         voxcpm1_5: "Balanced quality and speed for TTS",
         voxcpm_05b: "Lightweight TTS, fast inference",
         sensevoice_small: "Multilingual speech recognition",

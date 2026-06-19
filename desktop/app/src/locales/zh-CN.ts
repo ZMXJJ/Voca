@@ -309,6 +309,7 @@ const zhCN = {
       roleEnhancer: "音频增强",
       desc: {
         voxcpm2: "高质量语音合成，支持情感与风格控制",
+        voxcpm2_gguf: "GGUF 格式的 VoxCPM2 —— 轻量级 GPU（Metal/CUDA/Vulkan）推理",
         voxcpm1_5: "平衡质量与速度的语音合成模型",
         voxcpm_05b: "轻量级语音合成，推理速度快",
         sensevoice_small: "多语言语音识别",

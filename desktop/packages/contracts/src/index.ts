@@ -163,9 +163,13 @@ export type ModelCatalogEntry = {
   providers: {
     huggingface?: {
       repoId: string;
+      allowPatterns?: string[];
+      ignorePatterns?: string[];
     };
     modelscope?: {
       modelId: string;
+      allowPatterns?: string[];
+      ignorePatterns?: string[];
     };
   };
 };
