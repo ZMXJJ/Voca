@@ -17,10 +17,12 @@ multi-second latency per request. The production target is the resident
 that server's request fields, so the swap is localized to this module.
 
 Known gaps vs the Python engine (documented, not silently dropped):
-  * **Extreme/ultimate clone** (reference-transcript conditioning): the CLI's
-    ``--prompt-wav``/``--prompt-text`` flags are parsed but inert upstream, so
-    we fall back to audio-only reference cloning and log a warning. Enabling it
-    requires secondary development in the C++ runtime (migration doc §6).
+  * **Extreme/ultimate clone** (reference-transcript conditioning): implemented
+    in the local llama.cpp-omni fork via a new continuation path (the CLI's
+    ``--prompt-wav``/``--prompt-text`` flags are now functional — see migration
+    doc §6). Requires a patched ``voxcpm2-cli``; an unpatched binary ignores the
+    flags and degrades to audio-only reference cloning. Still pending A/B audio
+    validation against the Python output once GGUF weights are available.
   * **Denoise**: handled by the caller (``VoxCPMBridge``) via the separate
     ZipEnhancer, unchanged.
 """
@@ -199,16 +201,20 @@ def generate(
         args.append("--cpu")
 
     if payload.referenceAudioPath:
-        args += ["-r", payload.referenceAudioPath]
         if use_extreme:
-            # The CLI parses --prompt-wav/--prompt-text but does not yet act on
-            # them upstream; we fall back to audio-only reference cloning so the
-            # request still succeeds, and surface the limitation in the logs.
-            logger.warning(
-                "Extreme-clone (reference-transcript) requested but not supported by the "
-                "C++ backend yet; falling back to audio-only reference cloning. "
-                "See docs/cpp-backend-migration.md §6."
-            )
+            # Reference-transcript (continuation) cloning. The patched
+            # voxcpm2-cli takes the continuation branch when BOTH --prompt-wav
+            # and --prompt-text are set (see llama.cpp-omni secondary dev in
+            # docs/cpp-backend-migration.md §6). An unpatched binary simply
+            # ignores these flags and would need -r, so we keep both for
+            # cross-version safety.
+            args += [
+                "--prompt-wav", payload.referenceAudioPath,
+                "--prompt-text", payload.promptText.strip(),
+                "-r", payload.referenceAudioPath,
+            ]
+        else:
+            args += ["-r", payload.referenceAudioPath]
 
     # Positional model args go last, as the CLI expects.
     args += [str(base_gguf), str(acoustic_gguf)]

@@ -147,19 +147,21 @@ Effort is rough engineering estimate, assuming familiarity with the codebase.
 
 ## 6. Secondary development: extreme/ultimate clone in C++
 
-**Does the framework support the original VoxCPM features? — Yes, except reference-transcript cloning, which needs this.**
+**Does the framework support the original VoxCPM features? — Yes. Reference-transcript cloning was the one gap; it has now been implemented in the local `llama.cpp-omni` fork (builds clean on Metal, pending A/B audio validation).**
 
-Original VoxCPM has 4 conditioning modes (`VoxCPM/src/voxcpm/model/voxcpm2.py:769-951`). The C++ port implements only `reference` mode (audio isolated in `ref_audio_start/end` tokens). Voca's "extreme clone" uses **`continuation` mode**: `text = prompt_text + target_text`, with prompt audio VAE-features time-aligned after the text (boundary token `audio_start`). This is the higher-fidelity path and is *not* reproducible by reference mode (concatenating the transcript into reference-mode text makes the model re-speak the prompt → wrong output).
+Original VoxCPM has 4 conditioning modes (`VoxCPM/src/voxcpm/model/voxcpm2.py:769-951`). The upstream C++ port implemented only `reference` mode (audio isolated in `ref_audio_start/end` tokens). Voca's "extreme clone" uses **`continuation` mode**: `text = prompt_text + target_text`, with prompt audio VAE-features time-aligned after the text (boundary token `audio_start`). This is the higher-fidelity path and is *not* reproducible by reference mode (concatenating the transcript into reference-mode text makes the model re-speak the prompt → wrong output).
 
-**Good news — low architectural risk.** The generic `prefill(VoxCPM2PrefillInputs)` (`voxcpm2_runtime.cpp:798-943`) already consumes arbitrary `token_ids`/`text_mask`/`feat_mask`/`audio_feat` by mask, and already seeds `prefix_feat_cond` from the last audio-feature position (`:932-936`) — the exact mechanism continuation needs. No new ggml graphs required.
+**Low architectural risk — confirmed.** The generic `prefill(VoxCPM2PrefillInputs)` (`voxcpm2_runtime.cpp:798-943`) already consumes arbitrary `token_ids`/`text_mask`/`feat_mask`/`audio_feat` by mask, and already seeds `prefix_feat_cond` from the last audio-feature position (`:932-936`) — the exact mechanism continuation needs. No new ggml graphs required.
 
-**Concrete plan (~150–200 LOC across 3 files):**
-1. `build_continuation_prefill_inputs()` — mirror of `build_reference_prefill_inputs()` (~55 LOC): tokens `[(prompt_text+target) tokens, kAudioStartToken, audio-length pad]`; `text_mask`=1 over text / 0 over prompt-audio frames; `feat_mask` inverse; `audio_feat`=zero patches over text + prompt VAE features last. (Optional `ref_continuation` for all-three mode, ~70 LOC.)
-2. `generate_with_continuation(target_text, prompt_text, prompt_wav, params)` — mirror of `generate_with_clone()` (~30–45 LOC). **Tokenize the concatenated string once** (preserves CJK multichar expansion) — do *not* concatenate token IDs.
-3. CLI/server wiring (~25 LOC) — branch on `--prompt-wav`+`--prompt-text` (makes the dead flags live); server `prompt_text` field.
-4. **Output head-trim (the one real risk, ~10–15 LOC):** Python trims `patch_len*(streaming_prefix_len-1)` from the decoded head (`voxcpm2.py:947-948`) to drop the regenerated prompt region; C++ `decode_to_waveform` currently has no trim. Needs A/B audio validation vs Python.
+**Implemented (150 insertions / 1 deletion across 3 files in the local fork):**
+1. `build_continuation_prefill_inputs()` in `voxcpm2_runtime.cpp` — mirror of `build_reference_prefill_inputs()`: tokens `[(prompt_text+target) tokens, kAudioStartToken, prompt-audio-frame pad]`; `text_mask`=1 over text / 0 over prompt-audio frames; `feat_mask` inverse; `audio_feat`=zero patches over text + prompt VAE features last.
+2. `generate_with_continuation(target_text, prompt_text, prompt_wav, params)` — mirror of `generate_with_clone()`. **Tokenizes the concatenated string once** (preserves CJK multichar expansion) — does *not* concatenate token IDs.
+3. CLI wiring in `voxcpm2_cli.cpp` `main()` — a branch *before* the `reference_wav_path` branch fires when both `--prompt-wav` and `--prompt-text` are set, making the previously-dead flags functional.
+4. **Output head-trim:** intentionally omitted — the C++ `output_pool` never pre-seeds the prompt region (unlike Python, which pre-seeds then trims `patch_len*(streaming_prefix_len-1)`), so `decode_to_waveform` already yields only the generated region. **This is the assumption to scrutinize in A/B validation** — if a prompt-tail bleed appears at clip start, add a `(streaming_prefix_len-1)`-patch trim at the *decoder* output rate (48 kHz), not the encoder rate.
 
-**Interim option:** ship audio-only cloning (reference mode) first — it already works — and treat extreme clone as a fast-follow. The UI's `extremeClone` toggle can fall back to reference mode until the C++ path lands.
+`server-voxcpm2.cpp` (`/v1/audio/speech`) was **not** wired for continuation yet — do that when adopting the resident-server integration (§4). The Python `cpp_tts_backend` already passes `--prompt-wav`/`--prompt-text` for extreme clone, with `-r` retained for cross-version safety against an unpatched binary.
+
+**Validation bar met:** compiles cleanly (`voxcpm2-cli`, no warnings). Audio A/B vs Python pending GGUF weights.
 
 ---
 
@@ -169,7 +171,7 @@ Original VoxCPM has 4 conditioning modes (`VoxCPM/src/voxcpm/model/voxcpm2.py:76
 2. **Phase 1 — bridge scaffolding (this branch):** `VOCA_TTS_BACKEND` dispatch + CLI subprocess backend + Python normalization hook. Python path stays default; C++ opt-in for dev.
 3. **Phase 2 — model pipeline:** convert voxcpm2 → GGUF, host it, add a GGUF catalog + bootstrap readiness; validate one model end-to-end via CLI.
 4. **Phase 3 — resident server:** build/bundle `llama-tts-server`, wire lifecycle, switch bridge default to server backend; A/B audio quality.
-5. **Phase 4 — extreme clone secondary dev (§6)** + denoise decision (§5).
+5. **Phase 4 — extreme clone secondary dev (§6)** ✅ *(C++ continuation path implemented & building; A/B audio validation pending weights)* + denoise decision (§5).
 6. **Phase 5 — strip torch:** drop torch from requirements + prepare scripts, remove `torch_runtime.py` and device-preflight; per-platform native bundling; remove Python VoxCPM submodule from the runtime path.
 
 ---
