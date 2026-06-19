@@ -68,6 +68,8 @@ def is_selected() -> bool:
 # the same default (``voxcpm2``) keep working without any frontend change.
 _GGUF_MODEL_KEY_MAP = {
     "voxcpm2": "voxcpm2_gguf",
+    "voxcpm1_5": "voxcpm1_5_gguf",
+    "voxcpm_05b": "voxcpm_05b_gguf",
 }
 
 

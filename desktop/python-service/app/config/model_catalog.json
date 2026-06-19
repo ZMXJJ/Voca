@@ -34,6 +34,10 @@
         "huggingface": {
           "repoId": "DennisHuang648/VoxCPM2-GGUF",
           "allowPatterns": ["*BaseLM*Q8_0*.gguf", "*Acoustic*.gguf"]
+        },
+        "modelscope": {
+          "modelId": "DennisHuang/VoxCPM2-GGUF",
+          "allowPatterns": ["*BaseLM*Q8_0*.gguf", "*Acoustic*.gguf"]
         }
       }
     },
@@ -72,6 +76,48 @@
         },
         "modelscope": {
           "modelId": "OpenBMB/VoxCPM-0.5B"
+        }
+      }
+    },
+    {
+      "modelKey": "voxcpm1_5_gguf",
+      "displayName": "VoxCPM1.5 (GGUF)",
+      "descriptionKey": "settings.modelManagement.desc.voxcpm1_5_gguf",
+      "tags": ["0.6B", "GGUF", "Q8_0", "settings.modelManagement.tag.zhEn", "44.1kHz"],
+      "defaultProvider": "huggingface",
+      "localDirName": "voxcpm1_5_gguf",
+      "assetRole": "tts",
+      "bootstrapRequired": false,
+      "approxSizeLabel": "~1.4 GB",
+      "providers": {
+        "huggingface": {
+          "repoId": "DennisHuang648/VoxCPM1.5-GGUF",
+          "allowPatterns": ["*BaseLM*Q8_0*.gguf", "*Acoustic*.gguf"]
+        },
+        "modelscope": {
+          "modelId": "DennisHuang/VoxCPM1.5-GGUF",
+          "allowPatterns": ["*BaseLM*Q8_0*.gguf", "*Acoustic*.gguf"]
+        }
+      }
+    },
+    {
+      "modelKey": "voxcpm_05b_gguf",
+      "displayName": "VoxCPM-0.5B (GGUF)",
+      "descriptionKey": "settings.modelManagement.desc.voxcpm_05b_gguf",
+      "tags": ["0.5B", "GGUF", "Q8_0", "settings.modelManagement.tag.zhEn", "16kHz"],
+      "defaultProvider": "huggingface",
+      "localDirName": "voxcpm_05b_gguf",
+      "assetRole": "tts",
+      "bootstrapRequired": false,
+      "approxSizeLabel": "~1.1 GB",
+      "providers": {
+        "huggingface": {
+          "repoId": "DennisHuang648/VoxCPM-0.5B-GGUF",
+          "allowPatterns": ["*BaseLM*Q8_0*.gguf", "*Acoustic*.gguf"]
+        },
+        "modelscope": {
+          "modelId": "DennisHuang/VoxCPM-0.5B-GGUF",
+          "allowPatterns": ["*BaseLM*Q8_0*.gguf", "*Acoustic*.gguf"]
         }
       }
     },

@@ -310,6 +310,8 @@ const zhTW = {
       desc: {
         voxcpm2: "高品質語音合成，支援情感與風格控制",
         voxcpm2_gguf: "GGUF 格式的 VoxCPM2 —— 輕量級 GPU（Metal/CUDA/Vulkan）推理",
+        voxcpm1_5_gguf: "GGUF 格式的 VoxCPM1.5 —— 輕量級 GPU 推理",
+        voxcpm_05b_gguf: "GGUF 格式的 VoxCPM-0.5B —— 最輕量、最快的 GPU 推理",
         voxcpm1_5: "平衡品質與速度的語音合成模型",
         voxcpm_05b: "輕量級語音合成，推理速度快",
         sensevoice_small: "多語言語音識別",

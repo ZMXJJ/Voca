@@ -324,6 +324,8 @@ const en = {
       desc: {
         voxcpm2: "High-quality TTS with emotion & style control",
         voxcpm2_gguf: "VoxCPM2 in GGUF format — lightweight GPU (Metal/CUDA/Vulkan) inference",
+        voxcpm1_5_gguf: "VoxCPM1.5 in GGUF format — lightweight GPU inference",
+        voxcpm_05b_gguf: "VoxCPM-0.5B in GGUF format — lightest, fastest GPU inference",
         voxcpm1_5: "Balanced quality and speed for TTS",
         voxcpm_05b: "Lightweight TTS, fast inference",
         sensevoice_small: "Multilingual speech recognition",
