@@ -23,6 +23,7 @@ def _cuda_required_for_local_inference() -> bool:
     return os.name == "nt"
 
 from app.models.schemas import GenerationRequest, ModelPrepareResponse, ProviderRecommendation
+from app.services import cpp_tts_backend
 from app.services.audio_enhancer import AudioEnhancer
 from app.services.bootstrap_assets import is_asset_ready
 from app.services.model_catalog import get_model_entry, list_model_entries
@@ -638,22 +639,36 @@ class VoxCPMBridge:
                 f"model_path={prepared.modelPath}"
             )
 
-        model = self._load_model(model_key=payload.modelKey, model_path=prepared.modelPath)
+        # Backend dispatch. The lightweight C++ (llama.cpp-omni) backend is
+        # opt-in via VOCA_TTS_BACKEND=cpp; the Python VoxCPM path remains the
+        # default. Both paths produce the same (raw_audio_path, sample_rate,
+        # duration_ms) before the shared denoise/return tail below.
+        if cpp_tts_backend.is_selected():
+            result = cpp_tts_backend.generate(
+                task_id=task_id, payload=payload, model_path=prepared.modelPath
+            )
+            raw_audio_path = result.audio_path
+            sample_rate = result.sample_rate
+            duration_ms = result.duration_ms
+        else:
+            model = self._load_model(model_key=payload.modelKey, model_path=prepared.modelPath)
 
-        use_extreme = bool(
-            payload.extremeClone
-            and payload.referenceAudioPath
-            and payload.promptText
-            and payload.promptText.strip()
-        )
-        control = None if use_extreme else payload.controlInstruction
-        final_text = self._build_final_text(payload.targetText, control)
-        generate_kwargs = self._build_generate_kwargs(
-            payload=payload, final_text=final_text, extreme_clone=use_extreme,
-        )
-        waveform = model.generate(**generate_kwargs)
-        sample_rate = int(model.tts_model.sample_rate)
-        raw_audio_path = self._write_waveform(task_id=task_id, sample_rate=sample_rate, waveform=waveform)
+            use_extreme = bool(
+                payload.extremeClone
+                and payload.referenceAudioPath
+                and payload.promptText
+                and payload.promptText.strip()
+            )
+            control = None if use_extreme else payload.controlInstruction
+            final_text = self._build_final_text(payload.targetText, control)
+            generate_kwargs = self._build_generate_kwargs(
+                payload=payload, final_text=final_text, extreme_clone=use_extreme,
+            )
+            waveform = model.generate(**generate_kwargs)
+            sample_rate = int(model.tts_model.sample_rate)
+            raw_audio_path = self._write_waveform(task_id=task_id, sample_rate=sample_rate, waveform=waveform)
+            duration_ms = self._estimate_duration_ms(sample_rate=sample_rate, waveform=waveform)
+
         audio_path = raw_audio_path
         enhanced_audio_path: str | None = None
         postprocess_message: str | None = None
@@ -666,7 +681,6 @@ class VoxCPMBridge:
                 audio_path = enhanced_audio_path
             except Exception as exc:
                 postprocess_message = f"Post-denoise skipped: {exc}"
-        duration_ms = self._estimate_duration_ms(sample_rate=sample_rate, waveform=waveform)
         return (
             audio_path,
             sample_rate,
