@@ -94,15 +94,6 @@ jobs:
           "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "VULKAN_SDK=$sdk"
 
-      - name: Install CUDA Toolkit
-        if: ${{ github.event.inputs.cuda == 'true' }}
-        uses: Jimver/cuda-toolkit@v0.2.19
-        id: cuda
-        with:
-          cuda: "12.5.0"
-          method: "network"
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "nvcc_dev", "visual_studio_integration"]'
-
       - name: Build llama-tts-server (Vulkan)
         run: |
           $ErrorActionPreference = "Stop"
@@ -118,8 +109,22 @@ jobs:
           "VOCA_VOXCPM2_WIN_VULKAN_DIR=$dest" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "Vulkan variant:"; Get-ChildItem $dest | Select-Object Name
 
-      - name: Build llama-tts-server (CUDA, static cudart + MMQ)
+      # CUDA is best-effort: a failure here must NOT block the guaranteed Vulkan
+      # installer, so both the toolkit install and the CUDA build are opt-in and
+      # continue-on-error. The sidecar falls back to Vulkan if CUDA wasn't shipped.
+      - name: Install CUDA Toolkit
         if: ${{ github.event.inputs.cuda == 'true' }}
+        continue-on-error: true
+        uses: Jimver/cuda-toolkit@v0.2.19
+        id: cuda
+        with:
+          cuda: "12.5.0"
+          method: "network"
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev"]'
+
+      - name: Build llama-tts-server (CUDA, static cudart + MMQ)
+        if: ${{ github.event.inputs.cuda == 'true' && steps.cuda.outcome == 'success' }}
+        continue-on-error: true
         run: |
           $ErrorActionPreference = "Stop"
           # Option B: static-link the CUDA runtime (drops cudart64.dll) and force
