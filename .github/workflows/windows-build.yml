@@ -134,7 +134,8 @@ jobs:
           cmake -B build-cuda -S llama.cpp-omni -A x64 `
             -DGGML_CUDA=ON -DGGML_VULKAN=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_CURL=OFF `
             -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF `
-            -DCMAKE_CUDA_RUNTIME_LIBRARY=Static -DGGML_CUDA_FORCE_MMQ=ON
+            -DCMAKE_CUDA_RUNTIME_LIBRARY=Static -DGGML_CUDA_FORCE_MMQ=ON `
+            "-DCMAKE_CUDA_ARCHITECTURES=61-real;75-real;86-real;89-real;90-virtual"
           cmake --build build-cuda --config Release --target llama-tts-server voxcpm2-cli
           $exe = Get-ChildItem -Recurse build-cuda -Filter llama-tts-server.exe | Select-Object -First 1
           if (-not $exe) { throw "CUDA build produced no llama-tts-server.exe" }
