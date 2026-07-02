@@ -3,23 +3,18 @@ name: Windows Build (NSIS)
 # Builds the Windows installer in a clean Windows 2022 runner.
 #
 # The C++ TTS engine (llama.cpp-omni, VoxCPM2) has no official prebuilt release,
-# so this workflow compiles it here: a Vulkan build is ALWAYS produced (covers
-# NVIDIA/AMD/Intel via the driver-provided vulkan-1.dll — zero install-time deps,
-# the compatibility-safe default), and a CUDA build is OPT-IN (static-linked
-# cudart + MMQ kernels; bundles only the CUDA DLLs the binary actually imports,
-# so no whole-toolkit redistributable). The sidecar picks the variant per device
-# at runtime (NVIDIA -> cuda, else vulkan; and falls back to vulkan if cuda
-# wasn't shipped).
+# so this workflow compiles a Vulkan build of llama-tts-server here. Vulkan
+# covers NVIDIA/AMD/Intel via the driver-provided vulkan-1.dll — zero install-time
+# deps and the compatibility-safe default. (A CUDA variant was evaluated but the
+# MMQ kernel compile is impractically slow on GitHub runners while Vulkan runs on
+# NVIDIA too, so Windows ships Vulkan-only — matching the upstream reference. The
+# sidecar's device-switch still falls back to Vulkan on any GPU.)
 #
-# Opt-in: trigger manually via "Run workflow", or push a tag matching `v*`.
+# Trigger manually via "Run workflow", or push a tag matching `v*`.
 
 on:
   workflow_dispatch:
     inputs:
-      cuda:
-        description: "Also build the CUDA variant (NVIDIA acceleration; slower CI, larger installer)"
-        required: false
-        default: "false"
       sign:
         description: "Sign the installer (requires repo secrets to be configured)"
         required: false
@@ -39,7 +34,7 @@ jobs:
   build-nsis:
     name: Build & package (x86_64-pc-windows-msvc)
     runs-on: windows-2022
-    timeout-minutes: 300
+    timeout-minutes: 90
     defaults:
       run:
         shell: pwsh
@@ -82,7 +77,7 @@ jobs:
         with:
           enable-cache: true
 
-      # ── Native TTS engine: Vulkan (always) + CUDA (opt-in) ──────────────────
+      # ── Native TTS engine: Vulkan ───────────────────────────────────────────
       - name: Install Vulkan SDK
         run: |
           $ErrorActionPreference = "Stop"
@@ -108,61 +103,6 @@ jobs:
           Get-ChildItem (Join-Path $exe.Directory '*') -Include *.exe,*.dll -File | Copy-Item -Destination $dest -Force
           "VOCA_VOXCPM2_WIN_VULKAN_DIR=$dest" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "Vulkan variant:"; Get-ChildItem $dest | Select-Object Name
-
-      # CUDA is best-effort: a failure here must NOT block the guaranteed Vulkan
-      # installer, so both the toolkit install and the CUDA build are opt-in and
-      # continue-on-error. The sidecar falls back to Vulkan if CUDA wasn't shipped.
-      - name: Install CUDA Toolkit
-        if: ${{ github.event.inputs.cuda == 'true' }}
-        continue-on-error: true
-        uses: Jimver/cuda-toolkit@v0.2.19
-        id: cuda
-        with:
-          cuda: "12.5.0"
-          method: "network"
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
-
-      - name: Build llama-tts-server (CUDA, static cudart + MMQ)
-        if: ${{ github.event.inputs.cuda == 'true' && steps.cuda.outcome == 'success' }}
-        continue-on-error: true
-        run: |
-          $ErrorActionPreference = "Stop"
-          # Option B: static-link the CUDA runtime (drops cudart64.dll) and force
-          # ggml's MMQ kernels to shrink the cuBLAS surface, then bundle ONLY the
-          # CUDA DLLs the built binaries actually import (via dumpbin) — so the
-          # installer carries the real minimum instead of the whole toolkit.
-          cmake -B build-cuda -S llama.cpp-omni -A x64 `
-            -DGGML_CUDA=ON -DGGML_VULKAN=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_CURL=OFF `
-            -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF `
-            -DCMAKE_CUDA_RUNTIME_LIBRARY=Static -DGGML_CUDA_FORCE_MMQ=ON -DGGML_CUDA_FA=OFF `
-            "-DCMAKE_CUDA_ARCHITECTURES=61-real;75-real;86-real;89-real;90-virtual"
-          cmake --build build-cuda --config Release --target llama-tts-server voxcpm2-cli
-          $exe = Get-ChildItem -Recurse build-cuda -Filter llama-tts-server.exe | Select-Object -First 1
-          if (-not $exe) { throw "CUDA build produced no llama-tts-server.exe" }
-          $dest = Join-Path $PWD "dist-native\cuda"
-          New-Item -ItemType Directory -Force $dest | Out-Null
-          Get-ChildItem (Join-Path $exe.Directory '*') -Include *.exe,*.dll -File | Copy-Item -Destination $dest -Force
-          # Bundle only the CUDA runtime DLLs our binaries actually import.
-          $dumpbin = (Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue | Select-Object -First 1)
-          $needed = @()
-          if ($dumpbin) {
-            foreach ($bin in (Get-ChildItem (Join-Path $dest '*') -Include *.exe,*.dll -File)) {
-              $deps = & $dumpbin.FullName /dependents $bin.FullName 2>$null
-              $needed += ($deps | Select-String -Pattern '(?i)(cu\w+64_\d+\.dll)' -AllMatches | ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value })
-            }
-            $needed = $needed | Sort-Object -Unique
-          } else {
-            Write-Host "::warning ::dumpbin not found; bundling cuBLAS DLLs as a fallback"
-            $needed = @("cublas64_12.dll", "cublasLt64_12.dll")
-          }
-          $cudaBin = Join-Path $env:CUDA_PATH "bin"
-          foreach ($dll in $needed) {
-            $src = Join-Path $cudaBin $dll
-            if (Test-Path $src) { Copy-Item $src -Destination $dest -Force }
-          }
-          "VOCA_VOXCPM2_WIN_CUDA_DIR=$dest" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "CUDA variant (bundled CUDA DLLs: $($needed -join ', ')):"
-          Get-ChildItem $dest | Select-Object Name, @{Name="MB";Expression={[math]::Round($_.Length/1MB,1)}}
 
       - name: Upload native binaries artifact
         continue-on-error: true
