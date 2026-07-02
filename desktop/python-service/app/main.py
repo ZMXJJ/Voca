@@ -174,11 +174,23 @@ def _detect_device_info() -> tuple[str, str | None]:
     if override is not None:
         return override
 
-    # On Windows the bundled installer ships without torch; the CUDA wheels
-    # land in ``runtime/site-packages`` during first-run bootstrap. Importing
-    # torch before the overlay is fully installed locks the partially-written
-    # .pyd / .dll files and breaks the installer's atomic swap — so on
-    # Windows we still refuse to touch torch until the marker is present.
+    # Windows on the C++ backend (default): report the selected build variant
+    # (cuda / vulkan) without touching torch. Falls through to the legacy torch
+    # path only when the C++ backend is explicitly disabled.
+    if os.name == "nt":
+        try:
+            from app.services import cpp_tts_backend, voxcpm_server
+
+            if cpp_tts_backend.is_selected():
+                return voxcpm_server.windows_backend_variant(), _detect_host_device_name()
+        except Exception:
+            pass
+
+    # Legacy torch path (VOCA_TTS_BACKEND=python): the bundled installer ships
+    # without torch; CUDA wheels land in ``runtime/site-packages`` during
+    # first-run bootstrap. Importing torch before the overlay is fully installed
+    # locks the partially-written .pyd/.dll files, so refuse until the marker is
+    # present.
     if os.name == "nt" and not _windows_cuda_runtime_ready():
         return "cpu", _detect_host_device_name()
 

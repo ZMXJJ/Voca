@@ -241,9 +241,36 @@ PyTorch is gone from the macOS runtime. The three former torch consumers are all
 - **Packaging:** `prepare-dmg` drops `bundleTorchcodecFfmpegLibraries` and instead `bundleDenoiserModel()` ships the ONNX into `.bundle-resources/models/` (added to `tauri.conf.json` resources). No torchcodec ⇒ no vendored ffmpeg.
 - **Verified:** a fresh venv built from the updated requirements has **no torch**; `import app.main` + health (`device=mps`) + a full denoise run complete with `torch` never appearing in `sys.modules`. `py_compile` + `node --check` + `cargo check` all green. Denoise RTF ~0.1 (48 kHz, sherpa-onnx CPU).
 
+### Windows (C++ backend: CUDA + Vulkan, device-switched) — Voca side done
+Strategy: ship **two** Windows server builds side by side and pick per device — an NVIDIA GPU → the CUDA build, otherwise the Vulkan build (which also covers AMD/Intel). This also un-breaks Windows, which was left on a non-functional cpp default (no bundled binary) after the macOS work.
+
+**Voca side (implemented, torch-free):**
+- `voxcpm_server.windows_backend_variant()` — cached, torch-free NVIDIA detection (`nvidia-smi -L`, then WMI `win32_VideoController`); override with `VOCA_VOXCPM2_BACKEND=cuda|vulkan`. `_resolve_server_binary()` resolves `bin/<variant>/llama-tts-server.exe` and falls back to the other variant if only one was shipped.
+- `main._detect_device_info` reports the selected variant (`cuda`/`vulkan`) on Windows under the cpp backend, without importing torch.
+- `prepare-windows-resources.mjs` `bundleWindowsNativeBinaries()` copies each variant's `exe + *.dll` into `.bundle-resources-win/bin/<variant>/` (source: `VOCA_VOXCPM2_WIN_{CUDA,VULKAN}_DIR` or sibling `llama.cpp-omni/build-{variant}/bin`); `bundleDenoiserModel()` ships the DPDFNet ONNX into `.bundle-resources-win/models/`. `tauri.windows.conf.json` resources + `requirements.runtime.windows.txt` (adds the shared sherpa-onnx) updated. `sidecar.rs::bundled_resource_roots` already resolves `.bundle-resources-win` (incl. `_up_`).
+
+**Windows build recipe (run on a Windows box / CI — can't cross-compile from macOS):**
+```powershell
+# CUDA build (needs CUDA Toolkit 12.x)
+cmake -B build-cuda -G "Visual Studio 17 2022" -A x64 `
+  -DGGML_CUDA=ON -DGGML_VULKAN=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_CURL=OFF `
+  -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF <llama.cpp-omni>
+cmake --build build-cuda --config Release --target llama-tts-server voxcpm2-cli
+
+# Vulkan build (needs Vulkan SDK)
+cmake -B build-vulkan -G "Visual Studio 17 2022" -A x64 `
+  -DGGML_VULKAN=ON -DGGML_CUDA=OFF -DLLAMA_OPENSSL=OFF -DLLAMA_CURL=OFF `
+  -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF <llama.cpp-omni>
+cmake --build build-vulkan --config Release --target llama-tts-server voxcpm2-cli
+```
+- Point `VOCA_VOXCPM2_WIN_CUDA_DIR` / `VOCA_VOXCPM2_WIN_VULKAN_DIR` at each build's output dir (MSVC emits under `bin/Release/`), then `npm run build:nsis`.
+- **CUDA variant must ship the CUDA runtime redistributables** next to the exe: `cudart64_12.dll`, `cublas64_12.dll`, `cublasLt64_12.dll` (from the CUDA Toolkit `bin`) plus `llama.dll` + `ggml*.dll` (incl. `ggml-cuda.dll`). Verify with `dumpbin /dependents llama-tts-server.exe` that every non-system DLL is co-located. (~+300 MB for the CUDA variant.)
+- **Vulkan variant** ships `llama.dll` + `ggml*.dll` (incl. `ggml-vulkan.dll`); `vulkan-1.dll` is provided by the GPU driver (system) — do not bundle.
+- `-DLLAMA_OPENSSL=OFF` avoids a non-system OpenSSL dependency (localhost HTTP only), same as macOS.
+
 ### Still open
 - **Developer-ID signed + notarized build for distribution.** The local ad-hoc DMG is fully validated on the build machine; a Developer-ID signed + notarized `build:dmg` (via `scripts/build-dmg-appleid-local.sh`) is still needed to distribute to other Macs through Gatekeeper.
-- **Non-Metal backends:** CUDA (`-DGGML_CUDA=ON`) and Vulkan (`-DGGML_VULKAN=ON`) static builds + Windows packaging. Windows still uses its CUDA-torch first-run overlay (the macOS torch strip does not touch it); revisit when Windows moves to the C++ backend. Runbooks: `llama.cpp-omni/tools/omni/voxcpm2/TESTING-CUDA.md` / `TESTING-VULKAN.md`.
+- **Windows C++ builds (the actual compile).** The Voca-side integration is done (see the Windows section above); what remains is compiling the CUDA + Vulkan `llama-tts-server.exe` on a Windows box/CI per the recipe, bundling the DLLs, and validating device-switched generation + the NSIS installer end-to-end. Once shipping, the legacy Windows torch/`cuda_upgrade` first-run overlay can be retired.
+- **Stale runtime catalog** is handled: the merge no longer resurrects runtime-only keys deleted from the bundled default (see `fix(catalog)`), so deleted models don't reappear.
 - **Upstreaming (`llama.cpp-omni` fork `voxcpm2/inference-fixes-and-features`):** Metal PAD/teardown fixes, BaseLM RoPE + ResidualLM KV-cache correctness, and the `server-voxcpm2.cpp` continuation patch (`prompt_text` → `generate_with_continuation`, sync + streaming). Offer upstream.
-- **Stale runtime catalog on existing dev machines:** deleted entries (`*_gguf`, `zipenhancer_16k`) may linger in a user's on-disk `model_catalog.json` (runtime-only keys are appended by the merge). Harmless; clears by deleting the app-support `model_catalog.json` (re-seeds from the bundled default).
 - **Bundle slimming (optional):** `transformers`/`safetensors` are still in the base requirements (Windows python path needs them) but unused by the macOS C++ path — a macOS-only trim would shave more off the 134 MB.

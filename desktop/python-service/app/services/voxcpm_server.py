@@ -66,6 +66,52 @@ _GENERATION_TIMEOUT_SECONDS = 600
 _STDERR_RING = 400  # keep the last N log lines for diagnostics
 
 
+# ── Windows GPU backend selection ────────────────────────────────────────────
+# On Windows we ship two server builds (CUDA + Vulkan) side by side and pick one
+# per device: an NVIDIA GPU → CUDA, otherwise Vulkan. Override with
+# VOCA_VOXCPM2_BACKEND=cuda|vulkan. CPU-only inference is orthogonal
+# (VOCA_VOXCPM2_CPU=1 forces 0 GPU layers on whichever build is selected).
+_backend_variant_cache: str | None = None
+
+
+def _detect_nvidia_gpu() -> bool:
+    """Torch-free NVIDIA-GPU detection (Windows). Best-effort; never raises."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "-L"], capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and "GPU 0" in (result.stdout or ""):
+            return True
+    except Exception:
+        pass
+    try:
+        result = subprocess.run(
+            ["wmic", "path", "win32_VideoController", "get", "name"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        if "nvidia" in (result.stdout or "").lower():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def windows_backend_variant() -> str:
+    """Return the Windows server build variant: ``cuda`` or ``vulkan`` (cached)."""
+    global _backend_variant_cache
+    if _backend_variant_cache is not None:
+        return _backend_variant_cache
+    override = os.environ.get("VOCA_VOXCPM2_BACKEND", "").strip().lower()
+    variant = override if override in {"cuda", "vulkan"} else (
+        "cuda" if _detect_nvidia_gpu() else "vulkan"
+    )
+    logger.info("Windows TTS backend variant: %s", variant)
+    _backend_variant_cache = variant
+    return variant
+
+
 def _resolve_server_binary() -> Path:
     """Locate the ``llama-tts-server`` executable.
 
@@ -76,6 +122,9 @@ def _resolve_server_binary() -> Path:
     """
 
     exe = "llama-tts-server.exe" if os.name == "nt" else "llama-tts-server"
+    # Windows ships per-variant subdirs (bin/cuda, bin/vulkan) so each build's
+    # DLLs sit next to its own exe; macOS ships a flat, self-contained bin/.
+    variant = windows_backend_variant() if os.name == "nt" else None
 
     explicit = os.environ.get("VOCA_LLAMA_TTS_SERVER", "").strip()
     if explicit:
@@ -89,12 +138,25 @@ def _resolve_server_binary() -> Path:
     candidates: list[Path] = []
     bundle = os.environ.get("VOCA_BUNDLE_RESOURCE_DIR", "").strip()
     if bundle:
-        candidates.append(Path(bundle) / "bin" / exe)
+        base = Path(bundle) / "bin"
+        if variant:
+            candidates.append(base / variant / exe)
+            # Fall back to the other variant if only one was shipped (e.g. a
+            # Vulkan-only build still runs on an NVIDIA machine).
+            other = "vulkan" if variant == "cuda" else "cuda"
+            candidates.append(base / other / exe)
+        else:
+            candidates.append(base / exe)
 
-    # Dev fallback: <CodePrograms>/llama.cpp-omni/build{-static}/bin/. Prefer the
-    # static build (self-contained, matches what we ship) over the dynamic one.
+    # Dev fallback: sibling llama.cpp-omni build dirs. On Windows prefer the
+    # variant-specific build (build-cuda / build-vulkan); macOS prefers the
+    # self-contained static build.
     repo_root = Path(__file__).resolve().parents[4]
     omni = repo_root.parent / "llama.cpp-omni"
+    if variant:
+        candidates.append(omni / f"build-{variant}" / "bin" / exe)
+        other = "vulkan" if variant == "cuda" else "cuda"
+        candidates.append(omni / f"build-{other}" / "bin" / exe)
     candidates.append(omni / "build-static" / "bin" / exe)
     candidates.append(omni / "build" / "bin" / exe)
 
@@ -104,8 +166,8 @@ def _resolve_server_binary() -> Path:
 
     raise CppBackendError(
         "Could not locate the llama-tts-server binary. Set VOCA_LLAMA_TTS_SERVER to "
-        "its path, or build it under llama.cpp-omni/build/bin/ "
-        "(cmake --build build --target llama-tts-server)."
+        "its path, or build it under llama.cpp-omni/build*/bin/ "
+        "(cmake --build <build-dir> --target llama-tts-server)."
     )
 
 

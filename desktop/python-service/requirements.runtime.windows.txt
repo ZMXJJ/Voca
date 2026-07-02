@@ -1,5 +1,5 @@
 # Windows-only runtime extras. Layered on top of requirements.runtime.txt.
-# The installer intentionally ships without torch/torchaudio; the first-run
-# bootstrap downloads the CUDA runtime into the bundled venv before any local
-# inference is allowed.
+# TTS runs on the bundled C++ llama-tts-server (CUDA or Vulkan build, selected
+# per device); denoise runs on sherpa-onnx (shared with macOS, in the base
+# requirements). onnxruntime-gpu accelerates ASR on NVIDIA GPUs.
 onnxruntime-gpu==1.24.4

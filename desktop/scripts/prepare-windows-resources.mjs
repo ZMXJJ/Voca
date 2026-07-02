@@ -32,6 +32,77 @@ const stageVenvRoot = path.join(stageServiceRoot, ".venv");
 const stageRuntimeRoot = path.join(stageRoot, "python-runtime");
 
 const PYTHON_VERSION_SPEC = process.env.VOCA_PYTHON_VERSION?.trim() || "3.11";
+
+// Native TTS server: two Windows builds shipped side by side (CUDA + Vulkan),
+// each in bin/<variant>/ with its own DLLs; the sidecar picks per device.
+const nativeBinVariants = ["cuda", "vulkan"];
+function winVariantSrcDir(variant) {
+  const env = process.env[`VOCA_VOXCPM2_WIN_${variant.toUpperCase()}_DIR`]?.trim();
+  return env || path.join(repoRoot, "..", "llama.cpp-omni", `build-${variant}`, "bin");
+}
+// Torch-free denoiser (DPDFNet 48k ONNX), shipped in models/ (same as macOS).
+const denoiserModelName = "dpdfnet2_48khz_hr.onnx";
+const denoiserModelUrl =
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/" +
+  denoiserModelName;
+const denoiserCacheDir = path.join(desktopRoot, ".cache", "denoiser");
+
+function bundleWindowsNativeBinaries() {
+  const bundled = {};
+  let anyBundled = false;
+  for (const variant of nativeBinVariants) {
+    const src = winVariantSrcDir(variant);
+    if (!existsSync(path.join(src, "llama-tts-server.exe"))) {
+      console.warn(`  (skip) Windows ${variant} build not found: ${src}`);
+      bundled[variant] = 0;
+      continue;
+    }
+    const destDir = path.join(stageRoot, "bin", variant);
+    mkdirSync(destDir, { recursive: true });
+    let count = 0;
+    for (const entry of readdirSync(src)) {
+      // Ship the exe + all its DLLs so Windows resolves them from the exe's dir.
+      if (/\.(exe|dll)$/i.test(entry)) {
+        cpSync(path.join(src, entry), path.join(destDir, entry));
+        count += 1;
+      }
+    }
+    bundled[variant] = count;
+    anyBundled = true;
+    console.log(`  bundled Windows ${variant}: ${count} files (exe + DLLs)`);
+  }
+  if (!anyBundled) {
+    throw new Error(
+      "No Windows TTS server build found. Build at least one variant (CUDA and/or " +
+        "Vulkan — see docs/cpp-backend-migration.md) or set VOCA_VOXCPM2_WIN_CUDA_DIR / " +
+        "VOCA_VOXCPM2_WIN_VULKAN_DIR.",
+    );
+  }
+  return bundled;
+}
+
+function bundleDenoiserModel() {
+  const destDir = path.join(stageRoot, "models");
+  mkdirSync(destDir, { recursive: true });
+  const dest = path.join(destDir, denoiserModelName);
+  const explicit = process.env.VOCA_DENOISER_MODEL?.trim();
+  let source = explicit && existsSync(explicit) ? explicit : null;
+  if (!source) {
+    const cached = path.join(denoiserCacheDir, denoiserModelName);
+    if (!existsSync(cached)) {
+      mkdirSync(denoiserCacheDir, { recursive: true });
+      console.log(`Downloading denoiser model: ${denoiserModelUrl}`);
+      const r = spawnSync("curl", ["-fL", "--retry", "3", "-o", cached, denoiserModelUrl], {
+        stdio: "inherit",
+      });
+      if (r.status !== 0) throw new Error(`Failed to download denoiser model: ${denoiserModelUrl}`);
+    }
+    source = cached;
+  }
+  cpSync(source, dest);
+  console.log(`  bundled denoiser model: ${denoiserModelName}`);
+  return { model: denoiserModelName, source };
+}
 function ensureExists(targetPath, label) {
   if (!existsSync(targetPath)) {
     throw new Error(`${label} does not exist: ${targetPath}`);
@@ -235,6 +306,10 @@ async function main() {
   copyDirectory(path.join(pythonServiceRoot, "app"), path.join(stageServiceRoot, "app"));
   copyDirectory(voxcpmSrcRoot, path.join(stageRoot, "VoxCPM", "src"));
 
+  console.log("Bundling native TTS server binaries (CUDA + Vulkan) + denoiser…");
+  const bundledNative = bundleWindowsNativeBinaries();
+  const bundledDenoiser = bundleDenoiserModel();
+
   console.log("Pruning bundle…");
   stripVenvForRelease();
   stripRuntimeForRelease();
@@ -252,7 +327,9 @@ async function main() {
         runtimeRequirementsWinPath,
         stagePythonPath,
         voxcpmSrcRoot,
-        torchBackend: "bootstrap-download",
+        torchBackend: "removed (C++ llama-tts-server: CUDA + Vulkan)",
+        bundledNative,
+        bundledDenoiser,
       },
       null,
       2,
