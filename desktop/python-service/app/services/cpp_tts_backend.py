@@ -7,7 +7,9 @@ subprocess and returns audio that honors the exact contract the legacy
 ``VoxCPMBridge`` produced: a 16-bit mono WAV file, its sample rate, and an
 estimated duration.
 
-Selection is controlled by ``VOCA_TTS_BACKEND=cpp`` (default ``python``).
+Selection is controlled by ``VOCA_TTS_BACKEND``, which now defaults to ``cpp``.
+Set ``VOCA_TTS_BACKEND=python`` to force the legacy PyTorch VoxCPM path (escape
+hatch only — the shipped catalog no longer offers safetensors weights).
 
 Status: **proof-of-concept / opt-in.** The subprocess CLI reloads the GGUF
 weights on every call, which is fine for validation and batch use but adds
@@ -58,25 +60,15 @@ class CppGenerationResult:
 
 
 def is_selected() -> bool:
-    """Return True when the C++ backend is the configured TTS backend."""
+    """Return True when the C++ backend is the configured TTS backend.
 
-    return os.environ.get("VOCA_TTS_BACKEND", "python").strip().lower() == "cpp"
+    The C++ (``llama.cpp-omni``) backend is now the **default**. The Python
+    VoxCPM path survives only as an explicit escape hatch via
+    ``VOCA_TTS_BACKEND=python`` (used with a safetensors ``VOXCPM_MODEL_DIR``
+    override); it is no longer part of the shipped model catalog.
+    """
 
-
-# When the C++ backend is active, a request for a torch/safetensors model key is
-# transparently routed to its GGUF catalog variant, so the same UI selection and
-# the same default (``voxcpm2``) keep working without any frontend change.
-_GGUF_MODEL_KEY_MAP = {
-    "voxcpm2": "voxcpm2_gguf",
-    "voxcpm1_5": "voxcpm1_5_gguf",
-    "voxcpm_05b": "voxcpm_05b_gguf",
-}
-
-
-def resolve_model_key(model_key: str) -> str:
-    """Map a model key to its GGUF catalog variant (identity if none exists)."""
-
-    return _GGUF_MODEL_KEY_MAP.get(model_key, model_key)
+    return os.environ.get("VOCA_TTS_BACKEND", "cpp").strip().lower() != "python"
 
 
 def _resolve_cli_binary() -> Path:
@@ -187,22 +179,33 @@ def _read_wav_meta(path: Path) -> tuple[int, int]:
         return wav_file.getframerate(), wav_file.getnframes()
 
 
-def generate(
-    task_id: str,
-    payload: GenerationRequest,
-    model_path: str,
-) -> CppGenerationResult:
-    """Generate audio via the native CLI and return the bridge contract tuple."""
+def extreme_clone_requested(payload: GenerationRequest) -> bool:
+    """True when the request asks for reference-transcript (continuation) cloning."""
 
-    cli = _resolve_cli_binary()
-    base_gguf, acoustic_gguf = _resolve_gguf_models(model_path)
-
-    use_extreme = bool(
+    return bool(
         payload.extremeClone
         and payload.referenceAudioPath
         and payload.promptText
         and payload.promptText.strip()
     )
+
+
+def _generate_via_cli(
+    task_id: str,
+    payload: GenerationRequest,
+    model_path: str,
+) -> CppGenerationResult:
+    """Generate audio via the one-shot native CLI (reloads GGUF each call).
+
+    This is the fallback / batch path. The interactive default is the resident
+    ``llama-tts-server`` (see :mod:`app.services.voxcpm_server`), which keeps the
+    model in memory. Selection happens in :func:`generate`.
+    """
+
+    cli = _resolve_cli_binary()
+    base_gguf, acoustic_gguf = _resolve_gguf_models(model_path)
+
+    use_extreme = extreme_clone_requested(payload)
     final_text = _build_final_text(payload, extreme_clone=use_extreme)
 
     output_dir = audio_output_dir()
@@ -288,3 +291,37 @@ def generate(
         sample_rate=sample_rate,
         duration_ms=duration_ms,
     )
+
+
+def _mode() -> str:
+    """Native execution mode: ``auto`` (default), ``server``, or ``cli``.
+
+    ``auto`` uses the resident ``llama-tts-server`` when its binary is present
+    (model stays in memory — fast) and otherwise falls back to the one-shot CLI,
+    so a dev tree without a built server keeps working. ``server``/``cli`` force
+    one path (``server`` errors if the binary is missing).
+    """
+
+    return os.environ.get("VOCA_VOXCPM2_MODE", "auto").strip().lower()
+
+
+def generate(
+    task_id: str,
+    payload: GenerationRequest,
+    model_path: str,
+) -> CppGenerationResult:
+    """Generate audio via the native backend (resident server or one-shot CLI)."""
+
+    mode = _mode()
+    if mode != "cli":
+        # Lazy import breaks the cpp_tts_backend <-> voxcpm_server cycle: by the
+        # time this runs, this module is fully initialized.
+        from app.services import voxcpm_server
+
+        if mode == "server" or voxcpm_server.server_binary_available():
+            return voxcpm_server.generate(task_id, payload, model_path)
+        logger.info(
+            "llama-tts-server binary not found; falling back to the one-shot voxcpm2-cli."
+        )
+
+    return _generate_via_cli(task_id, payload, model_path)

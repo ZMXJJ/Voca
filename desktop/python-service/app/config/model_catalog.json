@@ -5,30 +5,11 @@
       "modelKey": "voxcpm2",
       "displayName": "VoxCPM2",
       "descriptionKey": "settings.modelManagement.desc.voxcpm2",
-      "tags": ["2B", "settings.modelManagement.tag.langs30", "48kHz"],
-      "defaultProvider": "huggingface",
-      "localDirName": "voxcpm2",
-      "assetRole": "tts",
-      "bootstrapRequired": true,
-      "approxSizeLabel": "~4.96 GB",
-      "providers": {
-        "huggingface": {
-          "repoId": "openbmb/VoxCPM2"
-        },
-        "modelscope": {
-          "modelId": "OpenBMB/VoxCPM2"
-        }
-      }
-    },
-    {
-      "modelKey": "voxcpm2_gguf",
-      "displayName": "VoxCPM2 (GGUF)",
-      "descriptionKey": "settings.modelManagement.desc.voxcpm2_gguf",
       "tags": ["2B", "GGUF", "Q8_0", "settings.modelManagement.tag.langs30", "48kHz"],
       "defaultProvider": "huggingface",
       "localDirName": "voxcpm2_gguf",
       "assetRole": "tts",
-      "bootstrapRequired": false,
+      "bootstrapRequired": true,
       "approxSizeLabel": "~3.3 GB",
       "providers": {
         "huggingface": {
@@ -45,44 +26,6 @@
       "modelKey": "voxcpm1_5",
       "displayName": "VoxCPM1.5",
       "descriptionKey": "settings.modelManagement.desc.voxcpm1_5",
-      "tags": ["0.6B", "settings.modelManagement.tag.zhEn", "44.1kHz"],
-      "defaultProvider": "huggingface",
-      "localDirName": "voxcpm1_5",
-      "assetRole": "tts",
-      "bootstrapRequired": false,
-      "approxSizeLabel": "~1.95 GB",
-      "providers": {
-        "huggingface": {
-          "repoId": "openbmb/VoxCPM1.5"
-        },
-        "modelscope": {
-          "modelId": "OpenBMB/VoxCPM1.5"
-        }
-      }
-    },
-    {
-      "modelKey": "voxcpm_05b",
-      "displayName": "VoxCPM-0.5B",
-      "descriptionKey": "settings.modelManagement.desc.voxcpm_05b",
-      "tags": ["0.5B", "settings.modelManagement.tag.zhEn", "16kHz"],
-      "defaultProvider": "huggingface",
-      "localDirName": "voxcpm_05b",
-      "assetRole": "tts",
-      "bootstrapRequired": false,
-      "approxSizeLabel": "~1.61 GB",
-      "providers": {
-        "huggingface": {
-          "repoId": "openbmb/VoxCPM-0.5B"
-        },
-        "modelscope": {
-          "modelId": "OpenBMB/VoxCPM-0.5B"
-        }
-      }
-    },
-    {
-      "modelKey": "voxcpm1_5_gguf",
-      "displayName": "VoxCPM1.5 (GGUF)",
-      "descriptionKey": "settings.modelManagement.desc.voxcpm1_5_gguf",
       "tags": ["0.6B", "GGUF", "Q8_0", "settings.modelManagement.tag.zhEn", "44.1kHz"],
       "defaultProvider": "huggingface",
       "localDirName": "voxcpm1_5_gguf",
@@ -101,9 +44,9 @@
       }
     },
     {
-      "modelKey": "voxcpm_05b_gguf",
-      "displayName": "VoxCPM-0.5B (GGUF)",
-      "descriptionKey": "settings.modelManagement.desc.voxcpm_05b_gguf",
+      "modelKey": "voxcpm_05b",
+      "displayName": "VoxCPM-0.5B",
+      "descriptionKey": "settings.modelManagement.desc.voxcpm_05b",
       "tags": ["0.5B", "GGUF", "Q8_0", "settings.modelManagement.tag.zhEn", "16kHz"],
       "defaultProvider": "huggingface",
       "localDirName": "voxcpm_05b_gguf",
@@ -137,22 +80,6 @@
         },
         "modelscope": {
           "modelId": "iic/SenseVoiceSmall-onnx"
-        }
-      }
-    },
-    {
-      "modelKey": "zipenhancer_16k",
-      "displayName": "ZipEnhancer 16k",
-      "descriptionKey": "settings.modelManagement.desc.zipenhancer_16k",
-      "tags": [],
-      "defaultProvider": "modelscope",
-      "localDirName": "zipenhancer_16k",
-      "assetRole": "enhancer",
-      "bootstrapRequired": true,
-      "approxSizeLabel": "~48 MB",
-      "providers": {
-        "modelscope": {
-          "modelId": "iic/speech_zipenhancer_ans_multiloss_16k_base"
         }
       }
     }

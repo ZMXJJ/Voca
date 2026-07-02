@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from app.models.schemas import BootstrapAssetStatus, ModelCatalogEntry
+from app.services import cpp_tts_backend
 from app.services.model_catalog import get_model_entry, list_model_entries
 from app.services.model_integrity import (
     _schedule_rmtree,  # type: ignore[attr-defined]  # reused intentionally
@@ -17,7 +18,7 @@ from app.services.storage_paths import models_dir
 
 logger = logging.getLogger(__name__)
 
-BOOTSTRAP_MODEL_KEYS: tuple[str, ...] = ("voxcpm2", "sensevoice_small", "zipenhancer_16k")
+BOOTSTRAP_MODEL_KEYS: tuple[str, ...] = ("voxcpm2", "sensevoice_small")
 _VOXCPM_REQUIRED_FILES: tuple[str, ...] = ("config.json", "tokenizer.json", "tokenizer_config.json")
 _VOXCPM_AUDIO_VAE_FILES: tuple[str, ...] = ("audiovae.safetensors", "audiovae.pth")
 _VOXCPM_MODEL_WEIGHT_FILES: tuple[str, ...] = ("model.safetensors", "pytorch_model.bin", "model.bin")
@@ -50,19 +51,26 @@ def _has_any_file(local_dir: Path, candidates: tuple[str, ...]) -> bool:
     return any((local_dir / candidate).exists() for candidate in candidates)
 
 
-def _is_voxcpm_ready(local_dir: Path) -> bool:
-    # GGUF delivery (C++ / llama.cpp-omni backend): a BaseLM + Acoustic .gguf
-    # pair is the complete asset — the safetensors + config + tokenizer layout
-    # below does not apply. Require both halves to avoid a half-download passing.
+def _has_gguf_pair(local_dir: Path) -> bool:
+    """True when both halves of a GGUF VoxCPM asset are present."""
     gguf_files = [path.name.lower() for path in local_dir.glob("*.gguf")]
-    if gguf_files:
-        has_base = any("baselm" in name for name in gguf_files)
-        has_acoustic = any("acoustic" in name for name in gguf_files)
-        if has_base and has_acoustic:
-            return True
-        # Otherwise fall through: a safetensors dir that happens to contain a
-        # stray/partial .gguf should still qualify via the checks below.
+    has_base = any("baselm" in name for name in gguf_files)
+    has_acoustic = any("acoustic" in name for name in gguf_files)
+    return has_base and has_acoustic
 
+
+def _is_voxcpm_ready(local_dir: Path) -> bool:
+    # GGUF delivery (C++ / llama.cpp-omni backend, now the default): a BaseLM +
+    # Acoustic .gguf pair is the complete asset — the safetensors + config +
+    # tokenizer layout below does not apply. This is the only accepted shape
+    # under the C++ backend, so a stray safetensors dir can't false-positive.
+    if _has_gguf_pair(local_dir):
+        return True
+    if cpp_tts_backend.is_selected():
+        # C++ backend requires GGUF; a safetensors-only dir is not usable.
+        return False
+
+    # Legacy Python VoxCPM path (VOCA_TTS_BACKEND=python escape hatch).
     if not all((local_dir / required_file).exists() for required_file in _VOXCPM_REQUIRED_FILES):
         return False
     if not _has_any_file(local_dir, _VOXCPM_AUDIO_VAE_FILES):

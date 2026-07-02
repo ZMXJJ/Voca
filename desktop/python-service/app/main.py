@@ -182,6 +182,15 @@ def _detect_device_info() -> tuple[str, str | None]:
     if os.name == "nt" and not _windows_cuda_runtime_ready():
         return "cpu", _detect_host_device_name()
 
+    # macOS ships torch-free: the C++ (llama.cpp-omni) TTS engine runs on Metal.
+    # Report it directly instead of importing torch to probe MPS.
+    import platform as _platform
+
+    if _platform.system() == "Darwin":
+        if _platform.machine() == "arm64":
+            return "mps", _detect_host_device_name()
+        return "cpu", _detect_host_device_name()
+
     try:
         torch = import_torch_clean()
 
@@ -469,6 +478,19 @@ def _on_startup_cleanup() -> None:
     try:
         threading.Timer(30.0, _delayed_device_probe).start()
     except Exception:  # pragma: no cover - probe is purely informational
+        pass
+
+
+@app.on_event("shutdown")
+def _on_shutdown_stop_native_server() -> None:
+    # Tear down the resident llama-tts-server child (if the C++ server backend
+    # ever started one) so it doesn't outlive the sidecar. Best-effort; a hard
+    # kill of the sidecar is covered by the manager's atexit hook.
+    try:
+        from app.services import voxcpm_server
+
+        voxcpm_server.shutdown_server()
+    except Exception:  # pragma: no cover - shutdown must never raise
         pass
 
 

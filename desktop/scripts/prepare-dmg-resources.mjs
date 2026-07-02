@@ -1,4 +1,4 @@
-import { cpSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,19 @@ const repoRoot = path.resolve(desktopRoot, "..");
 const stageRoot = path.join(desktopRoot, ".bundle-resources");
 const pythonServiceRoot = path.join(desktopRoot, "python-service");
 const voxcpmSrcRoot = path.join(repoRoot, "VoxCPM", "src");
+// Statically-linked native TTS binaries (llama.cpp-omni). Self-contained single
+// files — no dylibs/rpath to vendor. Built with -DBUILD_SHARED_LIBS=OFF.
+const nativeBinDir =
+  process.env.VOCA_VOXCPM2_BIN_DIR?.trim() ||
+  path.join(repoRoot, "..", "llama.cpp-omni", "build-static", "bin");
+// Torch-free denoiser: single ONNX model (DPDFNet 48 kHz) bundled into
+// .bundle-resources/models/. Overridable via VOCA_DENOISER_MODEL; otherwise
+// cached under .cache/denoiser/ and fetched from the sherpa-onnx release.
+const denoiserModelName = "dpdfnet2_48khz_hr.onnx";
+const denoiserModelUrl =
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/" +
+  denoiserModelName;
+const denoiserCacheDir = path.join(desktopRoot, ".cache", "denoiser");
 const runtimeRequirementsPath = path.join(pythonServiceRoot, "requirements.runtime.txt");
 const runtimeRequirementsMacPath = path.join(pythonServiceRoot, "requirements.runtime.macos.txt");
 const venvPythonPath = path.join(pythonServiceRoot, ".venv", "bin", "python");
@@ -830,6 +843,7 @@ async function signEmbeddedMachOBinaries() {
   const signTargets = [
     ...collectSignTargets(path.join(stageRoot, "python-runtime")),
     ...collectSignTargets(stageVenvRoot),
+    ...collectSignTargets(path.join(stageRoot, "bin")),
   ];
 
   if (signTargets.length === 0) {
@@ -840,7 +854,7 @@ async function signEmbeddedMachOBinaries() {
   const isAdHoc = identity === "-";
   const concurrency = resolveCodesignConcurrency();
   console.log(
-    `Signing ${signTargets.length} embedded Python binaries (${concurrency} parallel) with ${isAdHoc ? "ad-hoc" : identity}...`,
+    `Signing ${signTargets.length} embedded Mach-O binaries (${concurrency} parallel) with ${isAdHoc ? "ad-hoc" : identity}...`,
   );
   const entitlementsPath = path.join(path.dirname(stageRoot), "src-tauri", "Entitlements.plist");
   const hasEntitlements = existsSync(entitlementsPath);
@@ -959,6 +973,79 @@ function stripBundleForRelease() {
   console.log(`Bundle strip complete: freed ~${(totalFreed / 1024).toFixed(0)} MB`);
 }
 
+function bundleDenoiserModel() {
+  const destDir = path.join(stageRoot, "models");
+  mkdirSync(destDir, { recursive: true });
+  const dest = path.join(destDir, denoiserModelName);
+
+  // 1) explicit override, 2) build cache, 3) download into cache.
+  const explicit = process.env.VOCA_DENOISER_MODEL?.trim();
+  let source = explicit && existsSync(explicit) ? explicit : null;
+  if (!source) {
+    const cached = path.join(denoiserCacheDir, denoiserModelName);
+    if (!existsSync(cached)) {
+      mkdirSync(denoiserCacheDir, { recursive: true });
+      console.log(`Downloading denoiser model: ${denoiserModelUrl}`);
+      runCommand("curl", ["-fL", "--retry", "3", "-o", cached, denoiserModelUrl]);
+    }
+    source = cached;
+  }
+
+  cpSync(source, dest);
+  const sizeMb = statSync(dest).size / 1e6;
+  console.log(`  bundled denoiser model: ${denoiserModelName} (${sizeMb.toFixed(1)} MB) from ${source}`);
+  return { model: denoiserModelName, source, sizeMb: Number(sizeMb.toFixed(1)) };
+}
+
+function bundleNativeBinaries() {
+  // The C++ TTS engine ships as statically-linked, self-contained binaries:
+  //   llama-tts-server  — resident model server (production path)
+  //   voxcpm2-cli       — one-shot CLI (batch / fallback)
+  // Because they're static (only system frameworks linked), there are no dylibs
+  // to vendor and no @rpath fixups — just copy + chmod + let the sign scan cover
+  // stageRoot/bin. The sidecar finds them at $VOCA_BUNDLE_RESOURCE_DIR/bin/.
+  const destDir = path.join(stageRoot, "bin");
+  mkdirSync(destDir, { recursive: true });
+  const copied = [];
+  const required = new Set(["llama-tts-server"]);
+
+  for (const name of ["llama-tts-server", "voxcpm2-cli"]) {
+    const src = path.join(nativeBinDir, name);
+    if (!existsSync(src)) {
+      if (required.has(name)) {
+        throw new Error(
+          `Missing required native binary: ${src}\n` +
+            `Build it first (static + Metal):\n` +
+            `  cmake -B build-static -DBUILD_SHARED_LIBS=OFF -DGGML_METAL=ON -DLLAMA_OPENSSL=OFF <llama.cpp-omni>\n` +
+            `  cmake --build build-static --target llama-tts-server voxcpm2-cli -j\n` +
+            `Or set VOCA_VOXCPM2_BIN_DIR to the directory containing the built binaries.`,
+        );
+      }
+      console.warn(`  (optional) native binary not found, skipping: ${src}`);
+      continue;
+    }
+    const dest = path.join(destDir, name);
+    cpSync(src, dest);
+    chmodSync(dest, 0o755);
+    // Guard the "runs on any Mac" contract: a shipped binary must depend only on
+    // system libraries/frameworks, never homebrew or @rpath dylibs.
+    const nonSystemDeps = listDynamicLibraryDependencies(dest).filter(
+      (dep) => !dep.startsWith("/usr/lib/") && !dep.startsWith("/System/"),
+    );
+    if (nonSystemDeps.length > 0) {
+      throw new Error(
+        `Native binary ${name} is not self-contained (non-system deps: ${nonSystemDeps.join(", ")}). ` +
+          `Rebuild with -DBUILD_SHARED_LIBS=OFF -DLLAMA_OPENSSL=OFF.`,
+      );
+    }
+    copied.push(name);
+    console.log(
+      `  bundled native binary: ${name} (${(statSync(dest).size / 1e6).toFixed(1)} MB, self-contained)`,
+    );
+  }
+  return { nativeBinDir, copied };
+}
+
 ensureExists(path.join(pythonServiceRoot, "app"), "Python service app directory");
 ensureExists(path.join(pythonServiceRoot, ".venv"), "Python service virtual environment");
 ensureExists(voxcpmSrcRoot, "VoxCPM src directory");
@@ -975,7 +1062,11 @@ copyDirectory(voxcpmSrcRoot, path.join(stageRoot, "VoxCPM", "src"));
 copyDirectory(runtimeRoot, path.join(stageRoot, "python-runtime"), { dereference: true });
 materializeSymlinks(path.join(stageRoot, "python-runtime"));
 materializeSymlinks(stageVenvRoot);
-const bundledFfmpeg = bundleTorchcodecFfmpegLibraries();
+// Torch/torchaudio/torchcodec were removed from the macOS runtime, so there is
+// no torchcodec package to vendor ffmpeg into. Denoise now ships as a single
+// torch-free ONNX model instead.
+const bundledDenoiser = bundleDenoiserModel();
+const bundledNative = bundleNativeBinaries();
 
 stripBundleForRelease();
 
@@ -1003,7 +1094,8 @@ writeFileSync(
       runtimeRequirementsPath,
       stagePythonPath,
       voxcpmSrcRoot,
-      bundledFfmpeg,
+      bundledDenoiser,
+      bundledNative,
     },
     null,
     2,
@@ -1016,3 +1108,5 @@ console.log(`- python runtime: ${runtimeRoot}`);
 console.log(`- release venv: ${stageVenvRoot}`);
 console.log(`- runtime requirements: ${runtimeRequirementsPath}`);
 console.log(`- VoxCPM src: ${voxcpmSrcRoot}`);
+console.log(`- native binaries: ${bundledNative.copied.join(", ") || "(none)"} from ${bundledNative.nativeBinDir}`);
+console.log(`- denoiser model: ${bundledDenoiser.model} (${bundledDenoiser.sizeMb} MB)`);

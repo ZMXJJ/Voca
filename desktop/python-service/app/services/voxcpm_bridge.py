@@ -627,24 +627,20 @@ class VoxCPMBridge:
         task_id: str,
         payload: GenerationRequest,
     ) -> tuple[str, int, int, str, str, str, str | None, str | None]:
-        # When the C++ backend is active, route the requested model to its GGUF
-        # catalog variant (e.g. voxcpm2 -> voxcpm2_gguf) so the GGUF weights dir
-        # is prepared/loaded instead of the safetensors one. Keeps the frontend
-        # selection and the default model key unchanged.
-        effective_model_key = payload.modelKey
-        if cpp_tts_backend.is_selected():
-            effective_model_key = cpp_tts_backend.resolve_model_key(payload.modelKey)
+        # The canonical model keys (voxcpm2 / voxcpm1_5 / voxcpm_05b) now point
+        # directly at the GGUF weights, so no key remap is needed — the same key
+        # prepares the GGUF dir the C++ backend loads and the safetensors layout
+        # the legacy Python path expects (whichever is on disk).
         prepared = self.prepare_model(
-            model_key=effective_model_key,
+            model_key=payload.modelKey,
             provider_preference=payload.providerPreference,
             ensure_downloaded=False,
         )
         if not prepared.configExists:
-            if cpp_tts_backend.is_selected() and effective_model_key != payload.modelKey:
+            if cpp_tts_backend.is_selected():
                 raise RuntimeError(
                     "GGUF model assets are not ready for the C++ backend. Download the "
-                    f"'{effective_model_key}' model (e.g. the \"VoxCPM2 (GGUF)\" entry) from "
-                    "Model Management before generating. "
+                    f"'{payload.modelKey}' model from Model Management before generating. "
                     f"model_path={prepared.modelPath}"
                 )
             raise RuntimeError(
@@ -743,16 +739,11 @@ class VoxCPMBridge:
         return next(iter(model_entry.providers.keys()), preferred_provider)
 
     def _enhance_generated_audio(self, input_path: str, output_stem: str) -> str:
-        prepared = self.prepare_model(
-            model_key="zipenhancer_16k",
-            provider_preference="modelscope",
-            ensure_downloaded=False,
-        )
-        if not prepared.configExists:
-            raise RuntimeError("ZipEnhancer assets are not ready")
+        # The denoiser (DPDFNet, sherpa-onnx) self-resolves its bundled/on-disk
+        # ONNX model — no catalog download step. Missing model raises here and
+        # the caller degrades gracefully ("Post-denoise skipped").
         return self._enhancer.enhance_file(
             input_path=input_path,
-            model_path=prepared.modelPath,
             output_stem=output_stem,
         )
 

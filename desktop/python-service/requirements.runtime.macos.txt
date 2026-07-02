@@ -1,7 +1,5 @@
 # macOS-only runtime extras. Layered on top of requirements.runtime.txt.
-# torchcodec provides the default torchaudio backend on macOS; there is no
-# official Windows wheel so Windows builds fall back to soundfile instead.
-torch==2.11.0
-torchaudio==2.11.0
-torchcodec==0.11.0
+# Torch was fully removed on macOS: TTS runs on the C++ (llama.cpp-omni) engine,
+# ASR on ONNX, and denoise on sherpa-onnx DPDFNet — none need PyTorch. Audio I/O
+# uses soundfile/librosa, so torchaudio/torchcodec (and their ffmpeg) are gone too.
 onnxruntime==1.24.4

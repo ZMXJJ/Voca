@@ -43,11 +43,11 @@ fn models_root_dir() -> Option<PathBuf> {
     app_support_dir_path().ok().map(|dir| dir.join("models"))
 }
 
-const BOOTSTRAP_MODEL_KEYS: [&str; 3] = ["voxcpm2", "sensevoice_small", "zipenhancer_16k"];
-const VOXCPM_REQUIRED_FILES: [&str; 3] = ["config.json", "tokenizer.json", "tokenizer_config.json"];
-const VOXCPM_AUDIO_VAE_FILES: [&str; 2] = ["audiovae.safetensors", "audiovae.pth"];
-const VOXCPM_MODEL_WEIGHT_FILES: [&str; 3] =
-    ["model.safetensors", "pytorch_model.bin", "model.bin"];
+const BOOTSTRAP_MODEL_KEYS: [&str; 2] = ["voxcpm2", "sensevoice_small"];
+/// The unified C++ (llama.cpp-omni) backend ships GGUF weights only. The `voxcpm2`
+/// catalog key now points at the GGUF repo and installs under `voxcpm2_gguf/`
+/// (mirrors `model_catalog.json` localDirName + `bootstrap_assets._is_voxcpm_ready`).
+const VOXCPM_GGUF_DIR: &str = "voxcpm2_gguf";
 const AUX_ASSET_MARKER_FILES: [&str; 5] = [
     "config.json",
     "configuration.json",
@@ -85,23 +85,27 @@ fn dir_has_any_regular_file(dir: &Path) -> bool {
     false
 }
 
+/// GGUF VoxCPM asset readiness: a BaseLM + Acoustic `.gguf` pair is the complete
+/// asset for the C++ backend. Mirrors `bootstrap_assets._is_voxcpm_ready` (GGUF arm).
 fn voxcpm_asset_ready(local_dir: &Path) -> bool {
     if !local_dir.is_dir() {
         return false;
     }
-    if !VOXCPM_REQUIRED_FILES
-        .iter()
-        .all(|name| local_dir.join(name).exists())
-    {
-        return false;
+    let (mut has_base, mut has_acoustic) = (false, false);
+    if let Ok(entries) = fs::read_dir(local_dir) {
+        for entry in entries.flatten() {
+            let lower = entry.file_name().to_string_lossy().to_lowercase();
+            if lower.ends_with(".gguf") {
+                if lower.contains("baselm") {
+                    has_base = true;
+                }
+                if lower.contains("acoustic") {
+                    has_acoustic = true;
+                }
+            }
+        }
     }
-    if !dir_has_any_file(local_dir, &VOXCPM_AUDIO_VAE_FILES) {
-        return false;
-    }
-    if !dir_has_any_file(local_dir, &VOXCPM_MODEL_WEIGHT_FILES) {
-        return false;
-    }
-    true
+    has_base && has_acoustic
 }
 
 fn voxcpm_ready_with_override() -> bool {
@@ -115,7 +119,7 @@ fn voxcpm_ready_with_override() -> bool {
         }
     }
     match models_root_dir() {
-        Some(root) => voxcpm_asset_ready(&root.join("voxcpm2")),
+        Some(root) => voxcpm_asset_ready(&root.join(VOXCPM_GGUF_DIR)),
         None => false,
     }
 }

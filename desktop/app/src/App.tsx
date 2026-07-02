@@ -173,7 +173,7 @@ function createPreviewPreparedModel(
 
   return {
     modelKey: "voxcpm2",
-    modelPath: "~/Library/Application Support/Voca/models/voxcpm2",
+    modelPath: "~/Library/Application Support/Voca/models/voxcpm2_gguf",
     provider: recommendation.current,
     existsLocally: scene !== "download",
     configExists: scene !== "download",
@@ -278,7 +278,7 @@ function createPreviewBootstrapDownloadTask(): TaskRecord {
     error: null,
     result: {
       modelKey: DEFAULT_BOOTSTRAP_MODEL_KEY,
-      modelPath: "~/Library/Application Support/Voca/models/voxcpm2",
+      modelPath: "~/Library/Application Support/Voca/models/voxcpm2_gguf",
       provider: "huggingface",
       completedAssets: ["voxcpm2"],
     },

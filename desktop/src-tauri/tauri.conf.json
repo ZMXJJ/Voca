@@ -35,7 +35,9 @@
     "resources": [
       "../.bundle-resources/python-service",
       "../.bundle-resources/python-runtime",
-      "../.bundle-resources/VoxCPM"
+      "../.bundle-resources/VoxCPM",
+      "../.bundle-resources/bin",
+      "../.bundle-resources/models"
     ],
     "macOS": {
       "entitlements": "./Entitlements.plist",
