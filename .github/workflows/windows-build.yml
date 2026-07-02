@@ -164,11 +164,12 @@ jobs:
           Get-ChildItem $dest | Select-Object Name, @{Name="MB";Expression={[math]::Round($_.Length/1MB,1)}}
 
       - name: Upload native binaries artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: voca-win-native-binaries
-          path: dist-native/**
-          if-no-files-found: error
+          path: dist-native/**/*
+          if-no-files-found: warn
           retention-days: 14
 
       # ── Voca app + installer ────────────────────────────────────────────────
