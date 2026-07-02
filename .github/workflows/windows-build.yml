@@ -39,7 +39,7 @@ jobs:
   build-nsis:
     name: Build & package (x86_64-pc-windows-msvc)
     runs-on: windows-2022
-    timeout-minutes: 150
+    timeout-minutes: 300
     defaults:
       run:
         shell: pwsh
