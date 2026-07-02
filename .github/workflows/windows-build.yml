@@ -105,7 +105,7 @@ jobs:
           if (-not $exe) { throw "Vulkan build produced no llama-tts-server.exe" }
           $dest = Join-Path $PWD "dist-native\vulkan"
           New-Item -ItemType Directory -Force $dest | Out-Null
-          Get-ChildItem $exe.Directory -Include *.exe,*.dll -File | Copy-Item -Destination $dest -Force
+          Get-ChildItem (Join-Path $exe.Directory '*') -Include *.exe,*.dll -File | Copy-Item -Destination $dest -Force
           "VOCA_VOXCPM2_WIN_VULKAN_DIR=$dest" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "Vulkan variant:"; Get-ChildItem $dest | Select-Object Name
 
@@ -140,12 +140,12 @@ jobs:
           if (-not $exe) { throw "CUDA build produced no llama-tts-server.exe" }
           $dest = Join-Path $PWD "dist-native\cuda"
           New-Item -ItemType Directory -Force $dest | Out-Null
-          Get-ChildItem $exe.Directory -Include *.exe,*.dll -File | Copy-Item -Destination $dest -Force
+          Get-ChildItem (Join-Path $exe.Directory '*') -Include *.exe,*.dll -File | Copy-Item -Destination $dest -Force
           # Bundle only the CUDA runtime DLLs our binaries actually import.
           $dumpbin = (Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue | Select-Object -First 1)
           $needed = @()
           if ($dumpbin) {
-            foreach ($bin in (Get-ChildItem $dest -Include *.exe,*.dll -File)) {
+            foreach ($bin in (Get-ChildItem (Join-Path $dest '*') -Include *.exe,*.dll -File)) {
               $deps = & $dumpbin.FullName /dependents $bin.FullName 2>$null
               $needed += ($deps | Select-String -Pattern '(?i)(cu\w+64_\d+\.dll)' -AllMatches | ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value })
             }
