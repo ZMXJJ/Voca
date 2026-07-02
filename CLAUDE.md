@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Voca is a local-first desktop voice-cloning app. Everything ships as one installable binary; after a one-time model download it runs fully offline. The speech engine is [VoxCPM](https://github.com/OpenBMB/VoxCPM) (TTS) plus SenseVoice Small (ASR, ONNX Runtime on CPU). Targets macOS 14+ (Apple Silicon, MPS) and Windows 10/11 x86_64 (CPU by default, optional one-click CUDA upgrade).
+Voca is a local-first desktop voice-cloning app. Everything ships as one installable binary; after a one-time model download it runs fully offline. On macOS the speech engine is **VoxCPM2 in GGUF format** running on the C++ [`llama.cpp-omni`](https://github.com/tc-mb/llama.cpp-omni) backend (a resident `llama-tts-server` on Metal), plus **SenseVoice Small** (ASR, ONNX Runtime on CPU) and **DPDFNet** denoise (ONNX, sherpa-onnx) — the macOS runtime is **fully torch-free**. Windows still uses the legacy PyTorch VoxCPM path (CPU by default, optional one-click CUDA upgrade). Targets macOS 14+ (Apple Silicon, Metal) and Windows 10/11 x86_64.
 
 ## Architecture: three layers, one strict data path
 
@@ -16,7 +16,7 @@ React frontend  ──invoke() IPC──▶  Tauri shell (Rust)  ──HTTP 127.
 The single most important rule: **the frontend never talks to the Python service directly.** All backend calls go through `desktop/app/src/lib/tauri.ts`, which wraps Tauri `invoke()`. Each `invoke()` hits a Rust command in `desktop/src-tauri/src/commands/`, which either handles the request itself (Rust-only) or forwards it over HTTP to the Python sidecar. There are no `fetch()`/HTTP calls in the React code.
 
 - **Rust shell** (`src-tauri/src/`): owns the window, system integration, and the **sidecar lifecycle** (`sidecar.rs` — spawns the uvicorn child on `127.0.0.1:8765`, health-polls `/api/v1/health`, tears the process down on exit). Commands are registered in `lib.rs`'s `invoke_handler!` and implemented under `commands/` (`bootstrap`, `models`, `tasks`, `voices`, `audio`, `updater`). Some commands (onboarding marker, log export, update check, file dialogs, env diagnostics) are **Rust-only** and never touch Python.
-- **Python sidecar** (`python-service/app/`): `main.py` defines ~25 FastAPI routes under `/api/v1/`. `services/task_manager.py` is the core orchestrator — it runs generation, ASR, and download jobs on background threads and holds an in-memory list of `TaskRecord`s, so the frontend **polls** `get_task` for status rather than receiving push events. Engine bridges live in `services/` (`voxcpm_bridge.py`, `asr_bridge.py` + `sensevoice_onnx_session.py`, `audio_enhancer.py`, `voice_library.py`).
+- **Python sidecar** (`python-service/app/`): `main.py` defines ~25 FastAPI routes under `/api/v1/`. `services/task_manager.py` is the core orchestrator — it runs generation, ASR, and download jobs on background threads and holds an in-memory list of `TaskRecord`s, so the frontend **polls** `get_task` for status rather than receiving push events. Engine bridges live in `services/` (`voxcpm_bridge.py` → dispatches to the C++ backend via `cpp_tts_backend.py`; `voxcpm_server.py` owns the resident `llama-tts-server` lifecycle + HTTP client; `asr_bridge.py` + `sensevoice_onnx_session.py`; `audio_enhancer.py` = DPDFNet denoise via sherpa-onnx; `voice_library.py`).
 - **VoxCPM** (`/VoxCPM`, a git submodule): the sidecar adds `VoxCPM/src` to `PYTHONPATH` at launch. If the submodule is empty the sidecar fails with `ModuleNotFoundError: voxcpm`.
 
 ### Shared contracts

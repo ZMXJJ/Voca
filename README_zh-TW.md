@@ -74,8 +74,8 @@
 |------|-------|---------|
 | 版本 | macOS 14.0 (Sonoma) 及以上 | Windows 10 22H2 / Windows 11（x86_64） |
 | 晶片 | Apple Silicon (M1/M2/M3/M4) | Intel/AMD x86_64（NVIDIA GPU 可選） |
-| 磁碟空間 | 約 6 GB（應用 + 模型） | CPU 版約 6 GB；如升級到 CUDA 再增加約 2.5 GB |
-| 推理後端 | 預設 MPS（Apple Silicon） | 預設 CPU；可在設定中按需升級到 CUDA |
+| 磁碟空間 | 約 4 GB（應用 + 模型） | CPU 版約 6 GB；如升級到 CUDA 再增加約 2.5 GB |
+| 推理後端 | Metal（Apple Silicon）— C++ GGUF 引擎，無 PyTorch | 預設 CPU；可在設定中按需升級到 CUDA |
 
 ### 安裝
 
@@ -160,6 +160,7 @@ Voca 內建了完整的初始化引導流程：
 > 以下是 Voca 後續的開發方向，優先順序可能根據社群反饋調整。
 
 - [x] **更輕量的模型推理後端** — 已將 ASR 從 PyTorch/FunASR 遷移至 ONNX Runtime（`iic/SenseVoiceSmall-onnx`，INT8），大幅減少 App 體積和模型下載大小
+- [x] **macOS 無 PyTorch 執行環境** — TTS 遷移至 C++ [`llama.cpp-omni`](https://github.com/tc-mb/llama.cpp-omni) GGUF 引擎（常駐 llama-tts-server，Metal），降噪改用 ONNX（sherpa-onnx DPDFNet）；macOS 上徹底移除 PyTorch，App 體積降至約 134 MB
 - [ ] **量化模型支援** — 引入 INT8 等量化推理，降低記憶體佔用與磁碟空間需求
 - [ ] **更豐富的 TTS 功能** — 支援更多 TTS 模型和更豐富的語音合成能力
 - [ ] **Windows 端更輕量的資源佔用** — 降低 Windows 端的磁碟與記憶體佔用，優化整體體積

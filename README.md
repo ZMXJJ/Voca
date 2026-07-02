@@ -74,8 +74,8 @@
 |------|-------|---------|
 | Version | macOS 14.0 (Sonoma) or later | Windows 10 22H2 / Windows 11 (x86_64) |
 | Chip | Apple Silicon (M1/M2/M3/M4) | Intel/AMD x86_64 (NVIDIA GPU optional) |
-| Disk Space | ~6 GB (app + models) | ~6 GB CPU build, +2.5 GB if upgrading to CUDA |
-| Inference Backend | MPS (Apple Silicon) by default | CPU by default; can be upgraded to CUDA on demand |
+| Disk Space | ~4 GB (app + models) | ~6 GB CPU build, +2.5 GB if upgrading to CUDA |
+| Inference Backend | Metal (Apple Silicon) — C++ GGUF engine, no PyTorch | CPU by default; can be upgraded to CUDA on demand |
 
 ### Installation
 
@@ -160,6 +160,7 @@ Check for new versions in Settings. When an update is available, the app opens t
 > Upcoming development directions. Priorities may shift based on community feedback.
 
 - [x] **Lighter inference backend** — ASR migrated from PyTorch/FunASR to ONNX Runtime (`iic/SenseVoiceSmall-onnx`, INT8), significantly reducing app size and model download size
+- [x] **Torch-free macOS runtime** — TTS moved to the C++ [`llama.cpp-omni`](https://github.com/tc-mb/llama.cpp-omni) GGUF engine (resident `llama-tts-server`, Metal) and denoise to ONNX (sherpa-onnx DPDFNet); PyTorch fully removed on macOS, shrinking the app to a ~134 MB binary
 - [ ] **Quantized model support** — INT8 and other quantized inference to lower memory and disk usage
 - [ ] **Richer TTS capabilities** — Support for more TTS models and expanded speech synthesis features
 - [ ] **Lighter Windows footprint** — Reduce disk and memory usage on Windows for a more lightweight experience

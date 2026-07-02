@@ -50,7 +50,6 @@ def _merge_catalog_payload(default_payload: dict, runtime_payload: dict) -> dict
         if isinstance(model, dict)
     }
     merged_models: list[dict] = []
-    seen_keys: set[str] = set()
 
     for model in default_models:
         if not isinstance(model, dict):
@@ -59,15 +58,14 @@ def _merge_catalog_payload(default_payload: dict, runtime_payload: dict) -> dict
         runtime_model = runtime_by_key.get(model_key, {})
         # Default catalog wins for known fields so new bundled metadata always lands.
         merged_models.append({**runtime_model, **model})
-        seen_keys.add(model_key)
 
-    for model in runtime_models:
-        if not isinstance(model, dict):
-            continue
-        model_key = _model_key_for_merge(model)
-        if model_key in seen_keys:
-            continue
-        merged_models.append(dict(model))
+    # Intentionally do NOT append runtime-only keys. The bundled default catalog is
+    # authoritative for *which* models exist; the runtime copy may only override
+    # per-entry fields for keys the default still ships. Appending runtime-only keys
+    # would resurrect models that were deleted from the default (a stale runtime copy
+    # would keep showing them in Model Management). Dropping them lets deletions
+    # propagate; the runtime file is rewritten to the merged payload on load, so it
+    # self-heals to the current key set on the next load.
 
     return {
         **runtime_payload,

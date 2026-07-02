@@ -21,9 +21,9 @@ graph TB
         subgraph Python["Python Sidecar (FastAPI + Uvicorn)"]
             Routes["main.py<br/>17 API Endpoints"]
             TaskMgr["TaskManager<br/>任务编排"]
-            VoxCPM["VoxCPM<br/>TTS Engine"]
+            VoxCPM["VoxCPM2 (GGUF)<br/>C++ llama-tts-server (Metal)"]
             ASR["SenseVoice Small<br/>ONNX Runtime (CPU)"]
-            Enhancer["ZipEnhancer<br/>音频增强"]
+            Enhancer["DPDFNet<br/>ONNX 降噪 (sherpa-onnx)"]
             VoiceLib["VoiceLibrary<br/>SQLite + 文件"]
         end
     end
@@ -102,10 +102,12 @@ Voca/
 │   │   │   │   └── schemas.py    # Pydantic 请求/响应模型
 │   │   │   └── services/         # 业务逻辑层
 │   │   │       ├── task_manager.py       # 任务编排（生成、ASR、下载）
-│   │   │       ├── voxcpm_bridge.py      # VoxCPM TTS 引擎桥接
+│   │   │       ├── voxcpm_bridge.py      # TTS 桥接（分派到 C++ 后端）
+│   │   │       ├── cpp_tts_backend.py    # C++ 后端分派（server / CLI）
+│   │   │       ├── voxcpm_server.py      # 常驻 llama-tts-server 生命周期 + HTTP 客户端
 │   │   │       ├── asr_bridge.py                 # SenseVoice ASR 桥接（入口）
 │   │   │       ├── sensevoice_onnx_session.py    # 自研 ONNX Session（Fbank+LFR+CMVN+CTC）
-│   │   │       ├── audio_enhancer.py     # ZipEnhancer 音频增强
+│   │   │       ├── audio_enhancer.py     # DPDFNet 降噪（sherpa-onnx，ONNX，无 torch）
 │   │   │       ├── voice_library.py      # 声音库（SQLite + 文件）
 │   │   │       ├── model_catalog.py      # 模型目录管理
 │   │   │       ├── bootstrap_assets.py   # 引导资源就绪检查
@@ -243,13 +245,11 @@ flowchart TD
     GetState --> UserClick["用户点击下载"]
     UserClick --> StartDL["invoke('start_bootstrap_download')<br/>POST /api/v1/bootstrap/start"]
 
-    StartDL --> DL_TTS["下载 VoxCPM (TTS)"]
+    StartDL --> DL_TTS["下载 VoxCPM2 (GGUF, TTS)"]
     StartDL --> DL_ASR["下载 SenseVoice ONNX (ASR)"]
-    StartDL --> DL_ENH["下载 ZipEnhancer"]
 
     DL_TTS --> Poll["轮询任务进度"]
     DL_ASR --> Poll
-    DL_ENH --> Poll
 
     Poll -->|全部完成| Complete["invoke('complete_onboarding')<br/>写入标记文件"]
     Complete --> Workspace

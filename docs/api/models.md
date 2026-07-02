@@ -14,33 +14,37 @@
 [
   {
     "key": "voxcpm2",
-    "displayName": "VoxCPM 2",
+    "displayName": "VoxCPM2",
     "role": "tts",
     "architecture": "voxcpm2",
     "isBootstrapEntry": true,
     "providers": {
       "huggingface": {
-        "repoId": "openbmb/VoxCPM2"
+        "repoId": "DennisHuang648/VoxCPM2-GGUF",
+        "allowPatterns": ["*BaseLM*Q8_0*.gguf", "*Acoustic*.gguf"]
       },
       "modelscope": {
-        "modelId": "openbmb/VoxCPM2"
+        "modelId": "DennisHuang/VoxCPM2-GGUF",
+        "allowPatterns": ["*BaseLM*Q8_0*.gguf", "*Acoustic*.gguf"]
       }
     },
-    "localDir": "/path/to/voxcpm2",
+    "localDir": "/path/to/voxcpm2_gguf",
     "configExists": true
   }
 ]
 ```
+
+> TTS 模型均为 **GGUF** 格式（由 C++ `llama-tts-server` 加载），本地就绪判定为同时存在 BaseLM 与 Acoustic 两个 `.gguf` 文件（并非 `config.json`）。`allowPatterns` 让下载只拉取 Q8 BaseLM + Acoustic 两个文件。降噪模型（DPDFNet ONNX）随 app 内置，不在目录中。
 
 ### 字段说明
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `key` | string | 模型唯一标识 |
-| `role` | string | 模型角色：`"tts"` / `"asr"` / `"enhancer"` |
+| `role` | string | 模型角色：`"tts"` / `"asr"` |
 | `isBootstrapEntry` | boolean | 是否为首次启动引导必需模型 |
-| `providers` | object | 各下载源的仓库信息 |
-| `configExists` | boolean | 本地 `config.json` 是否存在（即模型是否已下载） |
+| `providers` | object | 各下载源的仓库信息（含可选 `allowPatterns` / `ignorePatterns`） |
+| `configExists` | boolean | 本地资源是否就绪（GGUF：BaseLM + Acoustic `.gguf` 齐全；ASR：ONNX 权重齐全） |
 
 ---
 
@@ -189,7 +193,7 @@
 
 ## POST `/api/v1/bootstrap/start`
 
-启动首次引导的批量下载任务，下载所有标记为 `isBootstrapEntry` 的模型（TTS、ASR、音频增强等）。
+启动首次引导的批量下载任务，下载所有标记为 `isBootstrapEntry` 的模型（TTS + ASR）。降噪模型（DPDFNet ONNX）随 app 内置，不在此下载。
 
 ### 请求
 
