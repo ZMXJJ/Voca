@@ -104,7 +104,8 @@ Voca/
 │   │   │       ├── task_manager.py       # 任务编排（生成、ASR、下载）
 │   │   │       ├── voxcpm_bridge.py      # TTS 桥接（分派到 C++ 后端）
 │   │   │       ├── cpp_tts_backend.py    # C++ 后端分派（server / CLI）
-│   │   │       ├── voxcpm_server.py      # 常驻 llama-tts-server 生命周期 + HTTP 客户端
+│   │   │       ├── voxcpm_server.py      # 常驻 TTS server 生命周期 + HTTP 客户端
+│   │   │       ├── process_guard.py      # 原生子进程注册表 + 父进程守望（防孤儿）
 │   │   │       ├── asr_bridge.py                 # SenseVoice ASR 桥接（入口）
 │   │   │       ├── sensevoice_onnx_session.py    # 自研 ONNX Session（Fbank+LFR+CMVN+CTC）
 │   │   │       ├── audio_enhancer.py     # DPDFNet 降噪（sherpa-onnx，ONNX，无 torch）
@@ -135,9 +136,23 @@ Voca/
 **Sidecar 管理** (`sidecar.rs`):
 - 启动时检测端口 8765 是否已有服务运行
 - 若无，则启动 Python uvicorn 子进程
-- 健康检查：最多轮询 20 次（间隔 250ms）等待 `/api/v1/health` 就绪
+- 健康检查：最多轮询 60 次（间隔 250ms）等待 `/api/v1/health` 就绪
 - 验证 OpenAPI 兼容性（检查关键路径是否存在）
-- 应用退出时自动终止子进程
+- 应用退出时终止**整棵进程树**（见下）
+
+**进程树与退出清理**
+
+三个进程逐层派生：Tauri 壳 → Python sidecar（打包名 `VocaService`）→ 常驻 TTS server（打包名 `voca-service`，上游 `llama-tts-server`）。
+
+孙进程是泄漏风险点：退出时若直接 SIGKILL sidecar，它的 shutdown 钩子不会执行，TTS server 会被 launchd/init 收养并继续占用数 GB 显存。三层防护相互独立，任一层失效都不会泄漏进程：
+
+| 层 | 位置 | 职责 |
+|---|---|---|
+| 优雅 + 强制终止 | `platform::terminate_child_tree`（Rust）| 先 SIGTERM 走优雅退出，2 秒宽限期后**先杀子孙再杀父进程**（父进程一死就找不到子孙）；Windows 用 `taskkill /F /T` 整树带走 |
+| 孤儿清扫 | `process_guard.sweep_orphans`（Python）| 原生子进程 PID 记入 `run/native-children.json`，下次启动清理崩溃残留；杀之前按进程名核对，避免 PID 复用误杀 |
+| 父进程守望 | `process_guard.start_parent_watchdog`（Python）| 经 `VOCA_PARENT_PID` 监测外壳存活，外壳崩溃/被强制退出时立即自我清理并退出 |
+
+`src-tauri/` 下的 `cargo test` 有一条针对第一层的回归测试。
 
 **Rust-only 命令**（不经过 Python）:
 - `complete_onboarding` — 写入引导完成标记文件
@@ -288,6 +303,7 @@ Voca/
 ├── voices/           # 用户声音库（音频 + 元数据）
 ├── audio/            # 生成的音频输出
 ├── logs/             # 服务日志（自动轮转，5 MB 上限）
+├── run/              # 原生子进程注册表（native-children.json，用于孤儿清扫）
 ├── voca.db           # SQLite 数据库（声音库）
 ├── onboarding.json   # 引导完成标记
 └── model_catalog.json # 运行时模型目录副本

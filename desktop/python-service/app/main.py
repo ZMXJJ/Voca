@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import subprocess
@@ -31,7 +32,7 @@ from app.models.schemas import (
     VoiceUpdateRequest,
 )
 from app.services.task_manager import CudaUpgradeUnsupported, TaskManager
-from app.services import voice_library
+from app.services import process_guard, voice_library
 from app.services.bootstrap_assets import (
     bootstrap_asset_statuses,
     bootstrap_entries,
@@ -484,6 +485,18 @@ def _on_startup_cleanup() -> None:
     except Exception:  # pragma: no cover - best-effort housekeeping
         pass
     try:
+        # Reap any llama-tts-server left running by a previous session that
+        # died without cleaning up (crash / Force Quit / SIGKILL).
+        process_guard.sweep_orphans()
+    except Exception:  # pragma: no cover - best-effort housekeeping
+        # Logged, not swallowed silently: a bug here is invisible otherwise,
+        # and the symptom (leaked GPU memory) shows up hours later.
+        logging.getLogger(__name__).exception("Orphan sweep failed")
+    try:
+        process_guard.start_parent_watchdog(lambda: _stop_native_server(lock_timeout=2.0))
+    except Exception:  # pragma: no cover - watchdog must never break boot
+        logging.getLogger(__name__).exception("Parent watchdog failed to start")
+    try:
         start_download_ping_dispatcher()
     except Exception:  # pragma: no cover - download pings must never break boot
         pass
@@ -493,17 +506,26 @@ def _on_startup_cleanup() -> None:
         pass
 
 
-@app.on_event("shutdown")
-def _on_shutdown_stop_native_server() -> None:
-    # Tear down the resident llama-tts-server child (if the C++ server backend
-    # ever started one) so it doesn't outlive the sidecar. Best-effort; a hard
-    # kill of the sidecar is covered by the manager's atexit hook.
+def _stop_native_server(lock_timeout: float | None = None) -> None:
+    """Stop the resident llama-tts-server child, if one was ever started.
+
+    `lock_timeout` is for callers that must not wait on an in-flight generation
+    (the parent-death watchdog) — see `voxcpm_server._VoxcpmServer.shutdown`.
+    """
     try:
         from app.services import voxcpm_server
 
-        voxcpm_server.shutdown_server()
+        voxcpm_server.shutdown_server(lock_timeout=lock_timeout)
     except Exception:  # pragma: no cover - shutdown must never raise
         pass
+
+
+@app.on_event("shutdown")
+def _on_shutdown_stop_native_server() -> None:
+    # Tear down the resident llama-tts-server child so it doesn't outlive the
+    # sidecar. A hard kill of the sidecar is covered by the Rust shell (which
+    # reaps descendants) and by the startup sweep above.
+    _stop_native_server()
 
 
 @app.get("/api/v1/health", response_model=HealthResponse)
@@ -700,6 +722,7 @@ def clear_cache() -> dict[str, object]:
         "clearedAudioDirs": [str(path) for path in output_dirs],
         "storageInfo": storage_info_payload.model_dump(mode="json"),
     }
+
 
 
 @app.get("/api/v1/voices", response_model=list[VoiceEntry])

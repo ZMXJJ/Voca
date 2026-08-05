@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Voca is a local-first desktop voice-cloning app. Everything ships as one installable binary; after a one-time model download it runs fully offline. On macOS the speech engine is **VoxCPM2 in GGUF format** running on the C++ [`llama.cpp-omni`](https://github.com/tc-mb/llama.cpp-omni) backend (a resident `llama-tts-server` on Metal), plus **SenseVoice Small** (ASR, ONNX Runtime on CPU) and **DPDFNet** denoise (ONNX, sherpa-onnx) — the macOS runtime is **fully torch-free**. Windows still uses the legacy PyTorch VoxCPM path (CPU by default, optional one-click CUDA upgrade). Targets macOS 14+ (Apple Silicon, Metal) and Windows 10/11 x86_64.
+Voca is a local-first desktop voice-cloning app. Everything ships as one installable binary; after a one-time model download it runs fully offline. The speech engine on **both platforms** is **VoxCPM2 in GGUF format** running on the C++ [`llama.cpp-omni`](https://github.com/tc-mb/llama.cpp-omni) backend (a resident TTS server — Metal on macOS, Vulkan on Windows), plus **SenseVoice Small** (ASR, ONNX Runtime on CPU) and **DPDFNet** denoise (ONNX, sherpa-onnx). `cpp_tts_backend.is_selected()` defaults to `cpp` everywhere; the PyTorch VoxCPM path survives only as a `VOCA_TTS_BACKEND=python` escape hatch and is no longer in the shipped model catalog. Both platforms ship a **torch-free venv** — the Windows `cuda_upgrade` overlay (downloads CUDA torch on demand into `runtime/site-packages`) is vestigial now that TTS runs on Vulkan, and is a candidate for removal. Targets macOS 14+ (Apple Silicon, Metal) and Windows 10/11 x86_64.
 
 ## Architecture: three layers, one strict data path
 
@@ -19,13 +19,19 @@ The single most important rule: **the frontend never talks to the Python service
 - **Python sidecar** (`python-service/app/`): `main.py` defines ~25 FastAPI routes under `/api/v1/`. `services/task_manager.py` is the core orchestrator — it runs generation, ASR, and download jobs on background threads and holds an in-memory list of `TaskRecord`s, so the frontend **polls** `get_task` for status rather than receiving push events. Engine bridges live in `services/` (`voxcpm_bridge.py` → dispatches to the C++ backend via `cpp_tts_backend.py`; `voxcpm_server.py` owns the resident `llama-tts-server` lifecycle + HTTP client; `asr_bridge.py` + `sensevoice_onnx_session.py`; `audio_enhancer.py` = DPDFNet denoise via sherpa-onnx; `voice_library.py`).
 - **VoxCPM** (`/VoxCPM`, a git submodule): the sidecar adds `VoxCPM/src` to `PYTHONPATH` at launch. If the submodule is empty the sidecar fails with `ModuleNotFoundError: voxcpm`.
 
+### Process tree and shutdown
+
+Three processes, each the child of the previous: Tauri shell → Python sidecar (packaged as `VocaService`) → the resident TTS server (packaged as **`voca-service`**; upstream builds it as `llama-tts-server` and the prepare scripts rename it — both names are probed, so dev trees still resolve).
+
+**That grandchild is what leaks, and it is never safe to `SIGKILL` the sidecar to stop it** — its shutdown hooks won't run and the TTS server survives, holding GBs of GPU memory until reboot. Three independent layers enforce this: `platform::terminate_child_tree` (Rust), plus `process_guard.sweep_orphans` and `.start_parent_watchdog` (Python). When touching any one of them, keep the other two intact. Mechanism: `docs/architecture.md` §进程树与退出清理; regression test: `cargo test` in `src-tauri/`.
+
 ### Shared contracts
 
 `desktop/packages/contracts/src/index.ts` holds the TypeScript types crossing the IPC boundary (consumed by `app/` as `@voca/contracts` via a `file:` link). These types mirror the Rust command signatures and the Python Pydantic schemas (`python-service/app/models/schemas.py`). **A change to any backend request/response shape must be made in all three places**: the Pydantic schema, the Rust command, and the contracts types (plus the `tauri.ts` wrapper).
 
 ### Local user data
 
-Lives outside the repo, under the OS app-support dir (`~/Library/Application Support/Voca/` on macOS): `models/`, `voices/`, `audio/`, `logs/service.log` (rotates at 5 MB), `voca.db` (SQLite voice library), `onboarding.json` (bootstrap-complete marker). Delete `onboarding.json` to replay the first-launch bootstrap flow.
+Lives outside the repo, under the OS app-support dir (`~/Library/Application Support/Voca/` on macOS): `models/`, `voices/`, `audio/`, `logs/service.log` (rotates at 5 MB), `run/native-children.json` (native-child PID registry, see below), `voca.db` (SQLite voice library), `onboarding.json` (bootstrap-complete marker). Delete `onboarding.json` to replay the first-launch bootstrap flow.
 
 ## Repo layout
 
@@ -33,7 +39,7 @@ This is a frontend monorepo rooted at `desktop/` but **without npm workspaces** 
 
 ## Development
 
-All `npm` commands run from `desktop/`. Detailed setup (incl. Windows) is in `docs/dev/development-setup.md` and `docs/windows-build.md`. The canonical architecture doc is `docs/architecture.md`.
+All `npm` commands run from `desktop/`. Windows build details are in `docs/windows-build.md`; `docs/dev/development-setup.md` has more setup detail but is **local-only** (gitignored — absent in a fresh clone). The canonical architecture doc is `docs/architecture.md`.
 
 ### One-time setup
 
@@ -82,7 +88,7 @@ cargo clippy             # Rust lint
 cargo fmt                # Rust format
 ```
 
-There is no JS/Python test suite or CI test job in the repo; verification is manual.
+There is no JS/Python test suite or CI test job in the repo; verification is manual. The one exception is `cargo test` in `src-tauri/`, which holds a regression test for the sidecar process-tree teardown (see "Process tree and shutdown" above).
 
 ### Build / package
 

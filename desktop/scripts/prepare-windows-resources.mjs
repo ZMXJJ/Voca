@@ -63,7 +63,10 @@ function bundleWindowsNativeBinaries() {
     for (const entry of readdirSync(src)) {
       // Ship the exe + all its DLLs so Windows resolves them from the exe's dir.
       if (/\.(exe|dll)$/i.test(entry)) {
-        cpSync(path.join(src, entry), path.join(destDir, entry));
+        // The server is renamed on the way in so Task Manager shows a
+        // Voca-branded process instead of an anonymous llama-tts-server.exe.
+        const shippedAs = entry === "llama-tts-server.exe" ? "voca-service.exe" : entry;
+        cpSync(path.join(src, entry), path.join(destDir, shippedAs));
         count += 1;
       }
     }

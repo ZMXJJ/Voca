@@ -1001,18 +1001,23 @@ function bundleNativeBinaries() {
   // The C++ TTS engine ships as statically-linked, self-contained binaries:
   //   llama-tts-server  — resident model server (production path)
   //   voxcpm2-cli       — one-shot CLI (batch / fallback)
+  // The server is renamed to `voca-service` on the way in, so Activity Monitor
+  // shows a Voca-branded process instead of an anonymous `llama-tts-server`.
   // Because they're static (only system frameworks linked), there are no dylibs
   // to vendor and no @rpath fixups — just copy + chmod + let the sign scan cover
   // stageRoot/bin. The sidecar finds them at $VOCA_BUNDLE_RESOURCE_DIR/bin/.
   const destDir = path.join(stageRoot, "bin");
   mkdirSync(destDir, { recursive: true });
   const copied = [];
-  const required = new Set(["llama-tts-server"]);
+  const binaries = [
+    { name: "llama-tts-server", shippedAs: "voca-service", required: true },
+    { name: "voxcpm2-cli", shippedAs: "voxcpm2-cli", required: false },
+  ];
 
-  for (const name of ["llama-tts-server", "voxcpm2-cli"]) {
+  for (const { name, shippedAs, required } of binaries) {
     const src = path.join(nativeBinDir, name);
     if (!existsSync(src)) {
-      if (required.has(name)) {
+      if (required) {
         throw new Error(
           `Missing required native binary: ${src}\n` +
             `Build it first (static + Metal):\n` +
@@ -1024,7 +1029,7 @@ function bundleNativeBinaries() {
       console.warn(`  (optional) native binary not found, skipping: ${src}`);
       continue;
     }
-    const dest = path.join(destDir, name);
+    const dest = path.join(destDir, shippedAs);
     cpSync(src, dest);
     chmodSync(dest, 0o755);
     // Guard the "runs on any Mac" contract: a shipped binary must depend only on
@@ -1038,9 +1043,10 @@ function bundleNativeBinaries() {
           `Rebuild with -DBUILD_SHARED_LIBS=OFF -DLLAMA_OPENSSL=OFF.`,
       );
     }
-    copied.push(name);
+    copied.push(shippedAs);
+    const renamed = shippedAs === name ? "" : ` (from ${name})`;
     console.log(
-      `  bundled native binary: ${name} (${(statSync(dest).size / 1e6).toFixed(1)} MB, self-contained)`,
+      `  bundled native binary: ${shippedAs}${renamed} (${(statSync(dest).size / 1e6).toFixed(1)} MB, self-contained)`,
     );
   }
   return { nativeBinDir, copied };

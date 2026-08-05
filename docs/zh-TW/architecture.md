@@ -21,9 +21,9 @@ graph TB
         subgraph Python["Python Sidecar (FastAPI + Uvicorn)"]
             Routes["main.py<br/>17 API Endpoints"]
             TaskMgr["TaskManager<br/>任務編排"]
-            VoxCPM["VoxCPM<br/>TTS Engine"]
+            VoxCPM["VoxCPM2 (GGUF)<br/>C++ llama-tts-server (Metal)"]
             ASR["SenseVoice Small<br/>ONNX Runtime (CPU)"]
-            Enhancer["ZipEnhancer<br/>音訊增強"]
+            Enhancer["DPDFNet<br/>ONNX 降噪 (sherpa-onnx)"]
             VoiceLib["VoiceLibrary<br/>SQLite + 檔案"]
         end
     end
@@ -102,10 +102,13 @@ Voca/
 │   │   │   │   └── schemas.py    # Pydantic 請求/響應模型
 │   │   │   └── services/         # 業務邏輯層
 │   │   │       ├── task_manager.py       # 任務編排（生成、ASR、下載）
-│   │   │       ├── voxcpm_bridge.py      # VoxCPM TTS 引擎橋接
+│   │   │       ├── voxcpm_bridge.py      # TTS 橋接（分派到 C++ 後端）
+│   │   │       ├── cpp_tts_backend.py    # C++ 後端分派（server / CLI）
+│   │   │       ├── voxcpm_server.py      # 常駐 TTS server 生命週期 + HTTP 客戶端
+│   │   │       ├── process_guard.py      # 原生子程序註冊表 + 父程序守望（防孤兒）
 │   │   │       ├── asr_bridge.py                 # SenseVoice ASR 橋接（入口）
 │   │   │       ├── sensevoice_onnx_session.py    # 自研 ONNX Session（Fbank+LFR+CMVN+CTC）
-│   │   │       ├── audio_enhancer.py     # ZipEnhancer 音訊增強
+│   │   │       ├── audio_enhancer.py     # DPDFNet 降噪（sherpa-onnx，ONNX，無 torch）
 │   │   │       ├── voice_library.py      # 聲音庫（SQLite + 檔案）
 │   │   │       ├── model_catalog.py      # 模型目錄管理
 │   │   │       ├── bootstrap_assets.py   # 引導資源就緒檢查
@@ -133,9 +136,23 @@ Voca/
 **Sidecar 管理** (`sidecar.rs`):
 - 啟動時檢測埠 8765 是否已有服務執行
 - 若無，則啟動 Python uvicorn 子程序
-- 健康檢查：最多輪詢 20 次（間隔 250ms）等待 `/api/v1/health` 就緒
+- 健康檢查：最多輪詢 60 次（間隔 250ms）等待 `/api/v1/health` 就緒
 - 驗證 OpenAPI 相容性（檢查關鍵路徑是否存在）
-- 應用退出時自動終止子程序
+- 應用退出時終止**整棵程序樹**（見下）
+
+**程序樹與退出清理**
+
+三個程序逐層衍生：Tauri 殼 → Python sidecar（打包名 `VocaService`）→ 常駐 TTS server（打包名 `voca-service`，上游 `llama-tts-server`）。
+
+孫程序是洩漏風險點：退出時若直接 SIGKILL sidecar，它的 shutdown 掛鉤不會執行，TTS server 會被 launchd/init 收養並繼續佔用數 GB 顯示記憶體。三層防護相互獨立，任一層失效都不會洩漏程序：
+
+| 層 | 位置 | 職責 |
+|---|---|---|
+| 優雅 + 強制終止 | `platform::terminate_child_tree`（Rust）| 先 SIGTERM 走優雅退出，2 秒寬限期後**先殺子孫再殺父程序**（父程序一死就找不到子孫）；Windows 用 `taskkill /F /T` 整樹帶走 |
+| 孤兒清掃 | `process_guard.sweep_orphans`（Python）| 原生子程序 PID 記入 `run/native-children.json`，下次啟動清理崩潰殘留；殺之前按程序名核對，避免 PID 重用誤殺 |
+| 父程序守望 | `process_guard.start_parent_watchdog`（Python）| 經 `VOCA_PARENT_PID` 監測外殼存活，外殼崩潰/被強制退出時立即自我清理並退出 |
+
+`src-tauri/` 下的 `cargo test` 有一條針對第一層的迴歸測試。
 
 **Rust-only 命令**（不經過 Python）:
 - `complete_onboarding` — 寫入引導完成標記檔案
@@ -243,7 +260,7 @@ flowchart TD
     GetState --> UserClick["使用者點選下載"]
     UserClick --> StartDL["invoke('start_bootstrap_download')<br/>POST /api/v1/bootstrap/start"]
 
-    StartDL --> DL_TTS["下載 VoxCPM (TTS)"]
+    StartDL --> DL_TTS["下載 VoxCPM2 (GGUF, TTS)"]
     StartDL --> DL_ASR["下載 SenseVoice ONNX (ASR)"]
     StartDL --> DL_ENH["下載 ZipEnhancer"]
 
@@ -288,6 +305,7 @@ Voca/
 ├── voices/           # 使用者聲音庫（音訊 + 後設資料）
 ├── audio/            # 生成的音訊輸出
 ├── logs/             # 服務日誌（自動輪轉，5 MB 上限）
+├── run/              # 原生子程序註冊表（native-children.json，用於孤兒清掃）
 ├── voca.db           # SQLite 資料庫（聲音庫）
 ├── onboarding.json   # 引導完成標記
 └── model_catalog.json # 執行時模型目錄副本

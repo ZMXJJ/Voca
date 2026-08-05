@@ -7,7 +7,7 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::Command,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[cfg(target_os = "windows")]
@@ -131,6 +131,107 @@ pub fn detect_site_packages(venv_root: &Path) -> Option<PathBuf> {
     }
 }
 
+/// How long we let the sidecar shut itself down before forcing the issue.
+///
+/// Kept short because this runs on the main thread while the app is quitting:
+/// an idle sidecar exits well inside it, and a busy one (mid-generation, where
+/// uvicorn's graceful shutdown waits for the in-flight request) is force-killed
+/// instead of hanging the quit.
+const SIDECAR_GRACE_PERIOD: Duration = Duration::from_millis(2000);
+const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+/// Terminate the sidecar **and every process it spawned**.
+///
+/// The sidecar is not a leaf process: the C++ TTS path keeps a resident
+/// `llama-tts-server` child alive between generations. Killing only the Python
+/// parent (`Child::kill`, i.e. `SIGKILL`) skipped its `atexit`/FastAPI shutdown
+/// hooks and left that server running forever, holding several GB of GPU memory
+/// after Voca had quit. So: ask nicely first, and if that fails, reap the
+/// descendants *before* the parent — once the parent is gone they are reparented
+/// to `launchd`/`init` and we can no longer find them.
+pub fn terminate_child_tree(child: &mut std::process::Child) {
+    let pid = child.id();
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // SIGTERM → uvicorn runs its shutdown hooks, which stop llama-tts-server.
+        let _ = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status();
+        if wait_for_exit(child, SIDECAR_GRACE_PERIOD) {
+            return;
+        }
+
+        for descendant in descendant_pids(pid) {
+            let _ = Command::new("kill")
+                .args(["-KILL", &descendant.to_string()])
+                .status();
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows has no SIGTERM; `taskkill /T` takes out the whole tree in one
+        // shot, which is what matters here (`Child::kill` would only get the
+        // Python parent and orphan llama-tts-server.exe).
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+        if wait_for_exit(child, SIDECAR_GRACE_PERIOD) {
+            return;
+        }
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// Poll until the child is reaped or the deadline passes. Returns `true` when it exited.
+fn wait_for_exit(child: &mut std::process::Child, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return true,
+            Ok(None) => {}
+            Err(_) => return false,
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(EXIT_POLL_INTERVAL);
+    }
+}
+
+/// Every transitive child of `pid`, deepest first, so callers can kill bottom-up.
+#[cfg(not(target_os = "windows"))]
+fn descendant_pids(pid: u32) -> Vec<u32> {
+    fn collect(pid: u32, depth: usize, out: &mut Vec<u32>) {
+        if depth > 4 {
+            return;
+        }
+        let output = match Command::new("pgrep")
+            .args(["-P", &pid.to_string()])
+            .output()
+        {
+            Ok(output) => output,
+            Err(_) => return,
+        };
+        for child in String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+        {
+            collect(child, depth + 1, out);
+            out.push(child);
+        }
+    }
+
+    let mut out = Vec::new();
+    collect(pid, 0, &mut out);
+    out
+}
+
 /// List PIDs currently holding a TCP listener on the given port.
 pub fn listening_pids(port: u16) -> Result<Vec<u32>, String> {
     #[cfg(target_os = "windows")]
@@ -249,6 +350,13 @@ pub fn kill_port_listener(port: u16) -> Result<(), String> {
         std::thread::sleep(Duration::from_millis(300));
 
         for pid in listening_pids(port)? {
+            // Descendants first: a SIGKILL'd parent can't run its cleanup, and
+            // its children (llama-tts-server) would survive as orphans.
+            for descendant in descendant_pids(pid) {
+                let _ = Command::new("kill")
+                    .args(["-KILL", &descendant.to_string()])
+                    .status();
+            }
             let _ = Command::new("kill")
                 .args(["-KILL", &pid.to_string()])
                 .status();
@@ -587,4 +695,50 @@ pub fn detect_nvidia_gpu_memory_bytes() -> Option<u64> {
     }
 
     None
+}
+#[cfg(all(test, not(target_os = "windows")))]
+mod terminate_tests {
+    use super::*;
+    use std::process::Command;
+
+    /// The bug this guards: killing only the parent orphans its children.
+    /// The `trap '' TERM` makes the parent ignore the graceful signal, so this
+    /// exercises the forced path where descendants must be reaped explicitly.
+    #[test]
+    fn terminate_child_tree_kills_grandchildren() {
+        let pidfile = "/tmp/voca_terminate_test.pid";
+        let _ = fs::remove_file(pidfile);
+        let mut child = Command::new("sh")
+            .args([
+                "-c",
+                &format!("trap '' TERM; sleep 300 & echo $! > {pidfile}; wait"),
+            ])
+            .spawn()
+            .expect("spawn test tree");
+
+        // Wait for the grandchild to register itself.
+        let mut grandchild = None;
+        for _ in 0..50 {
+            std::thread::sleep(Duration::from_millis(50));
+            if let Ok(raw) = fs::read_to_string(pidfile) {
+                if let Ok(pid) = raw.trim().parse::<u32>() {
+                    grandchild = Some(pid);
+                    break;
+                }
+            }
+        }
+        let grandchild = grandchild.expect("grandchild pid");
+        assert!(descendant_pids(child.id()).contains(&grandchild));
+
+        terminate_child_tree(&mut child);
+
+        std::thread::sleep(Duration::from_millis(200));
+        let alive = Command::new("kill")
+            .args(["-0", &grandchild.to_string()])
+            .status()
+            .expect("probe")
+            .success();
+        let _ = fs::remove_file(pidfile);
+        assert!(!alive, "grandchild {grandchild} survived the teardown");
+    }
 }

@@ -401,8 +401,10 @@ pub fn shutdown_sidecar(state: &AppState) -> Result<(), String> {
         .map_err(|_| "failed to lock sidecar state".to_string())?;
 
     if let Some(mut child) = guard.child.take() {
-        let _ = child.kill();
-        let _ = child.wait();
+        // Graceful-then-forced teardown of the whole tree. A plain `child.kill()`
+        // here used to leave the resident `llama-tts-server` grandchild running
+        // after Voca quit — see `platform::terminate_child_tree`.
+        platform::terminate_child_tree(&mut child);
     }
 
     drop(guard);
@@ -537,6 +539,10 @@ fn spawn_sidecar_if_needed(app_handle: &AppHandle, state: &AppState) -> Result<(
         .env("HF_HUB_CACHE", &hf_hub_cache)
         .env("MODELSCOPE_CACHE", &modelscope_cache)
         .env("TORCH_HOME", &torch_home)
+        // Lets the sidecar notice when the Tauri shell dies without getting a
+        // chance to tear it down (crash, Force Quit, `kill -9`) and take its own
+        // llama-tts-server child with it. See `app/services/process_guard.py`.
+        .env("VOCA_PARENT_PID", std::process::id().to_string())
         .env("VOCA_REQUIRE_CUDA", if cfg!(target_os = "windows") { "1" } else { "0" })
         // Disable .pyc generation so Python never writes __pycache__ folders
         // into the bundled service / VoxCPM source trees. This both avoids

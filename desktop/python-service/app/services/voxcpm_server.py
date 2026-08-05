@@ -44,6 +44,7 @@ import numpy as np
 import soundfile as sf
 
 from app.models.schemas import GenerationRequest
+from app.services import process_guard
 from app.services.cpp_tts_backend import (
     CppBackendError,
     CppGenerationResult,
@@ -57,6 +58,11 @@ from app.services.storage_paths import audio_output_dir
 logger = logging.getLogger(__name__)
 
 _SIDECAR_HOST = "127.0.0.1"
+# Name the shipped server binary is packaged under. Upstream builds it as
+# `llama-tts-server`; the DMG/NSIS prepare scripts rename it so the running
+# process is identifiable as ours in Activity Monitor / Task Manager. Dev
+# builds keep the upstream name — both are probed at resolution time.
+SERVER_PROCESS_NAME = "voca-service"
 # First request loads several GB of GGUF into GPU memory; be generous.
 _STARTUP_TIMEOUT_SECONDS = 180
 _HEALTH_POLL_INTERVAL = 0.5
@@ -113,15 +119,22 @@ def windows_backend_variant() -> str:
 
 
 def _resolve_server_binary() -> Path:
-    """Locate the ``llama-tts-server`` executable.
+    """Locate the resident TTS server executable.
 
     Resolution order mirrors the CLI (``cpp_tts_backend._resolve_cli_binary``):
       1. ``VOCA_LLAMA_TTS_SERVER`` env var (explicit path)
-      2. ``VOCA_BUNDLE_RESOURCE_DIR``/bin/llama-tts-server (bundled app)
+      2. ``VOCA_BUNDLE_RESOURCE_DIR``/bin/voca-service (bundled app)
       3. a sibling ``llama.cpp-omni`` checkout next to the Voca repo (dev)
+
+    Packaging renames upstream's ``llama-tts-server`` to ``voca-service`` so the
+    running process is recognizable in Activity Monitor / Task Manager. Both
+    names are probed: dev builds keep upstream's name, and an older bundle that
+    predates the rename still resolves.
     """
 
-    exe = "llama-tts-server.exe" if os.name == "nt" else "llama-tts-server"
+    suffix = ".exe" if os.name == "nt" else ""
+    shipped_exe = f"{SERVER_PROCESS_NAME}{suffix}"
+    upstream_exe = f"llama-tts-server{suffix}"
     # Windows ships per-variant subdirs (bin/cuda, bin/vulkan) so each build's
     # DLLs sit next to its own exe; macOS ships a flat, self-contained bin/.
     variant = windows_backend_variant() if os.name == "nt" else None
@@ -139,26 +152,31 @@ def _resolve_server_binary() -> Path:
     bundle = os.environ.get("VOCA_BUNDLE_RESOURCE_DIR", "").strip()
     if bundle:
         base = Path(bundle) / "bin"
+        # Fall back to the other variant if only one was shipped (e.g. a
+        # Vulkan-only build still runs on an NVIDIA machine).
+        variant_dirs = [base]
         if variant:
-            candidates.append(base / variant / exe)
-            # Fall back to the other variant if only one was shipped (e.g. a
-            # Vulkan-only build still runs on an NVIDIA machine).
             other = "vulkan" if variant == "cuda" else "cuda"
-            candidates.append(base / other / exe)
-        else:
-            candidates.append(base / exe)
+            variant_dirs = [base / variant, base / other]
+        for directory in variant_dirs:
+            candidates.append(directory / shipped_exe)
+            candidates.append(directory / upstream_exe)
 
     # Dev fallback: sibling llama.cpp-omni build dirs. On Windows prefer the
     # variant-specific build (build-cuda / build-vulkan); macOS prefers the
     # self-contained static build.
     repo_root = Path(__file__).resolve().parents[4]
     omni = repo_root.parent / "llama.cpp-omni"
+    build_dirs: list[Path] = []
     if variant:
-        candidates.append(omni / f"build-{variant}" / "bin" / exe)
         other = "vulkan" if variant == "cuda" else "cuda"
-        candidates.append(omni / f"build-{other}" / "bin" / exe)
-    candidates.append(omni / "build-static" / "bin" / exe)
-    candidates.append(omni / "build" / "bin" / exe)
+        build_dirs.append(omni / f"build-{variant}" / "bin")
+        build_dirs.append(omni / f"build-{other}" / "bin")
+    build_dirs.append(omni / "build-static" / "bin")
+    build_dirs.append(omni / "build" / "bin")
+    for directory in build_dirs:
+        candidates.append(directory / upstream_exe)
+        candidates.append(directory / shipped_exe)
 
     for candidate in candidates:
         if candidate.is_file():
@@ -266,6 +284,9 @@ class _VoxcpmServer:
 
         self._proc = proc
         self._port = port
+        # Recorded so a crashed sidecar can't leak this process: the next boot
+        # sweeps the registry (app.services.process_guard).
+        process_guard.register_child(proc.pid, binary.name)
         self._drain_thread = threading.Thread(
             target=self._drain_output, args=(proc,), daemon=True
         )
@@ -436,19 +457,36 @@ class _VoxcpmServer:
         if proc.poll() is None:
             proc.terminate()
             try:
-                proc.wait(timeout=5)
+                proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 try:
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    pass
+                    # Popen lost the race (or the child is wedged in a syscall);
+                    # go through the OS directly rather than leak the process.
+                    process_guard.kill_process(proc.pid)
+        process_guard.unregister_child(proc.pid)
 
-    def shutdown(self) -> None:
-        with self._lock:
+    def shutdown(self, lock_timeout: float | None = None) -> None:
+        """Stop the child. `lock_timeout` bounds the wait for an in-flight generation.
+
+        The lock is held for the duration of a `generate` call, so a caller that
+        must not block (the parent-death watchdog: the app is already gone and
+        nobody is waiting for the audio) passes a timeout and we tear the child
+        down regardless once it expires.
+        """
+
+        acquired = self._lock.acquire(timeout=lock_timeout) if lock_timeout else self._lock.acquire()
+        try:
             if self._proc is not None:
-                logger.info("Stopping llama-tts-server")
+                logger.info(
+                    "Stopping llama-tts-server%s", "" if acquired else " (generation in flight)"
+                )
             self._teardown_process()
+        finally:
+            if acquired:
+                self._lock.release()
 
 
 _SERVER = _VoxcpmServer()
@@ -482,7 +520,7 @@ def generate(
     return _SERVER.generate(task_id, payload, model_path)
 
 
-def shutdown_server() -> None:
+def shutdown_server(lock_timeout: float | None = None) -> None:
     """Stop the resident server child (idempotent). Called on sidecar shutdown."""
 
-    _SERVER.shutdown()
+    _SERVER.shutdown(lock_timeout=lock_timeout)
