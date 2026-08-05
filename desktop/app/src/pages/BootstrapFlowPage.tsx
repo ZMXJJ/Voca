@@ -432,7 +432,6 @@ function formatBootstrapAssetStatus(status: BootstrapAssetCardStatus, t: Transla
 export function BootstrapFlowPage({
   view,
   bootstrapState,
-  providerRecommendation: _providerRecommendation,
   preparedModel,
   sidecarStatus,
   serviceInfo,

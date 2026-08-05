@@ -2,8 +2,8 @@
 # TTS runs on the bundled C++ TTS server (Vulkan build); denoise runs on
 # sherpa-onnx (shared with macOS, in the base requirements).
 #
-# ASR now pins CPUExecutionProvider on every platform (nothing in the shipped
-# runtime requires CUDA), so the GPU execution providers in this wheel are
-# never exercised — plain `onnxruntime` would do, and would ship smaller.
-# Left as-is pending a Windows build to verify the swap.
-onnxruntime-gpu==1.24.4
+# ASR pins CPUExecutionProvider on every platform — nothing in the shipped
+# runtime requires CUDA — so this is the plain CPU wheel, same as macOS.
+# It used to be onnxruntime-gpu, whose CUDA/TensorRT execution providers were
+# never exercised once ASR stopped hard-requiring an NVIDIA GPU.
+onnxruntime==1.24.4

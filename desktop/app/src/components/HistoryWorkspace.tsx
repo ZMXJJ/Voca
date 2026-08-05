@@ -3,7 +3,7 @@ import type { GenerationParams, VoiceEntry, WorkEntry, WorkVoiceFacet } from "@v
 import { useTranslation } from "react-i18next";
 import { deleteWork, listWorkFacets, listWorks, updateWork } from "../lib/tauri";
 import { AudioPlayer } from "./AudioPlayer";
-import { getAudioDownloadPath } from "./SettingsWorkspace";
+import { getAudioDownloadPath } from "../lib/audioDownloadPath";
 import { CustomSelect } from "./CustomSelect";
 import { IconMicrophone, IconPlay } from "./Icons";
 
