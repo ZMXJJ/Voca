@@ -198,6 +198,7 @@ export type GenerationParams = {
   targetText: string;
   modelKey?: string;
   providerPreference?: ProviderPreference;
+  voiceId?: string;
   voiceName?: string;
   controlInstruction?: string;
   referenceAudioPath?: string;
@@ -209,6 +210,69 @@ export type GenerationParams = {
   denoise?: boolean;
   streaming?: boolean;
   seed?: number;
+};
+
+/**
+ * A persisted generation result ("work"). Stored server-side in voca.db —
+ * unlike TaskRecord these survive app restarts. Only successful generations
+ * become works. `mode === "legacy_import"` marks rows imported from the
+ * pre-SQLite localStorage history whose generation params are unknown.
+ */
+export type WorkEntry = {
+  id: string;
+  title: string;
+  targetText: string;
+  mode: GenerationMode | "legacy_import" | string;
+  modelKey?: string | null;
+  voiceId?: string | null;
+  voiceName?: string | null;
+  cfgValue?: number | null;
+  inferenceTimesteps?: number | null;
+  /** Requested seed; null = random (the backend does not report the seed it used). */
+  seed?: number | null;
+  normalize?: boolean | null;
+  denoise?: boolean | null;
+  extremeClone?: boolean | null;
+  audioPath: string;
+  rawAudioPath?: string | null;
+  enhancedAudioPath?: string | null;
+  sampleRate?: number | null;
+  durationMs?: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorksListResponse = {
+  items: WorkEntry[];
+  total: number;
+};
+
+export type WorkUpdatePayload = {
+  title: string;
+};
+
+export type WorkVoiceFacet = {
+  voiceId?: string | null;
+  voiceName?: string | null;
+  count: number;
+};
+
+export type WorkImportItem = {
+  id: string;
+  title?: string | null;
+  targetText?: string | null;
+  voiceName?: string | null;
+  audioPath: string;
+  rawAudioPath?: string | null;
+  enhancedAudioPath?: string | null;
+  sampleRate?: number | null;
+  durationMs?: number | null;
+  createdAt?: string | null;
+};
+
+export type WorksImportResult = {
+  imported: number;
+  skipped: number;
 };
 
 export type SidecarStatus = {
@@ -237,10 +301,9 @@ export type SetupDiagnostics = {
   minimumFreeStorageBytes: number;
   gpuMemoryBytes?: number | null;
   /**
-   * Minimum VRAM required for the current platform's inference path. Only
-   * populated on platforms that gate on NVIDIA GPUs (currently Windows);
-   * absent on macOS/Linux. The frontend treats `null`/`undefined` as
-   * "no GPU floor required for this platform".
+   * Advisory VRAM floor for the current platform's inference path (currently
+   * only emitted on Windows). The Vulkan backend runs on any GPU, so the
+   * frontend uses this for a "low VRAM" warning only — it is not a gate.
    */
   minimumGpuMemoryBytes?: number | null;
   environmentReady: boolean;
@@ -249,12 +312,17 @@ export type SetupDiagnostics = {
   gpuVendor?: string | null;
   gpuName?: string | null;
   /**
-   * Tri-state. `true`/`false` for platforms whose bootstrap depends on
-   * NVIDIA hardware; `null`/`undefined` on platforms where the question
-   * doesn't apply (macOS, Linux). Older clients only saw `boolean`, so we
-   * keep the type lenient.
+   * Tri-state. `true`/`false` on Windows, `null`/`undefined` elsewhere.
+   * Informational only — the bootstrap gate is `hasVulkanSupport`.
    */
   hasNvidiaGpu?: boolean | null;
+  /**
+   * Whether a Vulkan-capable driver stack is present. Populated on Windows
+   * (whose inference backend is llama.cpp + Vulkan); `null`/`undefined` on
+   * platforms that don't gate on Vulkan (macOS uses Metal). Absent on older
+   * Rust shells — treat missing as "unknown, don't block".
+   */
+  hasVulkanSupport?: boolean | null;
   activeTorchBackend?: TorchBackend | string | null;
 };
 

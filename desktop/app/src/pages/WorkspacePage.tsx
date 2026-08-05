@@ -10,6 +10,7 @@ import type {
   StorageInfo,
   TaskRecord,
   VoiceEntry,
+  WorkEntry,
 } from "@voca/contracts";
 import { GenerationWorkspace } from "../components/GenerationWorkspace";
 import { HistoryWorkspace } from "../components/HistoryWorkspace";
@@ -30,7 +31,10 @@ type WorkspacePageProps = {
   downloadedAuxiliaryModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
   storageInfo: StorageInfo | null;
-  taskHistory: TaskRecord[];
+  sessionTasks: TaskRecord[];
+  works: WorkEntry[];
+  worksTotal: number;
+  onRefreshWorks: () => Promise<void>;
   onPrepareModel: (
     modelKey: string,
     providerPreference: "auto" | "huggingface" | "modelscope",
@@ -57,16 +61,23 @@ export function WorkspacePage({
   downloadedAuxiliaryModelCatalog,
   serviceInfo,
   storageInfo,
-  taskHistory,
+  sessionTasks,
+  works,
+  worksTotal,
+  onRefreshWorks,
   onPrepareModel,
   onSubmitTask,
   onRefreshStorageInfo,
   onCacheCleared,
 }: WorkspacePageProps) {
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("studio");
+  // Generation params carried from the works library's "reuse" action into
+  // the Studio composer. Consumed (and cleared) by GenerationWorkspace once
+  // the form fields have been prefilled.
+  const [studioPrefill, setStudioPrefill] = useState<GenerationParams | null>(null);
 
   // The voice library is loaded once at this level (instead of inside
-  // ``GenerationWorkspace``) so switching between Studio / History / Settings
+  // ``GenerationWorkspace``) so switching between Studio / Library / Settings
   // — which unmounts and remounts the section components — does not refetch
   // the voice list every time. Re-pulling on every tab switch was the
   // dominant source of "voices take a few seconds to show" on Windows
@@ -88,10 +99,26 @@ export function WorkspacePage({
     void loadVoices();
   }, [loadVoices]);
 
+  const handleReuseParams = useCallback((params: GenerationParams) => {
+    setStudioPrefill(params);
+    setActiveSection("studio");
+  }, []);
+
+  const handlePrefillConsumed = useCallback(() => {
+    setStudioPrefill(null);
+  }, []);
+
   const sectionContent = useMemo(() => {
     switch (activeSection) {
       case "history":
-        return <HistoryWorkspace />;
+        return (
+          <HistoryWorkspace
+            works={works}
+            voices={voices}
+            onWorksChanged={onRefreshWorks}
+            onReuseParams={handleReuseParams}
+          />
+        );
       case "settings":
         return (
           <SettingsWorkspace
@@ -105,7 +132,7 @@ export function WorkspacePage({
             downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
             serviceInfo={serviceInfo}
             storageInfo={storageInfo}
-            taskHistory={taskHistory}
+            worksTotal={worksTotal}
             onPrepareModel={onPrepareModel}
             onRefreshStorageInfo={onRefreshStorageInfo}
             onCacheCleared={onCacheCleared}
@@ -119,9 +146,12 @@ export function WorkspacePage({
             preparedModel={preparedModel}
             modelCatalog={downloadedModelCatalog}
             sidecarStatus={sidecarStatus}
-            taskHistory={taskHistory}
+            sessionTasks={sessionTasks}
+            works={works}
             voices={voices}
             selectedVoiceId={selectedVoiceId}
+            prefill={studioPrefill}
+            onPrefillConsumed={handlePrefillConsumed}
             onSelectVoice={setSelectedVoiceId}
             onReloadVoices={loadVoices}
             onPrepareModel={onPrepareModel}
@@ -135,20 +165,26 @@ export function WorkspacePage({
     bootstrapState,
     downloadedAuxiliaryModelCatalog,
     downloadedModelCatalog,
+    handlePrefillConsumed,
+    handleReuseParams,
     loadVoices,
     modelCatalog,
     onCacheCleared,
     onPrepareModel,
     onRefreshStorageInfo,
+    onRefreshWorks,
     onSubmitTask,
     preparedModel,
     providerRecommendation,
     selectedVoiceId,
     serviceInfo,
+    sessionTasks,
     sidecarStatus,
     storageInfo,
-    taskHistory,
+    studioPrefill,
     voices,
+    works,
+    worksTotal,
   ]);
 
   return (

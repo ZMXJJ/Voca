@@ -543,7 +543,10 @@ fn spawn_sidecar_if_needed(app_handle: &AppHandle, state: &AppState) -> Result<(
         // chance to tear it down (crash, Force Quit, `kill -9`) and take its own
         // llama-tts-server child with it. See `app/services/process_guard.py`.
         .env("VOCA_PARENT_PID", std::process::id().to_string())
-        .env("VOCA_REQUIRE_CUDA", if cfg!(target_os = "windows") { "1" } else { "0" })
+        // The Windows TTS backend is llama.cpp + Vulkan (any GPU vendor), and
+        // ASR runs on CPU everywhere — nothing in the shipped runtime needs
+        // CUDA any more, so never hard-require it.
+        .env("VOCA_REQUIRE_CUDA", "0")
         // Disable .pyc generation so Python never writes __pycache__ folders
         // into the bundled service / VoxCPM source trees. This both avoids
         // cluttering the install directory and removes the short-lived write

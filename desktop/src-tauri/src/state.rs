@@ -48,19 +48,23 @@ pub struct SetupDiagnostics {
     pub recommended_memory_bytes: u64,
     pub minimum_free_storage_bytes: u64,
     pub gpu_memory_bytes: Option<u64>,
-    /// Only populated on platforms that actually require an NVIDIA GPU
-    /// (currently Windows). Other platforms emit `None` so older or
-    /// platform-agnostic clients can treat the constraint as absent instead
-    /// of mistakenly blocking the user with a 0 / 6 GiB cutoff.
+    /// Advisory VRAM floor for the current platform's inference path
+    /// (currently only emitted on Windows). Since the Vulkan backend runs on
+    /// any GPU, the frontend uses this for a "low VRAM" warning only — it is
+    /// no longer a hard gate.
     pub minimum_gpu_memory_bytes: Option<u64>,
     pub environment_ready: bool,
     pub environment_status: String,
     pub environment_reason: Option<String>,
     pub gpu_vendor: Option<String>,
     pub gpu_name: Option<String>,
-    /// Tri-state: `Some(true)` / `Some(false)` for platforms that gate on
-    /// NVIDIA hardware, `None` for platforms where the question doesn't apply.
+    /// Tri-state: `Some(true)` / `Some(false)` on Windows, `None` elsewhere.
+    /// Informational only — the bootstrap gate is `has_vulkan_support`.
     pub has_nvidia_gpu: Option<bool>,
+    /// Whether a Vulkan-capable driver stack is present. `Some(...)` on
+    /// Windows (where the shipped inference backend is llama.cpp + Vulkan),
+    /// `None` on platforms that don't gate on Vulkan (macOS uses Metal).
+    pub has_vulkan_support: Option<bool>,
     pub active_torch_backend: Option<String>,
 }
 
@@ -132,6 +136,7 @@ pub struct GenerationPayload {
     pub target_text: String,
     pub model_key: Option<String>,
     pub provider_preference: Option<String>,
+    pub voice_id: Option<String>,
     pub voice_name: Option<String>,
     pub control_instruction: Option<String>,
     pub reference_audio_path: Option<String>,

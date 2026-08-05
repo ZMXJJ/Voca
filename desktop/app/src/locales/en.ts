@@ -55,7 +55,7 @@ const en = {
     tagline: "Powered by VoxCPM",
     nav: {
       studio: "Workspace",
-      history: "History",
+      history: "Library",
       settings: "Settings",
     },
     serviceStatus: "Service Status",
@@ -98,7 +98,8 @@ const en = {
       environmentTitle: "Local Runtime Environment",
       memoryHealthy: "Total memory {{memory}} meets the recommended requirement.",
       memoryWarning: "Only {{memory}} memory detected. This is below the recommended {{recommended}} and may impact smooth performance.",
-      gpuMissing: "No compatible NVIDIA GPU detected. CUDA GPU inference is required on this build.",
+      vulkanMissing: "No Vulkan support detected. Please install or update your GPU driver — any Vulkan-capable GPU can run inference.",
+      lowVramHint: "Low VRAM — generation may be slow",
       storageHealthy:
         "{{available}} is currently available and meets the minimum {{minimum}} requirement.",
       storageWarning:
@@ -267,18 +268,28 @@ const en = {
     },
   },
   history: {
-    title: "History",
-    comingSoonTitle: "Coming Soon",
-    comingSoonDesc: "Feature in development",
-    allTasks: "All Tasks",
-    empty: "No history records yet",
-    untitled: "Untitled task",
-    status: {
-      succeeded: "Succeeded",
-      failed: "Failed",
-      running: "Running",
-      queued: "Queued",
-      cancelled: "Cancelled",
+    title: "Library",
+    searchPlaceholder: "Search by text or voice…",
+    filterAllVoices: "All voices",
+    unknownVoice: "Unknown voice",
+    count: "{{count}} works",
+    empty: "No works yet — generate something in the Workspace",
+    emptyFiltered: "No works match your search",
+    loadMore: "Load more",
+    loadingMore: "Loading…",
+    untitled: "Untitled work",
+    renameFailed: "Failed to rename the work",
+    deleteFailed: "Failed to delete the work",
+    meta: {
+      legacyImport: "Imported",
+    },
+    actions: {
+      reuse: "Reuse",
+      reuseHint: "Refill the Workspace composer with this work's settings",
+      rename: "Rename",
+      delete: "Delete",
+      deleteConfirm: "Confirm delete",
+      deleteCancel: "Cancel",
     },
   },
   settings: {
@@ -301,18 +312,19 @@ const en = {
     inferenceBackend: {
       title: "Inference Backend",
       activeLabel: "Active backend",
-      gpuDetected: "NVIDIA GPU detected",
-      gpuNotDetected: "No NVIDIA GPU detected",
+      gpuNotDetected: "No GPU detected",
       vramLabel: "GPU VRAM",
+      vramShared: "Shared with system memory",
       cpu: "CPU",
       cuda: "CUDA",
+      vulkan: "Vulkan",
       mps: "MPS (Apple Silicon)",
-      downloadedCuda:
-        "On Windows, Voca downloads the CUDA inference runtime during first-run setup and then runs on GPU only.",
-      gpuRequired:
-        "An NVIDIA GPU with at least {{minimum}} of VRAM is required to download and run the CUDA inference backend.",
-      gpuInsufficient:
-        "Detected VRAM is {{memory}}, below the minimum requirement of {{minimum}}. The CUDA backend cannot start.",
+      vulkanReady:
+        "This device supports Vulkan GPU inference. Any Vulkan-capable GPU (NVIDIA / AMD / Intel) can run the speech engine.",
+      vulkanMissing:
+        "No Vulkan support detected. Please install or update your GPU driver to enable GPU inference.",
+      lowVram:
+        "Detected VRAM is {{memory}}, below the recommended {{minimum}}. Inference will work but may be slow.",
     },
     modelManagement: {
       title: "Model Management",
@@ -379,6 +391,8 @@ const en = {
   },
   preview: {
     dockTitle: "Preview",
+    expandDock: "Expand preview dock",
+    collapseDock: "Collapse preview dock",
     live: "Live",
     all: "All",
     welcome: "Welcome",
@@ -386,6 +400,29 @@ const en = {
     initialize: "Initialize",
     complete: "Complete",
     workspace: "Workspace",
+    sim: {
+      profile: "Hardware",
+      speed: "Network",
+      pause: "Pause",
+      resume: "Resume",
+      restart: "Replay",
+      injectFailure: "Inject failure",
+      profiles: {
+        "mac-silicon": "Mac (Apple Silicon)",
+        "mac-low-ram": "Mac (8GB RAM)",
+        "win-nvidia": "Windows (RTX 4070)",
+        "win-igpu": "Windows (Intel iGPU)",
+        "win-no-vulkan": "Windows (no Vulkan)",
+        "win-low-vram": "Windows (4GB VRAM)",
+        "low-storage": "Low disk space",
+      },
+      speeds: {
+        fast: "Fast (60 MB/s)",
+        normal: "Normal (12 MB/s)",
+        slow: "Slow (1.5 MB/s)",
+        flaky: "Flaky network",
+      },
+    },
     galleryTitle: "Interface Preview Gallery",
     galleryDescription: "Local-only preview hub for inspecting each screen.",
     sceneTag: "Preview",

@@ -146,7 +146,7 @@ type SettingsWorkspaceProps = {
   downloadedAuxiliaryModelCatalog: ModelCatalogEntry[];
   serviceInfo: ServiceInfo | null;
   storageInfo: StorageInfo | null;
-  taskHistory: TaskRecord[];
+  worksTotal: number;
   onPrepareModel: (
     modelKey: string,
     providerPreference: "auto" | "huggingface" | "modelscope",
@@ -172,7 +172,7 @@ export function SettingsWorkspace({
   downloadedAuxiliaryModelCatalog,
   serviceInfo,
   storageInfo,
-  taskHistory,
+  worksTotal,
   onPrepareModel,
   onRefreshStorageInfo,
   onCacheCleared,
@@ -209,7 +209,7 @@ export function SettingsWorkspace({
     Record<string, { samples: { bytes: number; atMs: number }[]; lastFreshAtMs: number }>
   >({});
   const [audioDownloadPath, setAudioDownloadPath] = useState(() => getAudioDownloadPath());
-  const completedTasks = taskHistory.filter((t) => t.status === "succeeded").length;
+  const completedTasks = worksTotal;
   const pollTimerRef = useRef<number | null>(null);
 
   useEffect(() => {

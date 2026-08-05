@@ -13,6 +13,8 @@ function backendLabel(
   switch (backend.toLowerCase()) {
     case "cuda":
       return t("settings.inferenceBackend.cuda");
+    case "vulkan":
+      return t("settings.inferenceBackend.vulkan");
     case "mps":
       return t("settings.inferenceBackend.mps");
     case "cpu":
@@ -36,9 +38,9 @@ function formatBytes(value: number) {
 export function InferenceBackendCard({ setupDiagnostics }: Props) {
   const { t } = useTranslation();
   const activeBackend = setupDiagnostics?.activeTorchBackend ?? null;
-  // The CUDA-aware GPU/VRAM panel only applies to Windows builds. On
+  // The GPU/VRAM panel only applies to Windows builds (Vulkan backend). On
   // macOS/Linux we render a slim card describing the active backend and skip
-  // any "no NVIDIA GPU detected" warning that would otherwise mislead users.
+  // GPU warnings that would otherwise mislead users.
   const isWindows = setupDiagnostics?.platform === "windows";
 
   if (!isWindows) {
@@ -57,12 +59,19 @@ export function InferenceBackendCard({ setupDiagnostics }: Props) {
     );
   }
 
-  const hasNvidiaGpu = Boolean(setupDiagnostics?.hasNvidiaGpu);
+  // The Windows backend is llama.cpp + Vulkan — any GPU vendor with a
+  // Vulkan-capable driver works. Only an explicit `false` counts as missing.
+  const vulkanMissing = setupDiagnostics?.hasVulkanSupport === false;
+  const gpuName = setupDiagnostics?.gpuName ?? null;
   const gpuMemoryBytes = setupDiagnostics?.gpuMemoryBytes ?? null;
   const minimumGpuMemoryBytes =
     setupDiagnostics?.minimumGpuMemoryBytes ?? 6 * 1024 * 1024 * 1024;
-  const gpuReady =
-    hasNvidiaGpu && gpuMemoryBytes !== null && gpuMemoryBytes >= minimumGpuMemoryBytes;
+  // VRAM numbers are only trustworthy from nvidia-smi (dedicated VRAM).
+  // WMI caps at 4 GB and iGPUs share system RAM (Vulkan can use ~half of
+  // it), so non-NVIDIA readings are hidden and never trigger the warning.
+  const hasReliableVramReading = setupDiagnostics?.hasNvidiaGpu === true;
+  const lowVram =
+    hasReliableVramReading && gpuMemoryBytes !== null && gpuMemoryBytes < minimumGpuMemoryBytes;
 
   return (
     <div className="settings-section">
@@ -76,32 +85,28 @@ export function InferenceBackendCard({ setupDiagnostics }: Props) {
           <div className="kv-row">
             <span className="kv-row__key">GPU</span>
             <span className="kv-row__value">
-              {hasNvidiaGpu
-                ? `${t("settings.inferenceBackend.gpuDetected")}${
-                    setupDiagnostics?.gpuName ? ` · ${setupDiagnostics.gpuName}` : ""
-                  }`
-                : t("settings.inferenceBackend.gpuNotDetected")}
+              {gpuName ?? t("settings.inferenceBackend.gpuNotDetected")}
             </span>
           </div>
           <div className="kv-row">
             <span className="kv-row__key">{t("settings.inferenceBackend.vramLabel")}</span>
             <span className="kv-row__value">
-              {gpuMemoryBytes !== null ? formatBytes(gpuMemoryBytes) : "—"}
+              {hasReliableVramReading && gpuMemoryBytes !== null
+                ? formatBytes(gpuMemoryBytes)
+                : t("settings.inferenceBackend.vramShared")}
             </span>
           </div>
         </div>
         <div>
           <p style={{ fontSize: 13, lineHeight: 1.5, margin: 0 }}>
-            {gpuReady
-              ? t("settings.inferenceBackend.downloadedCuda")
-              : hasNvidiaGpu
-                ? t("settings.inferenceBackend.gpuInsufficient", {
+            {vulkanMissing
+              ? t("settings.inferenceBackend.vulkanMissing")
+              : lowVram
+                ? t("settings.inferenceBackend.lowVram", {
                     memory: gpuMemoryBytes !== null ? formatBytes(gpuMemoryBytes) : "—",
                     minimum: formatBytes(minimumGpuMemoryBytes),
                   })
-                : t("settings.inferenceBackend.gpuRequired", {
-                    minimum: formatBytes(minimumGpuMemoryBytes),
-                  })}
+                : t("settings.inferenceBackend.vulkanReady")}
           </p>
         </div>
       </div>

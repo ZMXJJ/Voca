@@ -498,6 +498,9 @@ fn detect_gpu_vendor() -> Option<String> {
     if platform::detect_nvidia_gpu().is_some() {
         return Some("nvidia".into());
     }
+    if platform::detect_any_gpu().is_some() {
+        return Some("other".into());
+    }
     None
 }
 
@@ -552,8 +555,8 @@ pub async fn get_setup_diagnostics(
     let total_memory_bytes = platform::detect_total_memory_bytes();
     let available_storage_bytes = platform::detect_available_storage_bytes();
     let gpu_vendor = detect_gpu_vendor();
-    let gpu_name = platform::detect_nvidia_gpu();
-    let gpu_memory_bytes = platform::detect_nvidia_gpu_memory_bytes();
+    let gpu_name = platform::detect_any_gpu();
+    let gpu_memory_bytes = platform::detect_any_gpu_memory_bytes();
     let runtime_available = sidecar_runtime_available(&app_handle);
     let sidecar = if runtime_available {
         ensure_sidecar_started(&app_handle, state.inner())
@@ -571,10 +574,10 @@ pub async fn get_setup_diagnostics(
         }
     };
 
-    // Only Windows currently gates bootstrap on an NVIDIA GPU + VRAM minimum;
-    // emitting these fields on macOS/Linux would force the frontend (or older
-    // clients merged from main) to either special-case a missing GPU or block
-    // the user on hardware that doesn't actually need CUDA.
+    // The Windows inference backend is llama.cpp + Vulkan, which runs on any
+    // GPU with a Vulkan-capable driver — the bootstrap gate is Vulkan support,
+    // not NVIDIA hardware. `has_nvidia_gpu` stays populated for display and
+    // older clients; `minimum_gpu_memory_bytes` is advisory (low-VRAM warning).
     let (minimum_gpu_memory_bytes, has_nvidia_gpu) = if cfg!(target_os = "windows") {
         (
             Some(MINIMUM_GPU_MEMORY_BYTES),
@@ -583,6 +586,7 @@ pub async fn get_setup_diagnostics(
     } else {
         (None, None)
     };
+    let has_vulkan_support = platform::detect_vulkan_support();
 
     Ok(SetupDiagnostics {
         platform: host_platform_id(),
@@ -599,6 +603,7 @@ pub async fn get_setup_diagnostics(
         gpu_vendor,
         gpu_name,
         has_nvidia_gpu,
+        has_vulkan_support,
         active_torch_backend: read_active_torch_backend(),
     })
 }

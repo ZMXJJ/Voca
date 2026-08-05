@@ -16,6 +16,12 @@ import type {
   VoiceCreatePayload,
   VoiceEntry,
   VoiceUpdatePayload,
+  WorkEntry,
+  WorkImportItem,
+  WorksImportResult,
+  WorksListResponse,
+  WorkUpdatePayload,
+  WorkVoiceFacet,
 } from "@voca/contracts";
 import i18n from "../i18n";
 
@@ -426,6 +432,71 @@ export async function deleteVoice(voiceId: string): Promise<boolean> {
     return await invoke<boolean>("delete_voice", { voiceId });
   } catch (error) {
     throw new Error(getInvokeErrorMessage(error, "Failed to delete voice"));
+  }
+}
+
+export type ListWorksParams = {
+  limit?: number;
+  offset?: number;
+  search?: string;
+  voiceId?: string;
+  voiceName?: string;
+};
+
+export async function listWorks(params: ListWorksParams = {}): Promise<WorksListResponse> {
+  try {
+    return await invoke<WorksListResponse>("list_works", {
+      limit: params.limit ?? 50,
+      offset: params.offset ?? 0,
+      search: params.search ?? null,
+      voiceId: params.voiceId ?? null,
+      voiceName: params.voiceName ?? null,
+    });
+  } catch {
+    return { items: [], total: 0 };
+  }
+}
+
+export async function getWork(workId: string): Promise<WorkEntry | null> {
+  try {
+    return await invoke<WorkEntry>("get_work", { workId });
+  } catch {
+    return null;
+  }
+}
+
+export async function updateWork(
+  workId: string,
+  payload: WorkUpdatePayload,
+): Promise<WorkEntry> {
+  try {
+    return await invoke<WorkEntry>("update_work", { workId, payload });
+  } catch (error) {
+    throw new Error(getInvokeErrorMessage(error, "Failed to update work"));
+  }
+}
+
+export async function deleteWork(workId: string): Promise<boolean> {
+  try {
+    return await invoke<boolean>("delete_work", { workId });
+  } catch (error) {
+    throw new Error(getInvokeErrorMessage(error, "Failed to delete work"));
+  }
+}
+
+export async function importWorks(items: WorkImportItem[]): Promise<WorksImportResult> {
+  try {
+    return await invoke<WorksImportResult>("import_works", { payload: { items } });
+  } catch (error) {
+    throw new Error(getInvokeErrorMessage(error, "Failed to import works"));
+  }
+}
+
+export async function listWorkFacets(): Promise<WorkVoiceFacet[]> {
+  try {
+    return await invoke<WorkVoiceFacet[]>("list_work_facets");
+  } catch {
+    return [];
   }
 }
 

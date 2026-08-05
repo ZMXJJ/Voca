@@ -7,9 +7,10 @@ import type {
   SidecarStatus,
   TaskRecord,
   VoiceEntry,
+  WorkEntry,
 } from "@voca/contracts";
 import { useTranslation } from "react-i18next";
-import { getTaskPlayableAudioPath } from "../lib/historyStorage";
+import { getTaskPlayableAudioPath } from "../lib/taskUtils";
 import { AudioPlayer } from "./AudioPlayer";
 import { getAudioDownloadPath } from "./SettingsWorkspace";
 import { CustomSelect } from "./CustomSelect";
@@ -21,7 +22,12 @@ type GenerationWorkspaceProps = {
   preparedModel: ModelPrepareResponse | null;
   modelCatalog: ModelCatalogEntry[];
   sidecarStatus: SidecarStatus;
-  taskHistory: TaskRecord[];
+  /**
+   * In-flight / failed generate tasks of the current session. Successful
+   * generations are persisted server-side and arrive through ``works``.
+   */
+  sessionTasks: TaskRecord[];
+  works: WorkEntry[];
   /**
    * Voice library state is owned by the parent (``WorkspacePage``) so it
    * survives Studio ↔ Settings tab switches without re-fetching from the
@@ -30,6 +36,9 @@ type GenerationWorkspaceProps = {
    */
   voices: VoiceEntry[];
   selectedVoiceId: string | null;
+  /** Params carried from the works library's "reuse" action. */
+  prefill: GenerationParams | null;
+  onPrefillConsumed: () => void;
   onSelectVoice: (voiceId: string | null) => void;
   onReloadVoices: () => Promise<VoiceEntry[]>;
   onPrepareModel: (
@@ -39,6 +48,12 @@ type GenerationWorkspaceProps = {
   ) => Promise<void>;
   onSubmit: (payload: GenerationParams) => Promise<void>;
 };
+
+type HistoryDisplayItem =
+  | { kind: "task"; id: string; createdAt: string; task: TaskRecord }
+  | { kind: "work"; id: string; createdAt: string; work: WorkEntry };
+
+const MINI_HISTORY_LIMIT = 20;
 
 function formatHistoryTime(
   value: string,
@@ -65,7 +80,7 @@ function formatHistoryTime(
   return new Intl.DateTimeFormat(language, { month: "numeric", day: "numeric" }).format(date);
 }
 
-function formatDuration(ms?: number) {
+function formatDuration(ms?: number | null) {
   if (!ms) return "0:00";
   const totalSec = Math.round(ms / 1000);
   const m = Math.floor(totalSec / 60);
@@ -81,13 +96,23 @@ function isTaskFailed(task: TaskRecord) {
   return task.status === "failed" || task.status === "cancelled";
 }
 
+function getItemAudioPath(item: HistoryDisplayItem): string | null {
+  if (item.kind === "work") {
+    return item.work.audioPath;
+  }
+  return getTaskPlayableAudioPath(item.task);
+}
+
 export function GenerationWorkspace({
   preparedModel,
   modelCatalog,
   sidecarStatus,
-  taskHistory,
+  sessionTasks,
+  works,
   voices,
   selectedVoiceId,
+  prefill,
+  onPrefillConsumed,
   onSelectVoice,
   onReloadVoices,
   onSubmit,
@@ -104,8 +129,7 @@ export function GenerationWorkspace({
   const [normalize, setNormalize] = useState(true);
   const [denoise, setDenoise] = useState(false);
   const [extremeClone, setExtremeClone] = useState(false);
-  const [seed, setSeed] = useState(-1);
-  const [selectedHistoryTaskId, setSelectedHistoryTaskId] = useState<string | null>(null);
+  const [selectedHistoryItemId, setSelectedHistoryItemId] = useState<string | null>(null);
   const [historyPlayNonce, setHistoryPlayNonce] = useState(0);
 
   useEffect(() => {
@@ -126,15 +150,57 @@ export function GenerationWorkspace({
 
   const hasDownloadedModels = modelCatalog.length > 0;
   const modelReady = preparedModel?.configExists ?? false;
+
+  // Merge in-flight/failed session tasks with the persisted works into one
+  // display list. Works win on id collision — a task that just succeeded may
+  // briefly coexist with the work row it produced.
+  const displayHistory = useMemo<HistoryDisplayItem[]>(() => {
+    const workIds = new Set(works.map((work) => work.id));
+    const taskItems: HistoryDisplayItem[] = sessionTasks
+      .filter(
+        (task) =>
+          task.type === "generate" &&
+          !workIds.has(task.id) &&
+          (isTaskRunning(task) || isTaskFailed(task) || Boolean(getTaskPlayableAudioPath(task))),
+      )
+      .map((task) => ({ kind: "task", id: task.id, createdAt: task.createdAt, task }));
+    const workItems: HistoryDisplayItem[] = works.map((work) => ({
+      kind: "work",
+      id: work.id,
+      createdAt: work.createdAt,
+      work,
+    }));
+    return [...taskItems, ...workItems]
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .slice(0, MINI_HISTORY_LIMIT);
+  }, [sessionTasks, works]);
+
   const playableHistory = useMemo(
-    () => taskHistory.filter((task) => Boolean(getTaskPlayableAudioPath(task))),
-    [taskHistory],
+    () => displayHistory.filter((item) => Boolean(getItemAudioPath(item))),
+    [displayHistory],
   );
-  const displayHistory = useMemo(
-    () =>
-      taskHistory
-        .filter((task) => task.type === "generate" && (Boolean(getTaskPlayableAudioPath(task)) || isTaskRunning(task) || isTaskFailed(task))),
-    [taskHistory],
+
+  useEffect(() => {
+    if (!selectedHistoryItemId) {
+      return;
+    }
+    if (!playableHistory.some((item) => item.id === selectedHistoryItemId)) {
+      setSelectedHistoryItemId(null);
+    }
+  }, [playableHistory, selectedHistoryItemId]);
+
+  const selectedHistoryItem = useMemo(() => {
+    if (selectedHistoryItemId) {
+      return playableHistory.find((item) => item.id === selectedHistoryItemId) ?? null;
+    }
+    return playableHistory[0] ?? null;
+  }, [playableHistory, selectedHistoryItemId]);
+
+  const latestAudioPath = selectedHistoryItem ? getItemAudioPath(selectedHistoryItem) : null;
+
+  const selectedVoice = useMemo(
+    () => voices.find((voice) => voice.id === selectedVoiceId) ?? null,
+    [selectedVoiceId, voices],
   );
 
   useEffect(() => {
@@ -151,45 +217,34 @@ export function GenerationWorkspace({
     }
   }, [modelCatalog, modelKey, preparedModel?.modelKey]);
 
+  // Prefill the composer from a works-library "reuse" action. Params the
+  // legacy import couldn't recover stay at their defaults.
   useEffect(() => {
-    if (!selectedHistoryTaskId) {
-      return;
+    if (!prefill) return;
+    setTargetText(prefill.targetText);
+    if (prefill.modelKey && modelCatalog.some((model) => model.modelKey === prefill.modelKey)) {
+      setModelKey(prefill.modelKey);
     }
-    if (!playableHistory.some((task) => task.id === selectedHistoryTaskId)) {
-      setSelectedHistoryTaskId(null);
+    setCfgValue(prefill.cfgValue ?? 2.0);
+    setInferenceSteps(prefill.inferenceTimesteps ?? 10);
+    setNormalize(prefill.normalize ?? true);
+    setDenoise(prefill.denoise ?? false);
+    setExtremeClone(Boolean(prefill.extremeClone));
+    const matchedVoice =
+      (prefill.voiceId ? voices.find((voice) => voice.id === prefill.voiceId) : null) ??
+      (prefill.voiceName ? voices.find((voice) => voice.name === prefill.voiceName) : null);
+    if (matchedVoice) {
+      onSelectVoice(matchedVoice.id);
     }
-  }, [playableHistory, selectedHistoryTaskId]);
-
-  const latestAudioPath = useMemo(() => {
-    if (selectedHistoryTaskId) {
-      const selectedTask = playableHistory.find((task) => task.id === selectedHistoryTaskId);
-      const selectedAudioPath = selectedTask ? getTaskPlayableAudioPath(selectedTask) : null;
-      if (selectedAudioPath) {
-        return selectedAudioPath;
-      }
-    }
-    const found = playableHistory.find((task) => getTaskPlayableAudioPath(task));
-    return found ? getTaskPlayableAudioPath(found) : null;
-  }, [playableHistory, selectedHistoryTaskId]);
-
-  const selectedHistoryTask = useMemo(() => {
-    if (selectedHistoryTaskId) {
-      return playableHistory.find((task) => task.id === selectedHistoryTaskId) ?? null;
-    }
-    return playableHistory[0] ?? null;
-  }, [playableHistory, selectedHistoryTaskId]);
-
-  const selectedVoice = useMemo(
-    () => voices.find((voice) => voice.id === selectedVoiceId) ?? null,
-    [selectedVoiceId, voices],
-  );
+    onPrefillConsumed();
+  }, [modelCatalog, onPrefillConsumed, onSelectVoice, prefill, voices]);
 
   const [showDownloadToast, setShowDownloadToast] = useState(false);
   const downloadToastTimer = useRef<number | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const errorToastTimer = useRef<number | null>(null);
   const acknowledgedFailures = useRef<Set<string>>(
-    new Set(taskHistory.filter((t) => t.status === "failed").map((t) => t.id)),
+    new Set(sessionTasks.filter((task) => task.status === "failed").map((task) => task.id)),
   );
 
   const handleDownloadComplete = useCallback(() => {
@@ -206,7 +261,7 @@ export function GenerationWorkspace({
   }, []);
 
   useEffect(() => {
-    const newFailure = taskHistory.find(
+    const newFailure = sessionTasks.find(
       (task) => task.type === "generate" && task.status === "failed" && !acknowledgedFailures.current.has(task.id),
     );
     if (!newFailure) return;
@@ -216,16 +271,20 @@ export function GenerationWorkspace({
     setErrorToast(detail);
     if (errorToastTimer.current) window.clearTimeout(errorToastTimer.current);
     errorToastTimer.current = window.setTimeout(() => setErrorToast(null), 6000);
-  }, [taskHistory, t]);
+  }, [sessionTasks, t]);
 
   const downloadFileName = useMemo(() => {
-    const task = selectedHistoryTask;
-    if (!task) return undefined;
-    const voiceName = task.voiceName?.trim() || selectedVoice?.name || "";
-    const textSnippet = (task.title ?? "").slice(0, 10).trim();
+    const item = selectedHistoryItem;
+    if (!item) return undefined;
+    const voiceName =
+      (item.kind === "work" ? item.work.voiceName?.trim() : item.task.voiceName?.trim()) ||
+      selectedVoice?.name ||
+      "";
+    const titleSource = item.kind === "work" ? item.work.title : item.task.title ?? "";
+    const textSnippet = (titleSource ?? "").slice(0, 10).trim();
     const parts = [voiceName, textSnippet].filter(Boolean);
     return parts.length > 0 ? `${parts.join("_")}.wav` : undefined;
-  }, [selectedHistoryTask, selectedVoice]);
+  }, [selectedHistoryItem, selectedVoice]);
 
   const handleGenerate = () => {
     if (!targetText.trim()) return;
@@ -236,6 +295,7 @@ export function GenerationWorkspace({
       targetText,
       modelKey,
       providerPreference,
+      voiceId: selectedVoice?.id,
       voiceName: selectedVoice?.name?.trim() || undefined,
       controlInstruction: extremeClone ? undefined : (selectedVoice?.description?.trim() || ""),
       referenceAudioPath: selectedVoice?.referenceAudioPath,
@@ -246,7 +306,6 @@ export function GenerationWorkspace({
       inferenceTimesteps: inferenceSteps,
       normalize,
       denoise,
-      seed: seed >= 0 ? seed : undefined,
     });
   };
 
@@ -306,7 +365,7 @@ export function GenerationWorkspace({
                 <button
                   className="config-panel__reset"
                   type="button"
-                  onClick={() => { setCfgValue(2.0); setInferenceSteps(10); setNormalize(true); setDenoise(false); setExtremeClone(false); setSeed(-1); }}
+                  onClick={() => { setCfgValue(2.0); setInferenceSteps(10); setNormalize(true); setDenoise(false); setExtremeClone(false); }}
                 >
                   {t("studio.config.reset")}
                 </button>
@@ -344,21 +403,6 @@ export function GenerationWorkspace({
                   onChange={(e) => setInferenceSteps(Number(e.target.value))}
                 />
                 <span className="config-panel__range">1 — 50</span>
-              </label>
-
-              <label className="config-panel__row">
-                <div className="config-panel__label-line">
-                  <span>{t("studio.config.seed")}</span>
-                  <span className="config-panel__value">{seed === -1 ? t("studio.config.random") : seed}</span>
-                </div>
-                <input
-                  type="number"
-                  className="config-panel__number"
-                  value={seed}
-                  onChange={(e) => setSeed(Number(e.target.value))}
-                  min={-1}
-                  placeholder="-1"
-                />
               </label>
 
               <div className="config-panel__divider" />
@@ -431,27 +475,40 @@ export function GenerationWorkspace({
               </p>
             ) : (
               <div className="history-list history-list--compact">
-                {displayHistory.map((task) => {
-                  const audioPath = getTaskPlayableAudioPath(task);
+                {displayHistory.map((item) => {
+                  const audioPath = getItemAudioPath(item);
                   const isPlayable = Boolean(audioPath);
-                  const isPending = isTaskRunning(task);
-                  const isFailed = isTaskFailed(task);
-                  const statusLabel = (isPending || isFailed) ? t(`studio.generationHistory.status.${task.status}`) : null;
-                  const statusTone = isFailed ? "status-badge--error" : task.status === "running" ? "status-badge--accent" : "status-badge--muted";
-                  const voiceLabel = task.voiceName?.trim() || null;
+                  const isPending = item.kind === "task" && isTaskRunning(item.task);
+                  const isFailed = item.kind === "task" && isTaskFailed(item.task);
+                  const statusLabel = (isPending || isFailed) && item.kind === "task"
+                    ? t(`studio.generationHistory.status.${item.task.status}`)
+                    : null;
+                  const statusTone = isFailed
+                    ? "status-badge--error"
+                    : item.kind === "task" && item.task.status === "running"
+                      ? "status-badge--accent"
+                      : "status-badge--muted";
+                  const voiceLabel =
+                    (item.kind === "work" ? item.work.voiceName?.trim() : item.task.voiceName?.trim()) || null;
+                  const durationMs =
+                    item.kind === "work" ? item.work.durationMs : item.task.result?.durationMs;
+                  const titleText =
+                    item.kind === "work"
+                      ? item.work.title
+                      : item.task.title || item.task.message || t("studio.generationHistory.untitled");
                   const metaParts = [
-                    formatHistoryTime(task.createdAt, i18n.resolvedLanguage ?? i18n.language, t),
-                    isPlayable ? formatDuration(task.result?.durationMs) : null,
+                    formatHistoryTime(item.createdAt, i18n.resolvedLanguage ?? i18n.language, t),
+                    isPlayable ? formatDuration(durationMs) : null,
                     voiceLabel,
                   ].filter(Boolean);
 
                   return (
                     <div
-                      key={task.id}
-                      className={`history-item${selectedHistoryTaskId === task.id ? " history-item--selected" : ""}${!isPlayable ? " history-item--inactive" : ""}`}
+                      key={item.id}
+                      className={`history-item${selectedHistoryItemId === item.id ? " history-item--selected" : ""}${!isPlayable ? " history-item--inactive" : ""}`}
                       onClick={() => {
                         if (!isPlayable) return;
-                        setSelectedHistoryTaskId(task.id);
+                        setSelectedHistoryItemId(item.id);
                         setHistoryPlayNonce((value) => value + 1);
                       }}
                     >
@@ -462,18 +519,16 @@ export function GenerationWorkspace({
                         onClick={(event) => {
                           event.stopPropagation();
                           if (!isPlayable) return;
-                          setSelectedHistoryTaskId(task.id);
+                          setSelectedHistoryItemId(item.id);
                           setHistoryPlayNonce((value) => value + 1);
                         }}
-                        aria-label={`Play ${task.title || task.message || t("studio.generationHistory.untitled")}`}
+                        aria-label={`Play ${titleText}`}
                       >
                         <IconPlay size={12} />
                       </button>
                       <div className="history-item__content">
                         <div className="history-item__info">
-                          <div className="history-item__text">
-                            {task.title || task.message || task.result?.audioPath || t("studio.generationHistory.untitled")}
-                          </div>
+                          <div className="history-item__text">{titleText}</div>
                           <div className="history-item__meta">{metaParts.join(" · ")}</div>
                         </div>
                         {statusLabel ? (
@@ -493,7 +548,7 @@ export function GenerationWorkspace({
 
       <AudioPlayer
         audioPath={latestAudioPath}
-        autoPlay={Boolean(selectedHistoryTaskId)}
+        autoPlay={Boolean(selectedHistoryItemId)}
         playNonce={historyPlayNonce}
         downloadName={downloadFileName}
         defaultDirectory={getAudioDownloadPath()}

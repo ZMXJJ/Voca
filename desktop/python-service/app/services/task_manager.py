@@ -23,6 +23,7 @@ from app.models.schemas import (
 from app.services.asr_bridge import ASRBridge
 from app.services.bootstrap_assets import bootstrap_entries
 from app.services.model_catalog import get_model_entry
+from app.services import works_library
 from app.services.voxcpm_bridge import DownloadProgressEvent, VoxCPMBridge
 
 
@@ -118,24 +119,13 @@ def _download_message(progress: DownloadProgress, model_name: str) -> str:
 
 
 def _create_bootstrap_asset_progress(entries) -> list[BootstrapAssetDownloadProgress]:
-    items: list[BootstrapAssetDownloadProgress] = []
-    if os.name == "nt":
-        items.append(
-            BootstrapAssetDownloadProgress(
-                modelKey="cuda_runtime",
-                displayName="CUDA Runtime",
-            )
-        )
-    items.extend(
-        [
+    return [
         BootstrapAssetDownloadProgress(
             modelKey=entry.modelKey,
             displayName=entry.displayName,
         )
         for entry in entries
-        ]
-    )
-    return items
+    ]
 
 
 def _update_bootstrap_asset_progress(
@@ -507,6 +497,22 @@ class TaskManager:
                 task_id=task_id,
                 payload=payload,
             )
+            # Persist the work before flipping the task to succeeded, so a
+            # frontend that refetches the works list on seeing "succeeded"
+            # always finds the row. A works-DB failure must never fail the
+            # generation itself — the audio already exists on disk.
+            try:
+                works_library.record_work(
+                    work_id=task_id,
+                    payload=payload,
+                    audio_path=audio_path,
+                    raw_audio_path=raw_audio_path,
+                    enhanced_audio_path=enhanced_audio_path,
+                    sample_rate=sample_rate,
+                    duration_ms=duration_ms,
+                )
+            except Exception:
+                logger.exception("Failed to record work for task %s", task_id)
             self._update_task(
                 task_id,
                 status="succeeded",
@@ -801,8 +807,11 @@ class TaskManager:
     def _run_bootstrap_bundle_task(self, task_id: str, provider_preference: str) -> None:
         entries = bootstrap_entries()
         completed_assets: list[str] = []
-        requires_cuda_runtime = os.name == "nt"
-        total_assets = len(entries) + (1 if requires_cuda_runtime else 0)
+        # The speech tools bundle is the same on every platform now: the two
+        # downloadable models (VoxCPM2 GGUF + SenseVoice ONNX). The Windows
+        # CUDA runtime download was retired with the move to the Vulkan
+        # llama.cpp backend; the denoiser (DPDFNet ONNX) ships inside the app.
+        total_assets = len(entries)
         latest_progress: DownloadProgress | None = None
         asset_progress = _create_bootstrap_asset_progress(entries)
 
@@ -824,179 +833,6 @@ class TaskManager:
             )
 
             completed_units = 0
-
-            if requires_cuda_runtime:
-                from app.services import cuda_upgrade
-
-                if cuda_upgrade.has_runtime_complete_marker():
-                    completed_assets.append("cuda_runtime")
-                    completed_units += 1
-                    latest_progress = DownloadProgress(
-                        phase="finalizing",
-                        provider="local",
-                        currentFile="CUDA Runtime",
-                        downloadedBytes=0,
-                        totalBytes=None,
-                        totalBytesComplete=True,
-                        completedFiles=completed_units,
-                        totalFiles=total_assets,
-                    )
-                    asset_progress = _update_bootstrap_asset_progress(
-                        asset_progress,
-                        "cuda_runtime",
-                        status="succeeded",
-                        progress=100,
-                        provider="local",
-                        currentFile="CUDA Runtime",
-                        downloadedBytes=0,
-                        totalBytes=None,
-                        totalBytesComplete=True,
-                    )
-                    self._update_task(
-                        task_id,
-                        status="running",
-                        progress=min(int((completed_units / max(total_assets, 1)) * 100), 99),
-                        message="CUDA runtime is ready",
-                        download_progress=latest_progress,
-                        bootstrap_asset_progress=asset_progress,
-                    )
-                else:
-                    def handle_cuda_progress(event: dict) -> None:
-                        nonlocal asset_progress, latest_progress
-                        stage = event.get("stage")
-                        if stage == "download":
-                            downloaded = int(event.get("downloadedBytes") or 0)
-                            total = event.get("totalBytes")
-                            total_complete = bool(event.get("totalBytesComplete"))
-                            total_files = int(event.get("totalFiles") or 2)
-                            completed = int(event.get("completedFiles") or 0)
-                            current_file = event.get("currentFile") or "CUDA Runtime"
-                            bytes_per_second = event.get("bytesPerSecond")
-                            ratio = 0.0
-                            if total_complete and total and total > 0:
-                                ratio = max(0.0, min(1.0, downloaded / total))
-                            visible_floor = 0
-                            if downloaded > 0:
-                                # Keep early progress visually responsive while the first large
-                                # CUDA wheel is still far from 1% of its full size.
-                                visible_floor = min(5, int(downloaded // (8 * 1024 * 1024)) + 1)
-                            per_asset_progress = max(int(ratio * 85), visible_floor)
-                            computed_overall_progress = min(
-                                99,
-                                int(((completed_units + (per_asset_progress / 100.0)) / max(total_assets, 1)) * 100),
-                            )
-                            overall_progress = max(computed_overall_progress, 1 if downloaded > 0 else 0)
-                            latest_progress = DownloadProgress(
-                                phase="downloading",
-                                provider="local",
-                                currentFile=current_file,
-                                downloadedBytes=downloaded,
-                                totalBytes=total if total_complete else None,
-                                totalBytesComplete=total_complete,
-                                completedFiles=completed_units,
-                                totalFiles=total_assets,
-                                bytesPerSecond=bytes_per_second,
-                            )
-                            asset_progress = _update_bootstrap_asset_progress(
-                                asset_progress,
-                                "cuda_runtime",
-                                status="running",
-                                progress=per_asset_progress,
-                                provider="local",
-                                currentFile=current_file,
-                                downloadedBytes=downloaded,
-                                totalBytes=total,
-                                totalBytesComplete=total_complete,
-                                bytesPerSecond=bytes_per_second,
-                            )
-                            self._update_task(
-                                task_id,
-                                status="running",
-                                progress=overall_progress,
-                                message=current_file,
-                                download_progress=latest_progress,
-                                bootstrap_asset_progress=asset_progress,
-                            )
-                            return
-
-                        progress_map = {
-                            "verifying": (88, "Verifying CUDA runtime"),
-                            "installing": (94, "Installing CUDA runtime"),
-                            "validating": (98, "Validating CUDA runtime"),
-                        }
-                        per_asset_progress, message = progress_map.get(
-                            stage,
-                            (1, "Preparing CUDA runtime"),
-                        )
-                        overall_progress = min(
-                            99,
-                            int(((completed_units + (per_asset_progress / 100.0)) / max(total_assets, 1)) * 100),
-                        )
-                        latest_progress = DownloadProgress(
-                            phase="finalizing" if stage == "validating" else "listing",
-                            provider="local",
-                            currentFile="CUDA Runtime",
-                            downloadedBytes=latest_progress.downloadedBytes if latest_progress else 0,
-                            totalBytes=latest_progress.totalBytes if latest_progress else None,
-                            totalBytesComplete=latest_progress.totalBytesComplete if latest_progress else False,
-                            completedFiles=completed_units,
-                            totalFiles=total_assets,
-                        )
-                        asset_progress = _update_bootstrap_asset_progress(
-                            asset_progress,
-                            "cuda_runtime",
-                            status="running",
-                            progress=per_asset_progress,
-                            provider="local",
-                            currentFile="CUDA Runtime",
-                            downloadedBytes=latest_progress.downloadedBytes if latest_progress else 0,
-                            totalBytes=latest_progress.totalBytes if latest_progress else None,
-                            totalBytesComplete=latest_progress.totalBytesComplete if latest_progress else False,
-                        )
-                        self._update_task(
-                            task_id,
-                            status="running",
-                            progress=overall_progress,
-                            message=message,
-                            download_progress=latest_progress,
-                            bootstrap_asset_progress=asset_progress,
-                        )
-
-                    cuda_result = cuda_upgrade.run_cuda_upgrade(progress=handle_cuda_progress)
-                    from app.services.torch_runtime import purge_torch_modules
-
-                    purge_torch_modules()
-                    completed_assets.append("cuda_runtime")
-                    completed_units += 1
-                    latest_progress = DownloadProgress(
-                        phase="finalizing",
-                        provider="local",
-                        currentFile="CUDA Runtime",
-                        downloadedBytes=latest_progress.downloadedBytes if latest_progress else 0,
-                        totalBytes=latest_progress.totalBytes if latest_progress else None,
-                        totalBytesComplete=latest_progress.totalBytesComplete if latest_progress else False,
-                        completedFiles=completed_units,
-                        totalFiles=total_assets,
-                    )
-                    asset_progress = _update_bootstrap_asset_progress(
-                        asset_progress,
-                        "cuda_runtime",
-                        status="succeeded",
-                        progress=100,
-                        provider="local",
-                        currentFile=f"CUDA Runtime ({cuda_result.self_check.get('torch_version', 'ready')})",
-                        downloadedBytes=latest_progress.downloadedBytes,
-                        totalBytes=latest_progress.totalBytes,
-                        totalBytesComplete=True,
-                    )
-                    self._update_task(
-                        task_id,
-                        status="running",
-                        progress=min(int((completed_units / max(total_assets, 1)) * 100), 99),
-                        message="CUDA runtime is ready",
-                        download_progress=latest_progress,
-                        bootstrap_asset_progress=asset_progress,
-                    )
 
             for index, entry in enumerate(entries):
                 preferred_provider = provider_preference

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BootstrapState,
   GenerationParams,
@@ -10,14 +10,19 @@ import type {
   SidecarStatus,
   StorageInfo,
   TaskRecord,
+  WorkEntry,
+  WorkImportItem,
 } from "@voca/contracts";
 import { PreviewDock } from "./components/PreviewDock";
+import { getTaskPlayableAudioPath } from "./lib/taskUtils";
 import {
-  getTaskPlayableAudioPath,
-  loadPersistedTaskHistory,
-  normalizeTaskHistory,
-  savePersistedTaskHistory,
-} from "./lib/historyStorage";
+  evaluateInitializeGate,
+  SIM_PROFILES,
+  useBootstrapSimulation,
+  useGenerationSimulation,
+  type SimProfileKey,
+  type SimSpeedKey,
+} from "./lib/previewSimulation";
 import { BootstrapFlowPage } from "./pages/BootstrapFlowPage";
 import { PreviewGalleryPage } from "./pages/PreviewGalleryPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
@@ -37,9 +42,10 @@ import {
   getSetupDiagnostics,
   getSidecarStatus,
   getTask,
+  importWorks,
+  listWorks,
   prepareModel,
   startBootstrapDownload,
-  audioFileExists,
   cleanupLegacyAsrModel,
   getBootstrapSidecarStatus,
   type UpdateCheckResult,
@@ -207,106 +213,12 @@ function createPreviewTask(task: TaskRecord | null): TaskRecord {
   };
 }
 
-function createPreviewBootstrapDownloadTask(): TaskRecord {
-  const now = new Date().toISOString();
-
-  return {
-    id: "preview-bootstrap-task",
-    type: "bootstrap",
-    status: "running",
-    createdAt: now,
-    updatedAt: now,
-    title: "Prepare speech tools bundle",
-    progress: 68,
-    message: "Preparing SenseVoiceSmall",
-    downloadProgress: {
-      phase: "downloading",
-      provider: "modelscope",
-      currentFile: "SenseVoiceSmall",
-      downloadedBytes: 560 * 1024 * 1024,
-      totalBytes: 936 * 1024 * 1024,
-      totalBytesComplete: true,
-      completedFiles: 2,
-      totalFiles: 4,
-    },
-    bootstrapAssetProgress: [
-      {
-        modelKey: "cuda_runtime",
-        displayName: "CUDA Runtime",
-        status: "succeeded",
-        progress: 100,
-        provider: "local",
-        currentFile: "CUDA Runtime",
-        downloadedBytes: 2_500 * 1024 * 1024,
-        totalBytes: 2_500 * 1024 * 1024,
-        totalBytesComplete: true,
-      },
-      {
-        modelKey: "voxcpm2",
-        displayName: "VoxCPM2",
-        status: "succeeded",
-        progress: 100,
-        provider: "huggingface",
-        currentFile: "VoxCPM2",
-        downloadedBytes: 0,
-        totalBytes: null,
-        totalBytesComplete: true,
-      },
-      {
-        modelKey: "sensevoice_small",
-        displayName: "SenseVoiceSmall",
-        status: "running",
-        progress: 68,
-        provider: "modelscope",
-        currentFile: "SenseVoiceSmall",
-        downloadedBytes: 560 * 1024 * 1024,
-        totalBytes: 936 * 1024 * 1024,
-        totalBytesComplete: true,
-      },
-      {
-        modelKey: "zipenhancer_16k",
-        displayName: "ZipEnhancer 16k",
-        status: "pending",
-        progress: 0,
-        provider: null,
-        currentFile: null,
-        downloadedBytes: 0,
-        totalBytes: null,
-        totalBytesComplete: false,
-      },
-    ],
-    error: null,
-    result: {
-      modelKey: DEFAULT_BOOTSTRAP_MODEL_KEY,
-      modelPath: "~/Library/Application Support/Voca/models/voxcpm2_gguf",
-      provider: "huggingface",
-      completedAssets: ["voxcpm2"],
-    },
-  };
-}
-
-function createPreviewSetupDiagnostics(): SetupDiagnostics {
-  return {
-    platform: "windows",
-    cpuName: "Intel Core Ultra 9",
-    totalMemoryBytes: 32 * 1024 * 1024 * 1024,
-    availableStorageBytes: 42_000_000_000,
-    recommendedMemoryBytes: 12 * 1024 * 1024 * 1024,
-    minimumFreeStorageBytes: 6_000_000_000,
-    gpuVendor: "nvidia",
-    gpuName: "NVIDIA GeForce RTX 4070 Laptop GPU",
-    hasNvidiaGpu: true,
-    gpuMemoryBytes: 8 * 1024 * 1024 * 1024,
-    minimumGpuMemoryBytes: 6 * 1024 * 1024 * 1024,
-    activeTorchBackend: "cuda",
-    environmentReady: true,
-    environmentStatus: "ready",
-    environmentReason: null,
-  };
-}
+const SESSION_TASK_LIMIT = 50;
 
 function upsertTaskHistory(history: TaskRecord[], task: TaskRecord): TaskRecord[] {
-  return normalizeTaskHistory([task, ...history.filter((item) => item.id !== task.id)]);
+  return [task, ...history.filter((item) => item.id !== task.id)]
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+    .slice(0, SESSION_TASK_LIMIT);
 }
 
 function normalizePath(p: string) {
@@ -355,15 +267,12 @@ function App() {
   const [setupDiagnostics, setSetupDiagnostics] = useState<SetupDiagnostics | null>(null);
   const [runningTaskIds, setRunningTaskIds] = useState<Set<string>>(new Set());
   const [bootstrapDownloadTask, setBootstrapDownloadTask] = useState<TaskRecord | null>(null);
-  const [persistedTaskHistory] = useState<TaskRecord[]>(() => {
-    const loaded = loadPersistedTaskHistory();
-    return loaded.map((task) =>
-      ["queued", "running"].includes(task.status)
-        ? { ...task, status: "failed" as const, message: "Task interrupted by app restart" }
-        : task,
-    );
-  });
-  const [taskHistory, setTaskHistory] = useState<TaskRecord[]>(persistedTaskHistory);
+  // In-flight and failed generate tasks of this session only. Successful
+  // generations are persisted server-side as works (voca.db) and surface via
+  // ``works`` below — nothing is written to localStorage any more.
+  const [sessionTasks, setSessionTasks] = useState<TaskRecord[]>([]);
+  const [works, setWorks] = useState<WorkEntry[]>([]);
+  const [worksTotal, setWorksTotal] = useState(0);
   const [completionAcknowledged, setCompletionAcknowledged] = useState(false);
   const [finalizedBootstrapTaskId, setFinalizedBootstrapTaskId] = useState<string | null>(null);
   const [initializeRequested, setInitializeRequested] = useState(false);
@@ -375,6 +284,20 @@ function App() {
   const [previewMode, setPreviewMode] = useState<PreviewMode>(() =>
     typeof window === "undefined" ? "live" : getPreviewModeFromSearch(window.location.search),
   );
+
+  // Preview-mode simulation controls (dev tooling). The hooks are called
+  // unconditionally per the rules of hooks; `enabled` gates their timers.
+  const [simProfileKey, setSimProfileKey] = useState<SimProfileKey>("mac-silicon");
+  const [simSpeedKey, setSimSpeedKey] = useState<SimSpeedKey>("normal");
+  const [simPaused, setSimPaused] = useState(false);
+  const isPreviewActive = previewMode !== "live";
+  const bootstrapSim = useBootstrapSimulation({
+    enabled: isPreviewActive && (previewMode === "download" || previewMode === "all"),
+    profileKey: simProfileKey,
+    speedKey: simSpeedKey,
+    paused: simPaused,
+  });
+  const generationSim = useGenerationSimulation(isPreviewActive);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -434,6 +357,12 @@ function App() {
     const diagnostics = await getSetupDiagnostics();
     setSetupDiagnostics(diagnostics);
   };
+
+  const refreshWorks = useCallback(async () => {
+    const response = await listWorks({ limit: 50, offset: 0 });
+    setWorks(response.items);
+    setWorksTotal(response.total);
+  }, []);
 
   const refreshBootstrapState = async () => {
     const [bs, ss] = await Promise.all([
@@ -579,53 +508,74 @@ function App() {
     return () => window.clearInterval(timer);
   }, [bootstrapStartRequested, initializeRequested]);
 
+  // Initial works fetch + one-time localStorage history migration, both
+  // gated on a healthy sidecar. The migration imports the pre-SQLite
+  // localStorage task history (succeeded generations with audio) into the
+  // server-side works DB, then retires the old key. The flag is only set
+  // after the import resolves — failed imports retry on the next launch,
+  // which is safe because the server inserts are idempotent by task id.
+  const worksMigrationStarted = useRef(false);
   useEffect(() => {
-    savePersistedTaskHistory(taskHistory);
-  }, [taskHistory]);
+    if (!sidecarStatus.healthy || !shouldUseFullHealthChecks) {
+      return;
+    }
+    if (worksMigrationStarted.current) {
+      return;
+    }
+    worksMigrationStarted.current = true;
 
-  useEffect(() => {
-    let cancelled = false;
+    const MIGRATED_FLAG = "voca.taskHistory.migrated.v1";
+    const LEGACY_KEY = "voca.taskHistory.v1";
 
-    const validatePersistedTaskHistory = async () => {
-      const historyWithAudio = persistedTaskHistory
-        .map((task) => ({ id: task.id, path: getTaskPlayableAudioPath(task) }))
-        .filter((item): item is { id: string; path: string } => Boolean(item.path));
-
-      if (historyWithAudio.length === 0) {
-        return;
+    void (async () => {
+      try {
+        if (!window.localStorage.getItem(MIGRATED_FLAG)) {
+          const raw = window.localStorage.getItem(LEGACY_KEY);
+          const items: WorkImportItem[] = [];
+          if (raw) {
+            try {
+              const parsed: unknown = JSON.parse(raw);
+              if (Array.isArray(parsed)) {
+                for (const value of parsed) {
+                  if (typeof value !== "object" || value === null) continue;
+                  const task = value as Partial<TaskRecord>;
+                  if (task.status !== "succeeded" || typeof task.id !== "string") continue;
+                  const audioPath =
+                    task.result?.audioPath ?? task.result?.enhancedAudioPath ?? task.result?.rawAudioPath;
+                  if (!audioPath) continue;
+                  items.push({
+                    id: task.id,
+                    title: task.title ?? null,
+                    targetText: task.title ?? null,
+                    voiceName: task.voiceName ?? null,
+                    audioPath,
+                    rawAudioPath: task.result?.rawAudioPath ?? null,
+                    enhancedAudioPath: task.result?.enhancedAudioPath ?? null,
+                    sampleRate: task.result?.sampleRate ?? null,
+                    durationMs: task.result?.durationMs ?? null,
+                    createdAt: task.createdAt ?? null,
+                  });
+                }
+              }
+            } catch {
+              // Unparseable legacy payload — nothing to migrate.
+            }
+          }
+          if (items.length > 0) {
+            await importWorks(items);
+          }
+          window.localStorage.setItem(MIGRATED_FLAG, "1");
+          window.localStorage.removeItem(LEGACY_KEY);
+        }
+      } catch (error) {
+        // Import failed (e.g. sidecar restarted mid-call): leave the flag
+        // unset so the next launch retries, but still load the works list.
+        worksMigrationStarted.current = false;
+        console.error("Legacy task history migration failed", error);
       }
-
-      const checks = await Promise.all(
-        historyWithAudio.map(async (item) => ({
-          id: item.id,
-          exists: await audioFileExists(item.path),
-        })),
-      );
-
-      if (cancelled) {
-        return;
-      }
-
-      const missingTaskIds = checks.filter((item) => !item.exists).map((item) => item.id);
-      if (missingTaskIds.length === 0) {
-        return;
-      }
-
-      const missingIdSet = new Set(missingTaskIds);
-      setTaskHistory((history) => history.filter((task) => !missingIdSet.has(task.id)));
-      setRunningTaskIds((prev) => {
-        const next = new Set(prev);
-        for (const id of missingIdSet) next.delete(id);
-        return next;
-      });
-    };
-
-    void validatePersistedTaskHistory();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [persistedTaskHistory]);
+      await refreshWorks();
+    })();
+  }, [refreshWorks, shouldUseFullHealthChecks, sidecarStatus.healthy]);
 
   useEffect(() => {
     if (runningTaskIds.size === 0) {
@@ -637,13 +587,22 @@ function App() {
       for (const taskId of ids) {
         void getTask(taskId).then((task) => {
           if (task) {
-            setTaskHistory((history) => upsertTaskHistory(history, task));
+            setSessionTasks((history) => upsertTaskHistory(history, task));
             if (["succeeded", "failed", "cancelled"].includes(task.status)) {
               setRunningTaskIds((prev) => {
                 const next = new Set(prev);
                 next.delete(taskId);
                 return next;
               });
+              if (task.status === "succeeded" && task.type === "generate") {
+                // The sidecar persisted the work before flipping the task to
+                // succeeded, so this refetch is guaranteed to include it.
+                // Only drop the session task once the works list has the row,
+                // so the Studio mini history never flickers empty.
+                void refreshWorks().then(() => {
+                  setSessionTasks((history) => history.filter((item) => item.id !== taskId));
+                });
+              }
             }
           } else {
             setRunningTaskIds((prev) => {
@@ -651,7 +610,7 @@ function App() {
               next.delete(taskId);
               return next;
             });
-            setTaskHistory((history) =>
+            setSessionTasks((history) =>
               history.map((item) =>
                 item.id === taskId && !["succeeded", "failed", "cancelled"].includes(item.status)
                   ? { ...item, status: "failed" as const, message: "Task lost (service may have restarted)" }
@@ -664,7 +623,7 @@ function App() {
     }, 600);
 
     return () => window.clearInterval(timer);
-  }, [runningTaskIds]);
+  }, [refreshWorks, runningTaskIds]);
 
   useEffect(() => {
     if (!bootstrapDownloadTask || isTaskTerminal(bootstrapDownloadTask)) {
@@ -859,7 +818,7 @@ function App() {
 
   const handleSubmitTask = async (payload: GenerationParams) => {
     const task = await createGenerateTask(payload);
-    setTaskHistory((history) => upsertTaskHistory(history, task));
+    setSessionTasks((history) => upsertTaskHistory(history, task));
     if (!["succeeded", "failed", "cancelled"].includes(task.status)) {
       setRunningTaskIds((prev) => new Set(prev).add(task.id));
     }
@@ -872,7 +831,7 @@ function App() {
     clearedAudioDirs: string[],
   ) => {
     const removedIdSet = new Set(removedTaskIds);
-    setTaskHistory((history) =>
+    setSessionTasks((history) =>
       history.filter((task) => {
         if (removedIdSet.has(task.id)) return false;
         if (isTaskAudioUnderDirs(task, clearedAudioDirs)) return false;
@@ -885,6 +844,8 @@ function App() {
       for (const id of removedIdSet) next.delete(id);
       return next;
     });
+    // The sidecar already deleted the affected work rows; re-pull the list.
+    void refreshWorks();
 
     if (nextStorageInfo) {
       setStorageInfo(nextStorageInfo);
@@ -906,29 +867,42 @@ function App() {
 
   const previewOverlay = (
     <>
-      {import.meta.env.DEV && <PreviewDock mode={previewMode} onChange={setPreviewInUrl} />}
+      {import.meta.env.DEV && (
+        <PreviewDock
+          mode={previewMode}
+          onChange={setPreviewInUrl}
+          sim={{
+            profileKey: simProfileKey,
+            onProfileChange: setSimProfileKey,
+            speedKey: simSpeedKey,
+            onSpeedChange: setSimSpeedKey,
+            paused: simPaused,
+            onTogglePaused: () => setSimPaused((value) => !value),
+            onRestart: () => {
+              setSimPaused(false);
+              bootstrapSim.restart();
+              generationSim.clear();
+            },
+            onInjectFailure: () => {
+              if (previewMode === "workspace") {
+                generationSim.setFailureArmed(!generationSim.failureArmed);
+              } else {
+                bootstrapSim.failNext();
+              }
+            },
+            failureArmed: generationSim.failureArmed,
+          }}
+        />
+      )}
     </>
   );
 
   const previewRecommendation = providerRecommendation ?? fallbackProviderRecommendation;
   const previewTask = createPreviewTask(null);
-  const previewBootstrapDownloadTask = createPreviewBootstrapDownloadTask();
-  const previewSetupDiagnostics = createPreviewSetupDiagnostics();
-  const previewTaskHistory = taskHistory.length > 0 ? upsertTaskHistory(taskHistory, previewTask) : [previewTask];
-  const canContinueFromInitialize = Boolean(
-    setupDiagnostics &&
-      // The NVIDIA GPU + VRAM gate only applies on platforms whose bootstrap
-      // depends on CUDA (currently Windows). On macOS/Linux these fields are
-      // intentionally absent in the contract, so we must not require them here
-      // or we'd block users who don't actually need a discrete GPU.
-      (setupDiagnostics.platform === "windows"
-        ? Boolean(setupDiagnostics.hasNvidiaGpu) &&
-          (setupDiagnostics.gpuMemoryBytes ?? 0) >=
-            (setupDiagnostics.minimumGpuMemoryBytes ?? 0)
-        : true) &&
-      setupDiagnostics.environmentReady &&
-      (setupDiagnostics.availableStorageBytes ?? 0) >= setupDiagnostics.minimumFreeStorageBytes,
-  );
+  const previewSetupDiagnostics = SIM_PROFILES[simProfileKey].diagnostics;
+  const previewSessionTasks =
+    generationSim.sessionTasks.length > 0 ? generationSim.sessionTasks : [previewTask];
+  const canContinueFromInitialize = evaluateInitializeGate(setupDiagnostics);
   const renderPreviewScene = (scene: SinglePreviewScene) => {
     const previewBootstrapState = createPreviewBootstrapState(bootstrapState ?? fallbackBootstrapState, scene);
     const previewSidecarStatus = createPreviewSidecarStatus(sidecarStatus, scene);
@@ -949,9 +923,12 @@ function App() {
           downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
           serviceInfo={serviceInfo}
           storageInfo={storageInfo}
-          taskHistory={previewTaskHistory}
+          sessionTasks={previewSessionTasks}
+          works={[]}
+          worksTotal={0}
+          onRefreshWorks={async () => {}}
           onPrepareModel={handlePrepareModel}
-          onSubmitTask={handleSubmitTask}
+          onSubmitTask={generationSim.submitFake}
           onRefreshStorageInfo={refreshStorageInfo}
           onCacheCleared={handleCacheCleared}
         />
@@ -967,13 +944,18 @@ function App() {
         sidecarStatus={previewSidecarStatus}
         serviceInfo={serviceInfo}
         setupDiagnostics={scene === "initialize" ? previewSetupDiagnostics : setupDiagnostics}
-        downloadTask={scene === "download" ? previewBootstrapDownloadTask : null}
+        downloadTask={scene === "download" ? bootstrapSim.task : null}
         bootstrapModel={previewBootstrapModel}
         onStartSetup={() => setPreviewInUrl("initialize")}
         onProceedFromInitialize={() => setPreviewInUrl("download")}
-        canProceedFromInitialize={scene === "initialize" ? true : canContinueFromInitialize}
+        canProceedFromInitialize={
+          scene === "initialize" ? evaluateInitializeGate(previewSetupDiagnostics) : canContinueFromInitialize
+        }
         onEnterWorkspace={() => setPreviewInUrl("workspace")}
-        onRetryDownload={() => setPreviewInUrl("download")}
+        onRetryDownload={() => {
+          setSimPaused(false);
+          bootstrapSim.restart();
+        }}
       />
     );
   };
@@ -1248,7 +1230,10 @@ function App() {
         downloadedAuxiliaryModelCatalog={downloadedAuxiliaryModelCatalog}
         serviceInfo={serviceInfo}
         storageInfo={storageInfo}
-        taskHistory={taskHistory}
+        sessionTasks={sessionTasks}
+        works={works}
+        worksTotal={worksTotal}
+        onRefreshWorks={refreshWorks}
         onPrepareModel={handlePrepareModel}
         onSubmitTask={handleSubmitTask}
         onRefreshStorageInfo={refreshStorageInfo}

@@ -242,27 +242,42 @@ function buildWindowsDeviceCheck(
   setupDiagnostics: SetupDiagnostics,
   t: Translate,
 ): InitializeCheckItem {
+  // The Windows inference backend is llama.cpp + Vulkan: any GPU with a
+  // Vulkan-capable driver qualifies. Only an explicit `false` blocks — a
+  // missing field (older Rust shell) reads as "unknown", not "unsupported".
+  const vulkanMissing = setupDiagnostics.hasVulkanSupport === false;
   const minimumGpuMemoryBytes =
     setupDiagnostics.minimumGpuMemoryBytes ?? 6 * 1024 * 1024 * 1024;
   const gpuMemoryBytes = setupDiagnostics.gpuMemoryBytes ?? null;
-  const hasNvidiaGpu = Boolean(setupDiagnostics.hasNvidiaGpu);
-  const gpuInsufficient =
-    !hasNvidiaGpu || gpuMemoryBytes === null || gpuMemoryBytes < minimumGpuMemoryBytes;
+  // Only warn about low VRAM when the reading is trustworthy, i.e. it came
+  // from nvidia-smi (dedicated VRAM). WMI's AdapterRAM is a 32-bit field
+  // capped at 4 GB, and integrated GPUs (Intel/AMD iGPU) share system RAM —
+  // Windows only carves out a tiny "dedicated" block for them while Vulkan
+  // can address up to ~half of system memory. Warning off those numbers
+  // would false-alarm on every iGPU and most AMD cards; low system RAM is
+  // already covered by the separate memory check.
+  const hasReliableVramReading = setupDiagnostics.hasNvidiaGpu === true;
+  const lowVram =
+    hasReliableVramReading && gpuMemoryBytes !== null && gpuMemoryBytes < minimumGpuMemoryBytes;
 
-  const summary = !hasNvidiaGpu
-    ? t("bootstrap.init.gpuMissing")
+  const summary = vulkanMissing
+    ? t("bootstrap.init.vulkanMissing")
     : [
         setupDiagnostics.gpuName,
-        gpuMemoryBytes !== null ? formatBytes(gpuMemoryBytes) : t("bootstrap.init.detecting"),
+        // The VRAM number is only shown when it's dedicated VRAM from
+        // nvidia-smi; iGPU/WMI readings understate usable memory.
+        hasReliableVramReading && gpuMemoryBytes !== null ? formatBytes(gpuMemoryBytes) : null,
+        lowVram ? t("bootstrap.init.lowVramHint") : null,
       ]
         .filter(Boolean)
-        .join(" · ");
+        .join(" · ") || t("bootstrap.init.detecting");
 
   return {
     key: "device",
     title: t("bootstrap.init.deviceTitleGpu"),
     summary,
-    status: gpuInsufficient ? "blocked" : "done",
+    // Low VRAM is advisory (slower, not unsupported) — warning, never block.
+    status: vulkanMissing ? "blocked" : lowVram ? "warning" : "done",
   };
 }
 

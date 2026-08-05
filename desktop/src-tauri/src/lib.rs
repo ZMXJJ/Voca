@@ -20,6 +20,9 @@ use commands::models::{
 use commands::tasks::{create_asr_task, create_generate_task, get_task, list_tasks};
 use commands::updater::check_for_update;
 use commands::voices::{create_voice, delete_voice, get_voice, list_voices, update_voice};
+use commands::works::{
+    delete_work, get_work, import_works, list_work_facets, list_works, update_work,
+};
 use state::AppState;
 use tauri::Manager;
 
@@ -64,7 +67,13 @@ pub fn run() {
             get_voice,
             create_voice,
             update_voice,
-            delete_voice
+            delete_voice,
+            list_works,
+            list_work_facets,
+            get_work,
+            update_work,
+            delete_work,
+            import_works
         ])
         .build(tauri::generate_context!())
         .expect("error while building voca desktop");

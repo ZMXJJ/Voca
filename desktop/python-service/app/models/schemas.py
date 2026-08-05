@@ -173,6 +173,7 @@ class GenerationRequest(BaseModel):
     targetText: str
     modelKey: str = "voxcpm2"
     providerPreference: Literal["auto", "huggingface", "modelscope"] = "auto"
+    voiceId: str | None = None
     voiceName: str | None = None
     controlInstruction: str | None = None
     referenceAudioPath: str | None = None
@@ -228,6 +229,71 @@ class VoiceUpdateRequest(BaseModel):
 class AudioTranscriptionRequest(BaseModel):
     audioPath: str
     modelKey: str = "sensevoice_small"
+
+
+class WorkEntry(BaseModel):
+    id: str
+    title: str
+    targetText: str
+    # ``legacy_import`` marks rows imported from the pre-SQLite localStorage
+    # history, which only recorded a truncated title — generation params are
+    # unknown for those rows and the UI limits "reuse" to text + voice.
+    mode: str
+    modelKey: str | None = None
+    voiceId: str | None = None
+    voiceName: str | None = None
+    cfgValue: float | None = None
+    inferenceTimesteps: int | None = None
+    # Requested seed; None = random. The C++ backend seeds itself internally
+    # when no seed is supplied and does not report the value it used.
+    seed: int | None = None
+    normalize: bool | None = None
+    denoise: bool | None = None
+    extremeClone: bool | None = None
+    audioPath: str
+    rawAudioPath: str | None = None
+    enhancedAudioPath: str | None = None
+    sampleRate: int | None = None
+    durationMs: int | None = None
+    createdAt: str
+    updatedAt: str
+
+
+class WorksListResponse(BaseModel):
+    items: list[WorkEntry]
+    total: int
+
+
+class WorkUpdateRequest(BaseModel):
+    title: str
+
+
+class WorkVoiceFacet(BaseModel):
+    voiceId: str | None = None
+    voiceName: str | None = None
+    count: int
+
+
+class WorkImportItem(BaseModel):
+    id: str
+    title: str | None = None
+    targetText: str | None = None
+    voiceName: str | None = None
+    audioPath: str
+    rawAudioPath: str | None = None
+    enhancedAudioPath: str | None = None
+    sampleRate: int | None = None
+    durationMs: int | None = None
+    createdAt: str | None = None
+
+
+class WorksImportRequest(BaseModel):
+    items: list[WorkImportItem]
+
+
+class WorksImportResponse(BaseModel):
+    imported: int
+    skipped: int
 
 
 class DownloadProgress(BaseModel):

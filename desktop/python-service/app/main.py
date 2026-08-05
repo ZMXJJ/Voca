@@ -30,9 +30,15 @@ from app.models.schemas import (
     VoiceCreateRequest,
     VoiceEntry,
     VoiceUpdateRequest,
+    WorkEntry,
+    WorksImportRequest,
+    WorksImportResponse,
+    WorksListResponse,
+    WorkUpdateRequest,
+    WorkVoiceFacet,
 )
 from app.services.task_manager import CudaUpgradeUnsupported, TaskManager
-from app.services import process_guard, voice_library
+from app.services import process_guard, voice_library, works_library
 from app.services.bootstrap_assets import (
     bootstrap_asset_statuses,
     bootstrap_entries,
@@ -702,6 +708,7 @@ def get_task(task_id: str) -> TaskRecord:
 def clear_cache() -> dict[str, object]:
     output_dirs = legacy_audio_output_dirs()
     removed_task_ids = task_manager.clear_cached_audio_tasks(output_dirs)
+    removed_work_ids = works_library.delete_works_under_dirs(output_dirs)
     cleared_files = 0
     cleared_bytes = 0
     for output_dir in output_dirs:
@@ -719,10 +726,69 @@ def clear_cache() -> dict[str, object]:
         "remainingBytes": sum(_directory_size_bytes(output_dir) for output_dir in output_dirs),
         "removedTasks": len(removed_task_ids),
         "removedTaskIds": removed_task_ids,
+        "removedWorkIds": removed_work_ids,
         "clearedAudioDirs": [str(path) for path in output_dirs],
         "storageInfo": storage_info_payload.model_dump(mode="json"),
     }
 
+
+@app.get("/api/v1/works", response_model=WorksListResponse)
+def list_works(
+    limit: int = 50,
+    offset: int = 0,
+    search: str | None = None,
+    voiceId: str | None = None,
+    voiceName: str | None = None,
+) -> WorksListResponse:
+    items, total = works_library.list_works(
+        limit=limit,
+        offset=offset,
+        search=search,
+        voice_id=voiceId,
+        voice_name=voiceName,
+    )
+    return WorksListResponse(items=items, total=total)
+
+
+@app.get("/api/v1/works/facets", response_model=list[WorkVoiceFacet])
+def list_work_facets() -> list[WorkVoiceFacet]:
+    return works_library.list_voice_facets()
+
+
+@app.post("/api/v1/works/import", response_model=WorksImportResponse)
+def import_works(payload: WorksImportRequest) -> WorksImportResponse:
+    imported, skipped = works_library.import_works(payload.items)
+    return WorksImportResponse(imported=imported, skipped=skipped)
+
+
+@app.get("/api/v1/works/{work_id}", response_model=WorkEntry)
+def get_work(work_id: str) -> WorkEntry:
+    work = works_library.get_work(work_id)
+    if work is None:
+        raise HTTPException(status_code=404, detail="work not found")
+    return work
+
+
+@app.patch("/api/v1/works/{work_id}", response_model=WorkEntry)
+def update_work(work_id: str, payload: WorkUpdateRequest) -> WorkEntry:
+    try:
+        work = works_library.rename_work(work_id, payload.title)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if work is None:
+        raise HTTPException(status_code=404, detail="work not found")
+    return work
+
+
+@app.delete("/api/v1/works/{work_id}", status_code=204)
+def delete_work(work_id: str) -> None:
+    deleted = works_library.delete_work(work_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="work not found")
+    # Deleting a work removes its audio files; drop the cached directory
+    # sizes so the storage modal reflects the change.
+    _invalidate_directory_size_cache()
 
 
 @app.get("/api/v1/voices", response_model=list[VoiceEntry])

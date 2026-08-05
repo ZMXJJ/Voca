@@ -696,6 +696,86 @@ pub fn detect_nvidia_gpu_memory_bytes() -> Option<u64> {
 
     None
 }
+
+/// Detect whether this host can run Vulkan inference. Only meaningful on
+/// Windows (the shipped inference backend there is llama.cpp + Vulkan);
+/// returns `None` on other platforms so callers can skip the check.
+///
+/// The Vulkan ICD loader (`vulkan-1.dll`) is installed into System32 by every
+/// vendor's GPU driver (NVIDIA/AMD/Intel). Its presence is the practical
+/// signal that a Vulkan-capable driver stack exists — machines without any
+/// GPU driver (or with ancient drivers) won't have it.
+pub fn detect_vulkan_support() -> Option<bool> {
+    #[cfg(target_os = "windows")]
+    {
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
+        let loader = std::path::Path::new(&system_root)
+            .join("System32")
+            .join("vulkan-1.dll");
+        return Some(loader.exists());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+/// Detect the primary display adapter regardless of vendor. Prefers
+/// nvidia-smi when present (more accurate), then falls back to WMI on
+/// Windows, filtering out virtual/software adapters.
+pub fn detect_any_gpu() -> Option<String> {
+    if let Some(name) = detect_nvidia_gpu() {
+        return Some(name);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(name) = read_command_output(
+            "powershell",
+            &[
+                "-NoProfile",
+                "-Command",
+                "(Get-CimInstance Win32_VideoController | Where-Object { $_.Name -notmatch 'Microsoft|Virtual|Remote' } | Select-Object -First 1).Name",
+            ],
+        ) {
+            let trimmed = name.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Best-effort VRAM detection for the primary adapter, any vendor.
+/// Note: WMI `AdapterRAM` is a 32-bit field and caps at 4 GB on many
+/// systems — treat the value as informational, never as a hard gate.
+pub fn detect_any_gpu_memory_bytes() -> Option<u64> {
+    if let Some(bytes) = detect_nvidia_gpu_memory_bytes() {
+        return Some(bytes);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(output) = read_command_output(
+            "powershell",
+            &[
+                "-NoProfile",
+                "-Command",
+                "(Get-CimInstance Win32_VideoController | Where-Object { $_.Name -notmatch 'Microsoft|Virtual|Remote' } | Select-Object -First 1).AdapterRAM",
+            ],
+        ) {
+            if let Ok(bytes) = output.trim().parse::<u64>() {
+                return Some(bytes);
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(all(test, not(target_os = "windows")))]
 mod terminate_tests {
     use super::*;
