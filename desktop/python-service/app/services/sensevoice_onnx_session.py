@@ -61,27 +61,16 @@ _TAG_PATTERN = re.compile(r"<\|([^|]+)\|>")
 _LANG_TAG_RE = re.compile(r"<\|(zh|en|yue|ja|ko|nospeech|auto)\|>")
 
 
-def _cuda_required_for_local_inference() -> bool:
-    raw = os.environ.get("VOCA_REQUIRE_CUDA", "").strip().lower()
-    if raw in {"1", "true", "yes", "on"}:
-        return True
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    return os.name == "nt"
+def _default_onnx_providers() -> list[str]:
+    """ASR runs on CPU on every platform.
 
+    The shipped TTS backend is llama.cpp (Metal / Vulkan) and nothing in the
+    runtime requires CUDA any more, so ASR no longer hard-requires an NVIDIA
+    GPU on Windows. Override with ``VOCA_ASR_ONNX_PROVIDERS`` to experiment
+    with an accelerated execution provider.
+    """
 
-def _default_onnx_providers(ort: Any) -> list[str]:
-    if not _cuda_required_for_local_inference():
-        return ["CPUExecutionProvider"]
-
-    available = set(ort.get_available_providers())
-    if "CUDAExecutionProvider" not in available:
-        raise RuntimeError(
-            "The bundled Windows runtime now requires CUDA for ASR inference, "
-            "but onnxruntime-gpu did not expose CUDAExecutionProvider. "
-            "Please check the NVIDIA driver and bundled CUDA dependencies."
-        )
-    return ["CUDAExecutionProvider"]
+    return ["CPUExecutionProvider"]
 
 
 # ---------------------------------------------------------------------------
@@ -346,12 +335,10 @@ class SenseVoiceOnnxSession:
                 raise RuntimeError(f"Missing tokens.json under {self._model_dir}")
 
             providers_env = os.environ.get("VOCA_ASR_ONNX_PROVIDERS", "").strip()
-            if _cuda_required_for_local_inference():
-                providers = _default_onnx_providers(ort)
-            elif providers_env:
+            if providers_env:
                 providers = [p.strip() for p in providers_env.split(",") if p.strip()]
             else:
-                providers = _default_onnx_providers(ort)
+                providers = _default_onnx_providers()
 
             sess_options = ort.SessionOptions()
             sess_options.log_severity_level = 3

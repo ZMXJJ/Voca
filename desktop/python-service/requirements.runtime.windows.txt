@@ -1,5 +1,9 @@
 # Windows-only runtime extras. Layered on top of requirements.runtime.txt.
-# TTS runs on the bundled C++ llama-tts-server (CUDA or Vulkan build, selected
-# per device); denoise runs on sherpa-onnx (shared with macOS, in the base
-# requirements). onnxruntime-gpu accelerates ASR on NVIDIA GPUs.
+# TTS runs on the bundled C++ TTS server (Vulkan build); denoise runs on
+# sherpa-onnx (shared with macOS, in the base requirements).
+#
+# ASR now pins CPUExecutionProvider on every platform (nothing in the shipped
+# runtime requires CUDA), so the GPU execution providers in this wheel are
+# never exercised — plain `onnxruntime` would do, and would ship smaller.
+# Left as-is pending a Windows build to verify the swap.
 onnxruntime-gpu==1.24.4
