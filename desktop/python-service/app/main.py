@@ -56,10 +56,8 @@ from app.services.storage_paths import (
 )
 from app.services.torch_runtime import import_torch_clean, purge_torch_modules
 
-SERVICE_LOG_LEVEL = os.environ.get("VOCA_LOG_LEVEL", "INFO").strip().lower() or "info"
 
-
-def _configure_logging() -> None:
+def _configure_logging() -> str:
     """Make application logs visible in the supervised sidecar log file.
 
     The Tauri supervisor starts uvicorn with ``--log-level warning`` and
@@ -73,17 +71,19 @@ def _configure_logging() -> None:
     """
 
     level_name = os.environ.get("VOCA_LOG_LEVEL", "INFO").strip().upper() or "INFO"
-    level = getattr(logging, level_name, logging.INFO)
+    level = logging.getLevelNamesMapping().get(level_name, logging.INFO)
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S%z",
         stream=sys.stderr,
     )
-    logging.getLogger("app").setLevel(level)
+    app_logger = logging.getLogger("app")
+    app_logger.setLevel(level)
+    return logging.getLevelName(app_logger.getEffectiveLevel()).lower()
 
 
-_configure_logging()
+SERVICE_LOG_LEVEL = _configure_logging()
 
 
 @asynccontextmanager
