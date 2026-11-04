@@ -4,7 +4,8 @@
 findings.md
 progress.md
 task_plan.md
-docs/dev
+docs/dev/*
+!docs/dev/development-setup.md
 temp/
 
 # Desktop app build artifacts
@@ -25,3 +26,6 @@ desktop/.cache/
 
 # Local signing / notarization secrets
 desktop/.env.apple-notarize.local
+
+# Test tooling
+.pytest_cache/

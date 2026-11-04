@@ -30,7 +30,7 @@ Voca 的推理後端是一個 FastAPI sidecar 服務，由桌面端自動啟動�
 
 ## OpenAPI 規範
 
-完整的 OpenAPI 3.1 規範檔案：[`openapi.json`](openapi.json)
+完整的 OpenAPI 3.1 規範檔案：[`openapi.json`](../../api/openapi.json)
 
 可匯入到 Swagger Editor、Postman、Insomnia 等工具中使用。開發模式下也可直接訪問 `http://localhost:8765/docs` 檢視 FastAPI 自動生成的 Swagger UI。
 

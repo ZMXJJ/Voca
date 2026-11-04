@@ -196,6 +196,9 @@ Ways to get involved:
 
 This project is licensed under the [Apache License 2.0](LICENSE).
 
+Third-party components and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+
 ---
 
 <p align="center">
