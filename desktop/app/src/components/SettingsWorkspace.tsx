@@ -27,13 +27,7 @@ import { IconCheck, IconChevronDown, IconDownload, IconHeart } from "./Icons";
 import { UpdateAvailableModal } from "./UpdateAvailableModal";
 import { CustomSelect } from "./CustomSelect";
 import { StorageModal } from "./StorageModal";
-
-const DEFAULT_AUDIO_DOWNLOAD_PATH = "~/Downloads/Voca";
-const AUDIO_DOWNLOAD_PATH_KEY = "voca.audioDownloadPath";
-
-export function getAudioDownloadPath(): string {
-  return localStorage.getItem(AUDIO_DOWNLOAD_PATH_KEY) || DEFAULT_AUDIO_DOWNLOAD_PATH;
-}
+import { getAudioDownloadPath, saveAudioDownloadPath } from "../lib/settingsStorage";
 
 function abbreviateHomePath(fullPath: string): string {
   const home = "/Users/";
@@ -403,7 +397,7 @@ export function SettingsWorkspace({
   const handlePickAudioDownloadPath = useCallback(async () => {
     const selected = await pickDirectory(audioDownloadPath);
     if (selected) {
-      localStorage.setItem(AUDIO_DOWNLOAD_PATH_KEY, selected);
+      saveAudioDownloadPath(selected);
       setAudioDownloadPath(selected);
     }
   }, [audioDownloadPath]);

@@ -11,7 +11,7 @@ import type {
 import { useTranslation } from "react-i18next";
 import { getTaskPlayableAudioPath } from "../lib/historyStorage";
 import { AudioPlayer } from "./AudioPlayer";
-import { getAudioDownloadPath } from "./SettingsWorkspace";
+import { getAudioDownloadPath } from "../lib/settingsStorage";
 import { CustomSelect } from "./CustomSelect";
 import { IconModel, IconMicrophone, IconSparkle, IconSliders, IconPlay } from "./Icons";
 import { VoiceLibrary } from "./VoiceLibrary";
