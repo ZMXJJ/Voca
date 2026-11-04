@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import subprocess
+import sys
 import threading
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -53,9 +56,51 @@ from app.services.storage_paths import (
 )
 from app.services.torch_runtime import import_torch_clean, purge_torch_modules
 
-app = FastAPI(title="Voca Python Service", version="0.5.0")
+
+def _configure_logging() -> str:
+    """Make application logs visible in the supervised sidecar log file.
+
+    The Tauri supervisor starts uvicorn with ``--log-level warning`` and
+    redirects stdout/stderr to ``Application Support/Voca/logs/service.log``.
+    That only configures the ``uvicorn.*`` loggers, so records emitted by
+    ``app.*`` used to fall through to logging's ``lastResort`` handler and be
+    dropped below WARNING — which hid the exact diagnostics (chosen mirror,
+    manifest verification, ASR load) needed to debug downloads.
+    ``VOCA_LOG_LEVEL`` raises/lowers the application level without touching the
+    uvicorn level chosen by the supervisor.
+    """
+
+    level_name = os.environ.get("VOCA_LOG_LEVEL", "INFO").strip().upper() or "INFO"
+    level = logging.getLevelNamesMapping().get(level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z",
+        stream=sys.stderr,
+    )
+    app_logger = logging.getLogger("app")
+    app_logger.setLevel(level)
+    return logging.getLevelName(app_logger.getEffectiveLevel()).lower()
+
+
+SERVICE_LOG_LEVEL = _configure_logging()
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # FastAPI 0.116+ deprecated ``@app.on_event("startup")`` in favour of the
+    # lifespan protocol. The housekeeping below is identical; the only change
+    # is that the 30 s delayed device probe now runs on a daemon timer so a
+    # pending probe can never delay process exit by half a minute.
+    _on_startup_cleanup()
+    try:
+        yield
+    finally:
+        logging.getLogger("app.main").info("voca python service shutting down")
+
+
+app = FastAPI(title="Voca Python Service", version="0.5.0", lifespan=_lifespan)
 task_manager = TaskManager()
-SERVICE_LOG_LEVEL = "warning"
 SERVICE_INSTANCE_ID = str(uuid.uuid4())
 SERVICE_STARTED_AT = datetime.now(UTC).isoformat()
 
@@ -456,8 +501,8 @@ def _delayed_device_probe() -> None:
         return
 
 
-@app.on_event("startup")
 def _on_startup_cleanup() -> None:
+    """Best-effort startup housekeeping, invoked from the FastAPI lifespan."""
     try:
         cleanup_orphans()
     except Exception:  # pragma: no cover - best-effort housekeeping
@@ -467,7 +512,9 @@ def _on_startup_cleanup() -> None:
     except Exception:  # pragma: no cover - download pings must never break boot
         pass
     try:
-        threading.Timer(30.0, _delayed_device_probe).start()
+        probe_timer = threading.Timer(30.0, _delayed_device_probe)
+        probe_timer.daemon = True
+        probe_timer.start()
     except Exception:  # pragma: no cover - probe is purely informational
         pass
 
