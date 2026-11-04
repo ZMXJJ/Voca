@@ -123,7 +123,10 @@ export function AudioPlayer({
       audio.pause();
       setPlaying(false);
     } else {
-      void audio.play().then(() => setPlaying(true));
+      void audio.play().then(
+        () => setPlaying(true),
+        () => setPlaying(false),
+      );
     }
   }, [playing, audioSrc]);
 
