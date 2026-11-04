@@ -1,0 +1,67 @@
+name: CI
+
+# Pull-request gate for the parts that do not need a GPU, model weights, or a
+# signed build:
+#   * python-service: pytest (manifest integrity, provider routing, path resolution)
+#   * frontend: eslint + TypeScript project build
+# The macOS/Windows packaging path remains in windows-build.yml for now; a macOS
+# unsigned build job is tracked as a follow-up issue.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-service:
+    name: Python sidecar tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest pydantic
+
+      - name: Compile-check the service
+        working-directory: desktop/python-service
+        run: python -m compileall -q app
+
+      - name: Run tests
+        working-directory: desktop/python-service
+        run: python -m pytest -q
+
+  frontend:
+    name: Frontend lint and typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop/app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: desktop/app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc -b
