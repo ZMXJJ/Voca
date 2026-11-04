@@ -20,8 +20,8 @@ Tauri 在启动时会**自动拉起 Python sidecar**（`desktop/src-tauri/src/si
 
 | 平台 | 需要 |
 |---|---|
-| macOS 14+ (Apple Silicon) | Xcode Command Line Tools、Node.js ≥ 20、Rust stable、Python 3.11 或 3.12 |
-| Windows 10 22H2+ / 11 (x86_64) | Visual Studio Build Tools（C++ 桌面开发）、Node.js ≥ 20、Rust stable、Python 3.11 或 3.12、NVIDIA 驱动 |
+| macOS 14+ (Apple Silicon) | Xcode Command Line Tools、Node.js 20.19+ 或 22.12+、Rust stable、Python 3.11 或 3.12 |
+| Windows 10 22H2+ / 11 (x86_64) | Visual Studio Build Tools（C++ 桌面开发）、Node.js 20.19+ 或 22.12+、Rust stable、Python 3.11 或 3.12、NVIDIA 驱动 |
 
 > 推理引擎 VoxCPM 是 git submodule，建议带 `--recurse-submodules` 克隆。
 > 运行模型推理前，需要确保 `VoxCPM/src` 中的源码已完整拉取。
@@ -42,6 +42,7 @@ git submodule update --init --recursive   # 已经 clone 过、但忘了 submodu
 # 从仓库根目录 Voca/ 开始：Python sidecar
 cd desktop/python-service
 python3.12 -m venv .venv
+# Windows 创建环境可用： py -3.12 -m venv .venv
 .venv/bin/pip install -r requirements.runtime.txt -r requirements.runtime.macos.txt
 # Windows 用： .venv\Scripts\pip install -r requirements.runtime.txt -r requirements.runtime.windows.txt
 
