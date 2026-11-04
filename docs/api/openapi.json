@@ -45,6 +45,25 @@
         }
       }
     },
+    "/api/v1/storage-info": {
+      "get": {
+        "summary": "Storage Info",
+        "description": "Lazy on-disk usage snapshot for every managed directory.\n\nKept separate from `/api/v1/health` because the recursive walk can take seconds on Windows/NTFS/Defender; the desktop UI only calls this when the storage details modal is opened.",
+        "operationId": "storage_info_api_v1_storage_info_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageInfoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/bootstrap/verify": {
       "post": {
         "summary": "Verify Bootstrap Assets",
@@ -2350,6 +2369,145 @@
         },
         "type": "object",
         "title": "VoiceUpdateRequest"
+      },
+      "StorageInfoResponse": {
+        "properties": {
+          "audioOutputDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audiooutputdir"
+          },
+          "cacheBytes": {
+            "type": "integer",
+            "default": 0,
+            "title": "Cachebytes"
+          },
+          "logDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logdir"
+          },
+          "logBytes": {
+            "type": "integer",
+            "default": 0,
+            "title": "Logbytes"
+          },
+          "storageDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storagedir"
+          },
+          "modelDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modeldir"
+          },
+          "modelBytes": {
+            "type": "integer",
+            "default": 0,
+            "title": "Modelbytes"
+          },
+          "voicesDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voicesdir"
+          },
+          "voiceLibraryBytes": {
+            "type": "integer",
+            "default": 0,
+            "title": "Voicelibrarybytes"
+          },
+          "huggingfaceCacheDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Huggingfacecachedir"
+          },
+          "huggingfaceCacheBytes": {
+            "type": "integer",
+            "default": 0,
+            "title": "Huggingfacecachebytes"
+          },
+          "modelscopeCacheDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modelscopecachedir"
+          },
+          "modelscopeCacheBytes": {
+            "type": "integer",
+            "default": 0,
+            "title": "Modelscopecachebytes"
+          },
+          "torchCacheDir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Torchcachedir"
+          },
+          "torchCacheBytes": {
+            "type": "integer",
+            "default": 0,
+            "title": "Torchcachebytes"
+          },
+          "downloadCacheBytes": {
+            "type": "integer",
+            "default": 0,
+            "title": "Downloadcachebytes"
+          },
+          "managedStorageBytes": {
+            "type": "integer",
+            "default": 0,
+            "title": "Managedstoragebytes"
+          }
+        },
+        "type": "object",
+        "title": "StorageInfoResponse"
       }
     }
   }
