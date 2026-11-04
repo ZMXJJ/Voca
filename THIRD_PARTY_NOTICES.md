@@ -64,4 +64,4 @@ GPL-3.0 要求分发者向接收者提供**对应源码**（或书面源码获�
 ## 5. 其他随包文本
 
 - 本文件应被复制进 macOS `.app/Contents/Resources/`（或与 DMG 同级）以及 Windows 安装目录。
-- 打包脚本尚未实现该复制步骤，见 issue “打包时随包分发 THIRD-PARTY-NOTICES”。
+- 打包脚本尚未实现该复制步骤，跟进项见 [issue #10](https://github.com/ZMXJJ/Voca/issues/10)。

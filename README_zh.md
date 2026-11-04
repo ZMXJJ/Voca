@@ -194,10 +194,9 @@ Voca 内置了完整的初始化引导流程：
 
 ## 许可证
 
+本项目基于 [Apache License 2.0](LICENSE) 开源。
 
 第三方组件与许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-本项目基于 [Apache License 2.0](LICENSE) 开源。
 
 ---
 

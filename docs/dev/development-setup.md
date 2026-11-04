@@ -23,10 +23,11 @@ Tauri 在启动时会**自动拉起 Python sidecar**（`desktop/src-tauri/src/si
 | macOS 14+ (Apple Silicon) | Xcode Command Line Tools、Node.js ≥ 20、Rust stable、Python 3.11 或 3.12 |
 | Windows 10 22H2+ / 11 (x86_64) | Visual Studio Build Tools（C++ 桌面开发）、Node.js ≥ 20、Rust stable、Python 3.11 或 3.12、NVIDIA 驱动 |
 
-> 推理引擎 VoxCPM 是 git submodule，**必须**带 `--recurse-submodules` 克隆，否则
-> `VoxCPM/src` 不存在，sidecar 会在 import 阶段失败。
+> 推理引擎 VoxCPM 是 git submodule，建议带 `--recurse-submodules` 克隆。
+> 运行模型推理前，需要确保 `VoxCPM/src` 中的源码已完整拉取。
 
 ```bash
+# 在准备存放仓库的父目录中执行
 git clone --recurse-submodules https://github.com/ZMXJJ/Voca.git
 cd Voca
 git submodule update --init --recursive   # 已经 clone 过、但忘了 submodule 时补这一步
@@ -34,15 +35,18 @@ git submodule update --init --recursive   # 已经 clone 过、但忘了 submodu
 
 ## 2. 安装依赖
 
+下文每个独立命令块都从仓库根目录 `Voca/` 开始；同一命令块内按顺序执行。
+如果上一块已经切换目录，请先回到仓库根目录。
+
 ```bash
-# Python sidecar
+# 从仓库根目录 Voca/ 开始：Python sidecar
 cd desktop/python-service
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.runtime.txt -r requirements.runtime.macos.txt
 # Windows 用： .venv\Scripts\pip install -r requirements.runtime.txt -r requirements.runtime.windows.txt
 
 # 前端 + Tauri CLI
-cd ../..          # 回到仓库根目录的 desktop/
+cd ..             # 从 desktop/python-service/ 回到 desktop/
 npm install
 npm --prefix app install
 ```
@@ -62,6 +66,7 @@ npm --prefix app install
 ## 3. 跑起来
 
 ```bash
+# 从仓库根目录 Voca/ 开始
 cd desktop
 npm run tauri dev
 ```
@@ -71,12 +76,15 @@ npm run tauri dev
   `python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --log-level warning`
   （见 `desktop/src-tauri/src/sidecar.rs`）。
 - sidecar 的日志写到 `~/Library/Application Support/Voca/logs/service.log`
-  （Windows 为 `%APPDATA%\Voca\logs\service.log`）。需要更详细的应用日志时，
-  启动前 `export VOCA_LOG_LEVEL=INFO`（sidecar 会把它用于 `app.*` logger）。
+  （Windows 为 `%APPDATA%\Voca\logs\service.log`）。
+- `VOCA_LOG_LEVEL` 的支持由 [PR #12](https://github.com/ZMXJJ/Voca/pull/12) 单独提供，
+  合入前此变量不会生效。合入该修复后，应用日志默认是 `INFO`；需要更详细的日志时，
+  在启动前设置 `VOCA_LOG_LEVEL=DEBUG`（macOS/Linux 可用 `export VOCA_LOG_LEVEL=DEBUG`）。
 
 ### 只调后端（不起桌面端）
 
 ```bash
+# 从仓库根目录 Voca/ 开始
 cd desktop/python-service
 .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --log-level info
 # 打开 http://127.0.0.1:8765/docs
@@ -87,6 +95,7 @@ cd desktop/python-service
 ### 只调前端
 
 ```bash
+# 从仓库根目录 Voca/ 开始
 cd desktop/app
 npm run dev        # http://127.0.0.1:1420
 ```
@@ -100,27 +109,34 @@ npm run dev        # http://127.0.0.1:1420
 |---|---|
 | `VOCA_APP_SUPPORT_DIR` | 覆盖应用数据目录（测试/多配置隔离用） |
 | `VOCA_MODEL_DIR` | 覆盖模型目录 |
-| `VOCA_LOG_LEVEL` | sidecar 应用日志级别，默认 `INFO` |
+| `VOCA_LOG_LEVEL` | 需先合入 [PR #12](https://github.com/ZMXJJ/Voca/pull/12)；应用日志默认 `INFO`，更详细时设为 `DEBUG` |
 | `VOCA_DISABLE_DOWNLOAD_PING=1` | 关闭启动时的模型下载计数 ping |
 | `HF_HOME` / `HF_HUB_CACHE` / `MODELSCOPE_CACHE` / `TORCH_HOME` | 覆盖各下载缓存目录 |
 | `VOCA_DEV_BUNDLE_ROOT` | 指定一个已准备好的 bundle 资源目录，跳过源码模式 |
 
 ## 5. 测试与静态检查
 
-```bash
-# Python（当前覆盖 manifest/校验/promote、路径解析、下载源推荐）
-cd desktop/python-service
-.venv/bin/python -m pytest
+Python 测试不在运行时依赖中，需要先安装 `pytest`：
 
-# 前端
+```bash
+# 从仓库根目录 Voca/ 开始（覆盖 manifest/校验/promote、路径解析、下载源推荐）
+cd desktop/python-service
+.venv/bin/python -m pip install pytest
+.venv/bin/python -m pytest
+# Windows 将 .venv/bin/python 换成 .venv\Scripts\python.exe
+```
+
+```bash
+# 另从仓库根目录 Voca/ 开始：前端
 cd desktop/app
 npm run lint
-npm run typecheck      # 注意：当前 tsconfig 未开启 strict，见 issue
+npx tsc -b            # 与 CI 一致；当前 tsconfig 未开启 strict
 ```
 
 ## 6. 打包
 
 ```bash
+# 从仓库根目录 Voca/ 开始，按目标平台选择命令
 cd desktop
 npm run build:dmg      # macOS：先 prepare:dmg 再 tauri build --bundles dmg
 npm run build:nsis     # Windows：NSIS 安装包
@@ -134,8 +150,11 @@ npm run build:nsis     # Windows：NSIS 安装包
 
 ## 7. 提交前检查清单
 
-- [ ] `cd desktop/python-service && .venv/bin/python -m pytest`
-- [ ] `cd desktop/app && npm run lint && npm run typecheck`
+以下命令分别从仓库根目录执行；括号会在检查后保留原工作目录。
+
+- [ ] 已按第 5 节在 sidecar 的 `.venv` 中安装 `pytest`
+- [ ] `(cd desktop/python-service && .venv/bin/python -m pytest)`
+- [ ] `(cd desktop/app && npm run lint && npx tsc -b)`
 - [ ] 改到 sidecar 协议时，同步 `desktop/packages/contracts/src/index.ts` 与 `docs/api/`
 - [ ] 改到模型/资源行为时，同步 `docs/architecture.md` 与 `docs/api/models.md`
 - [ ] 不要提交 `desktop/.bundle-resources*`、`node_modules`、`.venv`、`target/`

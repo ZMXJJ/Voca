@@ -19,7 +19,7 @@ graph TB
         end
 
         subgraph Python["Python Sidecar (FastAPI + Uvicorn)"]
-            Routes["main.py<br/>24 API Operations"]
+            Routes["main.py<br/>23 API Operations"]
             TaskMgr["TaskManager<br/>任务编排"]
             VoxCPM["VoxCPM<br/>TTS Engine"]
             ASR["SenseVoice Small<br/>ONNX Runtime (CPU)"]
